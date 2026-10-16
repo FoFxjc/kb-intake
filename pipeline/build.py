@@ -1,7 +1,8 @@
 """入库：由原件与树产物生成 JSONL 标准记录（knowledge-model.md §3.1、§3.3–3.4）。
 
 输出 data/jsonl/{document,node,page,table_block}/{doc_id}.jsonl。主树为 toc_flash，PageIndex Flash 树作对照。
-summary = 标题 + 起始页中标题之后的正文前 300 字（不调用 LLM）；section_type 在词表确认前为空。
+summary = 标题 + 起始页中标题之后的正文前 300 字（不调用 LLM）；section_type 按 ref/doc_type_vocab.yaml 在主树上赋值，
+每个节点记录命中的规则 id（section_rule）；completeness.sections 声明须与检测结果一致。
 
 用法：uv run python -m pipeline.build [doc_id ...]   （默认 ref/documents.yaml 中的全部文档）
 """
@@ -15,6 +16,7 @@ from pathlib import Path
 import pymupdf
 import yaml
 
+from pipeline import sections
 from pipeline.tokenize import to_field
 from pipeline.tree import PIPELINE_VERSION, PROFILE, PROFILE_VERSION, flatten, page_labels
 
@@ -88,43 +90,76 @@ def tables_of(page: pymupdf.Page, doc_id: str, page_no: int, covering: list[str]
     return rows
 
 
+def artifact_id(decl: dict) -> str:
+    """树等中间产物的文件名：P0 下载的文档沿用 manifest 编号，经管理接口登记的文档用 doc_id。"""
+    return decl.get("manifest_id") or decl["doc_id"]
+
+
+def raw_path(decl: dict, manifest: dict) -> str:
+    return decl.get("path") or manifest[decl["manifest_id"]]["local_path"]
+
+
 def build(decl: dict, issuers: dict, evals: list[dict], manifest: dict) -> dict[str, list[dict]]:
-    doc_id, rec = decl["doc_id"], manifest[decl["manifest_id"]]
-    pdf_path = ROOT / rec["local_path"]
+    doc_id, rel_path = decl["doc_id"], raw_path(decl, manifest)
+    pdf_path = ROOT / rel_path
     pdf = pymupdf.open(pdf_path)
     texts = [p.get_text() for p in pdf]
     labels, label_method = page_labels(str(pdf_path))
     common = {"fiscal_year": int(str(decl["period_end"])[:4]), "lang": decl["lang"], "issuer": decl["issuer_id"]}
 
     nodes: list[dict] = []
-    for tree_source, path, primary in (("toc_flash", f"data/t3/{decl['manifest_id']}.toc_flash.json", True),
-                                       ("pageindex_flash", f"data/t3/{decl['manifest_id']}.flash.json", False)):
+    art = artifact_id(decl)
+    for tree_source, path, primary in (("toc_flash", f"data/t3/{art}.toc_flash.json", True),
+                                       ("pageindex_flash", f"data/t3/{art}.flash.json", False)):
         acc = latest_accuracy(evals, doc_id, tree_source)
-        for n in flatten(json.loads((ROOT / path).read_text()), doc_id, tree_source, primary):
+        tree = json.loads((ROOT / path).read_text())
+        section_of: dict[str, tuple] = {}
+        if primary:  # section_type 只在主树上赋值（ref/doc_type_vocab.yaml）
+            sections.assign(tree["structure"])
+            detected = sections.present_types(tree["structure"])
+            declared = (decl["completeness"] or {}).get("sections")
+            if declared is not None and declared != detected:
+                raise ValueError(f"{doc_id}: completeness.sections {declared} != detected {detected}")
+
+            def collect(ns):
+                for x in ns:
+                    section_of[x["node_id"]] = (x.get("section_type"), x.get("section_rule"))
+                    collect(x.get("nodes") or [])
+            collect(tree["structure"])
+        for n in flatten(tree, doc_id, tree_source, primary):
+            st, rule = section_of.get(n["node_id"].rsplit(":", 1)[1], (None, None))
             summary = summary_of(n["title"], texts[n["start_page"] - 1])
             n.update(title_tok=to_field(n["title"]), summary=summary, summary_tok=to_field(summary),
                      page_label_range=[labels[n["start_page"] - 1], labels[n["end_page"] - 1]],
                      tree_confidence="ok" if acc is not None and acc >= 0.85 else "low",
-                     section_type=None, concept_ids=None, parallel_node_id=None, **common)
+                     section_type=st, section_rule=rule, concept_ids=None, parallel_node_id=None, **common)
             nodes.append(n)
     covering = deepest_covering([n for n in nodes if n["is_primary"]], len(pdf))
 
     pages, tables = [], []
+    layout_path = ROOT / "data" / "artifacts" / "layout" / f"{doc_id}.jsonl"
+    layout_path.parent.mkdir(parents=True, exist_ok=True)
+    layout = layout_path.open("w")  # 词级坐标（ui-design §7）：中间产物，不进数据库
     for i, page in enumerate(pdf):
         page_no = i + 1
+        layout.write(json.dumps({"page_no": page_no, "width": round(page.rect.width, 1),
+                                 "height": round(page.rect.height, 1),
+                                 "words": [[round(w[0], 1), round(w[1], 1), round(w[2], 1), round(w[3], 1), w[4]]
+                                           for w in page.get_text("words")]}, ensure_ascii=False) + "\n")
         pages.append({"doc_id": doc_id, "page_no": page_no, "page_label": labels[i],
                       "page_label_source": PAGE_LABEL_SOURCE[label_method["method"]], **common,
                       "text": texts[i], "text_tok": to_field(texts[i]),
                       "image_path": f"data/pages/{doc_id}/{page_no:04d}.png", "covering_node_ids": covering[page_no]})
         tables += tables_of(page, doc_id, page_no, covering[page_no])
 
+    layout.close()
     parallel = decl["doc_id"].rsplit("_", 1)[0]
     document = {
         "doc_id": doc_id, "issuer_id": decl["issuer_id"], "issuer_name": issuers[decl["issuer_id"]]["name_en"],
         "doc_type": decl["doc_type"], "period_end": str(decl["period_end"]), "fiscal_year": common["fiscal_year"],
         "lang": decl["lang"], "source_url": decl["source_url"], "completeness": json.dumps(decl["completeness"], ensure_ascii=False),
         "translation_of": decl.get("translation_of"), "parallel_group_id": parallel,
-        "sha256": hashlib.sha256(pdf_path.read_bytes()).hexdigest(), "path": rec["local_path"], "page_count": len(pdf),
+        "sha256": hashlib.sha256(pdf_path.read_bytes()).hexdigest(), "path": rel_path, "page_count": len(pdf),
         "has_text_layer": any(t.strip() for t in texts), "page_label_source": PAGE_LABEL_SOURCE[label_method["method"]],
         "accept_level": "full", "primary_tree_source": "toc_flash",
         "profile": PROFILE, "profile_version": PROFILE_VERSION, "pipeline_version": PIPELINE_VERSION, "ext": "{}",
@@ -132,20 +167,29 @@ def build(decl: dict, issuers: dict, evals: list[dict], manifest: dict) -> dict[
     return {"document": [document], "node": nodes, "page": pages, "table_block": tables}
 
 
+def load_manifest() -> dict:
+    path = ROOT / "data" / "manifest.json"
+    return {r["doc_id"]: r for r in json.loads(path.read_text())} if path.exists() else {}
+
+
+def write_jsonl(doc_id: str, out: dict[str, list[dict]]) -> None:
+    for table, rows in out.items():
+        path = JSONL / table / f"{doc_id}.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w") as f:
+            for r in rows:
+                f.write(json.dumps(r, ensure_ascii=False, default=str) + "\n")
+
+
 def main() -> None:
     issuers, decls, evals = load_ref()
-    manifest = {r["doc_id"]: r for r in json.loads((ROOT / "data" / "manifest.json").read_text())}
+    manifest = load_manifest()
     wanted = set(sys.argv[1:])
     for decl in decls:
         if wanted and decl["doc_id"] not in wanted:
             continue
         out = build(decl, issuers, evals, manifest)
-        for table, rows in out.items():
-            path = JSONL / table / f"{decl['doc_id']}.jsonl"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open("w") as f:
-                for r in rows:
-                    f.write(json.dumps(r, ensure_ascii=False, default=str) + "\n")
+        write_jsonl(decl["doc_id"], out)
         print(decl["doc_id"], {t: len(r) for t, r in out.items()})
 
 
