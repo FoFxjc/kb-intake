@@ -75,7 +75,12 @@ def build(decl: dict) -> dict:
     decl = dict(decl, manifest_id=None)  # 经管理接口登记的文档：中间产物以 doc_id 命名
     out = b.build(decl, issuers, evals, b.load_manifest())
     b.write_jsonl(decl["doc_id"], out)
-    return {t: len(r) for t, r in out.items()}
+    counts = {t: len(r) for t, r in out.items()}
+    # 概念打标（P2-2）：替换这份文档的 node_concept，并把 concept_tok 写回 node JSONL，load 阶段随之进 Doris
+    from pipeline import concepts
+    with registry.connect() as pg:
+        counts["node_concept"] = len(concepts.tag_one(decl["doc_id"], concepts.load_spec(), pg))
+    return counts
 
 
 def load(decl: dict) -> dict:
