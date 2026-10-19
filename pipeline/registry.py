@@ -11,9 +11,10 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+import profiles
+
 ROOT = Path(__file__).resolve().parents[1]
 PG_DSN = os.environ.get("KB_PG_DSN", "postgresql://kb:kb@127.0.0.1:5432/kb")
-DOC_TYPE_ABBR = {"annual_report": "ar"}
 REQUIRED = ("issuer_id", "doc_type", "period_end", "lang", "source_url", "completeness")
 OPTIONAL = ("translation_of", "publisher", "published_at")
 STAGES = ("detect", "tree", "build", "load")
@@ -30,7 +31,7 @@ def connect() -> psycopg.Connection:
 
 
 def doc_id_of(decl: dict) -> str:
-    return f"{decl['issuer_id']}_{DOC_TYPE_ABBR[decl['doc_type']]}_{int(str(decl['period_end'])[:4])}_{decl['lang']}"
+    return f"{decl['issuer_id']}_{profiles.abbr(decl['doc_type'])}_{int(str(decl['period_end'])[:4])}_{decl['lang']}"
 
 
 def validate(decl: dict) -> dict:
@@ -42,8 +43,9 @@ def validate(decl: dict) -> dict:
     unknown = sorted(set(decl) - set(REQUIRED) - set(OPTIONAL))
     if unknown:
         raise DeclarationError(unknown[0], f"unknown declaration field(s): {unknown}", list(REQUIRED + OPTIONAL))
-    if decl["doc_type"] not in DOC_TYPE_ABBR:
-        raise DeclarationError("doc_type", "unsupported doc_type", list(DOC_TYPE_ABBR))
+    # 已注册的类型按各自的类型配置入库；其他类型走 generic 配置（D43）
+    if not re.fullmatch(r"[a-z][a-z0-9_]*", str(decl["doc_type"])):
+        raise DeclarationError("doc_type", "doc_type must match [a-z][a-z0-9_]*", sorted(profiles.registry()))
     if decl["lang"] not in ("en", "zh"):
         raise DeclarationError("lang", "lang must be en or zh", ["en", "zh"])
     if not re.fullmatch(r"[a-z0-9-]+", decl["issuer_id"]):
@@ -103,11 +105,11 @@ def declaration(doc_id: str) -> dict | None:
 def upsert_detected(pg, doc: dict, status: str) -> None:
     """入库完成后把推导字段写回权威表（来自 JSONL 的 document 记录）。"""
     pg.execute("UPDATE document SET page_count = %s, has_text_layer = %s, page_label_source = %s, accept_level = %s, "
-               "primary_tree_source = %s, pipeline_version = %s, sha256 = %s, parallel_group_id = %s "
-               "WHERE source_id = %s",
+               "primary_tree_source = %s, pipeline_version = %s, sha256 = %s, parallel_group_id = %s, "
+               "profile = %s, profile_version = %s WHERE source_id = %s",
                (doc["page_count"], doc["has_text_layer"], doc["page_label_source"], doc["accept_level"],
                 doc["primary_tree_source"], doc["pipeline_version"], doc["sha256"], doc["parallel_group_id"],
-                doc["doc_id"]))
+                doc["profile"], doc["profile_version"], doc["doc_id"]))
     pg.execute("UPDATE source SET status = %s, updated_at = now() WHERE source_id = %s", (status, doc["doc_id"]))
 
 
