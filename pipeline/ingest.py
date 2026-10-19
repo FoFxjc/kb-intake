@@ -75,7 +75,20 @@ def build(decl: dict) -> dict:
     decl = dict(decl, manifest_id=None)  # 经管理接口登记的文档：中间产物以 doc_id 命名
     out = b.build(decl, issuers, evals, b.load_manifest())
     b.write_jsonl(decl["doc_id"], out)
-    return {t: len(r) for t, r in out.items()}
+    counts = {t: len(r) for t, r in out.items()}
+    # 概念打标（P2-2）：替换这份文档的 node_concept，并把 concept_tok 写回 node JSONL，load 阶段随之进 Doris
+    # Postgres 的概念表须已由 pipeline.concepts --import 导入且与 ref/concepts.yaml 同一版本，否则跳过（node_concept 有外键）
+    from pipeline import concepts
+    spec = concepts.load_spec()
+    with registry.connect() as pg:
+        row = pg.execute("SELECT max(spec_version) AS v FROM concept").fetchone()
+        if row is None or row["v"] != int(spec["version"]):
+            counts["node_concept"] = "skipped"
+            counts["node_concept_reason"] = (f"Postgres 概念表版本 {row and row['v']} 与 ref/concepts.yaml v{spec['version']} 不一致，"
+                                             "先运行 uv run python -m pipeline.concepts --import --tag")
+        else:
+            counts["node_concept"] = len(concepts.tag_one(decl["doc_id"], spec, pg))
+    return counts
 
 
 def load(decl: dict) -> dict:
