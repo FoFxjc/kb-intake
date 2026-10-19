@@ -30,8 +30,13 @@ def connect() -> psycopg.Connection:
     return psycopg.connect(PG_DSN, row_factory=dict_row)
 
 
+def fiscal_year_of(decl: dict) -> int:
+    """财年由类型配置的“期间与主体”决定（D43）。"""
+    return profiles.get(decl["doc_type"]).period_entity(decl)[0]
+
+
 def doc_id_of(decl: dict) -> str:
-    return f"{decl['issuer_id']}_{profiles.abbr(decl['doc_type'])}_{int(str(decl['period_end'])[:4])}_{decl['lang']}"
+    return f"{decl['issuer_id']}_{profiles.abbr(decl['doc_type'])}_{fiscal_year_of(decl)}_{decl['lang']}"
 
 
 def validate(decl: dict) -> dict:
@@ -46,6 +51,10 @@ def validate(decl: dict) -> dict:
     # 已注册的类型按各自的类型配置入库；其他类型走 generic 配置（D43）
     if not re.fullmatch(r"[a-z][a-z0-9_]*", str(decl["doc_type"])):
         raise DeclarationError("doc_type", "doc_type must match [a-z][a-z0-9_]*", sorted(profiles.registry()))
+    taken = {p.doc_type_abbr for p in profiles.registry().values() if p.doc_type_abbr}
+    if decl["doc_type"] in taken:     # 与已注册类型的 doc_id 缩写同名会撞 doc_id（如 ar）
+        raise DeclarationError("doc_type", f"doc_type {decl['doc_type']!r} is reserved as a doc_id abbreviation",
+                               sorted(profiles.registry()))
     if decl["lang"] not in ("en", "zh"):
         raise DeclarationError("lang", "lang must be en or zh", ["en", "zh"])
     if not re.fullmatch(r"[a-z0-9-]+", decl["issuer_id"]):
@@ -85,9 +94,9 @@ def register(decl: dict, pdf: bytes) -> tuple[dict, bool]:
         pg.execute("INSERT INTO document (source_id, issuer_id, doc_type, period_end, fiscal_year, lang, source_url, "
                    "completeness, translation_of, parallel_group_id, sha256, path) "
                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                   (doc_id, decl["issuer_id"], decl["doc_type"], decl["period_end"], int(str(decl["period_end"])[:4]),
+                   (doc_id, decl["issuer_id"], decl["doc_type"], decl["period_end"], fiscal_year_of(decl),
                     decl["lang"], decl["source_url"], Jsonb(decl["completeness"]), decl.get("translation_of"),
-                    doc_id.rsplit("_", 1)[0], sha, rel))
+                    profiles.get(decl["doc_type"]).parallel_group(dict(decl, doc_id=doc_id)), sha, rel))
     return get(doc_id), True
 
 
