@@ -132,6 +132,13 @@
   },
   "checks": {
    "type": "object"
+  },
+  "role": {
+   "enum": [
+    "primary",
+    "secondary"
+   ],
+   "description": "primary = the table entered for downstream use; secondary = a candidate kept for cross-checking (e.g. find_tables next to Docling). Missing means primary."
   }
  },
  "required": [

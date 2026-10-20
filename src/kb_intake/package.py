@@ -20,7 +20,8 @@ from pathlib import Path
 
 import pymupdf
 
-from kb_intake import CONTRACT_VERSION, __version__, contract, declaration, detect, native
+from kb_intake import CONTRACT_VERSION, __version__, assemble, contract, declaration, detect, docling_run, headings, native
+from kb_intake.config import Config
 
 DATA_FILES = ("pages.jsonl", "layout.jsonl", "regions.jsonl", "tables.jsonl", "headings.jsonl", "gaps.jsonl")
 
@@ -58,11 +59,13 @@ def _existing(out: Path, doc_id: str) -> list[Path]:
     return sorted(p for p in out.glob(f"{doc_id}@*") if p.is_dir())
 
 
-def run(file: Path, decl: dict, out: Path, replace: bool = False) -> Path:
+def run(file: Path, decl: dict, out: Path, replace: bool = False, config: Config | None = None) -> Path:
     """Run the intake for one file and write its package under `out`. Returns the package directory.
 
     Dedup (moved from kb registry.register): the same doc_id with the same file is idempotent and rewrites the
-    package; the same doc_id with a different file is refused unless `replace` is given."""
+    package; the same doc_id with a different file is refused unless `replace` is given.
+    With a Docling configuration the tables, regions and headings come from the 3b extraction layer (§9)."""
+    config = config or Config()
     started, t0 = datetime.now(timezone.utc), time.monotonic()
     decl = declaration.validate(decl)
     data = file.read_bytes()
@@ -102,14 +105,21 @@ def run(file: Path, decl: dict, out: Path, replace: bool = False) -> Path:
                 t, g = native.tables_on(page, decl["doc_id"], i + 1)
                 tables += t
                 gaps += g
+        regions_rows, heading_rows, extra_steps, cross = [], [], [], {}
+        files_extra = {}
+        if config.docling is not None:
+            regions_rows, heading_rows, tables, extra_steps, cross, g = _extraction_layer(
+                tmp, decl["doc_id"], sha, config.docling, tables, layout_rows, pages_rows)
+            gaps += g
+            files_extra = {"docling.json": None} if (tmp / "docling.json").exists() else {}
         counts = {"pages.jsonl": _write_jsonl(tmp / "pages.jsonl", pages_rows),
                   "layout.jsonl": _write_jsonl(tmp / "layout.jsonl", layout_rows),
-                  "regions.jsonl": _write_jsonl(tmp / "regions.jsonl", []),
+                  "regions.jsonl": _write_jsonl(tmp / "regions.jsonl", regions_rows),
                   "tables.jsonl": _write_jsonl(tmp / "tables.jsonl", tables),
-                  "headings.jsonl": _write_jsonl(tmp / "headings.jsonl", []),
+                  "headings.jsonl": _write_jsonl(tmp / "headings.jsonl", heading_rows),
                   "gaps.jsonl": _write_jsonl(tmp / "gaps.jsonl", gaps)}
 
-        files = {f"source.{kind}": None, "working.pdf": None, **{f: counts[f] for f in DATA_FILES}}
+        files = {f"source.{kind}": None, "working.pdf": None, **files_extra, **{f: counts[f] for f in DATA_FILES}}
         manifest = {
             "contract_version": CONTRACT_VERSION,
             "package": name,
@@ -128,12 +138,13 @@ def run(file: Path, decl: dict, out: Path, replace: bool = False) -> Path:
                 {"step": "tables", "tool": "pymupdf.find_tables", "version": pymupdf.VersionBind,
                  "params": {"primary": native.TABLE_METHOD, "secondary": None,
                             "pymupdf_layout": native.PYMUPDF_LAYOUT}},
-                {"step": "regions", "tool": None, "version": None, "params": {}, "status": "not_run"},
-                {"step": "headings", "tool": None, "version": None, "params": {}, "status": "not_run"},
+                *(extra_steps or [
+                    {"step": "regions", "tool": None, "version": None, "params": {}, "status": "not_run"},
+                    {"step": "headings", "tool": None, "version": None, "params": {}, "status": "not_run"}]),
             ],
             "files": {f: {"sha256": _sha(tmp / f), "bytes": (tmp / f).stat().st_size, "rows": n}
                       for f, n in files.items()},
-            "cross_checks": {},
+            "cross_checks": cross,
             "degraded": any(g["code"] == "extractor_degraded" for g in gaps),
             "llm": {"used": False},
             "kb_intake_version": __version__,
@@ -141,7 +152,7 @@ def run(file: Path, decl: dict, out: Path, replace: bool = False) -> Path:
         }
         finished = datetime.now(timezone.utc)
         manifest["run"] = {"started_at": started.isoformat(), "finished_at": finished.isoformat(),
-                           "duration_ms": int((time.monotonic() - t0) * 1000), "device": "cpu",
+                           "duration_ms": int((time.monotonic() - t0) * 1000),
                            "python": sys.version.split()[0], "platform": platform.platform()}
         (tmp / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
         result = contract.check(tmp, expected_name=name)
@@ -158,3 +169,42 @@ def run(file: Path, decl: dict, out: Path, replace: bool = False) -> Path:
         return final
     finally:
         shutil.rmtree(work, ignore_errors=True)
+
+
+def _extraction_layer(tmp: Path, doc_id: str, sha: str, cfg, ft_tables: list[dict], layout_rows: list[dict],
+                      pages_rows: list[dict]):
+    """Docling + post-processing + checks + headings (§9.2). A Docling failure degrades to find_tables; the text
+    layer products written before this step are never touched (§9.3.6)."""
+    res = docling_run.run(tmp / "working.pdf", sha, cfg)
+    gaps = []
+    if res.docling_json is not None:
+        (tmp / "docling.json").write_bytes(res.docling_json)
+    if not res.ok:
+        gaps.append({"code": "extractor_degraded", "extractor": "docling", "status": res.status,
+                     "detail": "; ".join(res.errors)[:500] or "Docling did not succeed",
+                     "failed_pages": res.failed_pages})
+    layout_model = docling_run.MODELS[0]["repo_id"]
+    layout_version = docling_run.MODELS[0]["revision"]
+    with pymupdf.open(tmp / "working.pdf") as pdf:
+        font_heads, _ = headings.headings(pdf, [])          # context for continued tables (no Docling needed)
+        out = assemble.assemble(doc_id, res.docling_json, res.failed_pages if res.docling_json else [],
+                                ft_tables, layout_rows, pdf, layout_model, layout_version, res.confidence_pages,
+                                font_heads)
+        heads = [r for r in out["regions"] if r["type"] in ("title", "heading")]
+        heading_rows, heading_summary = headings.headings(pdf, heads)     # with Docling as corroboration
+    for p in pages_rows:
+        c = res.confidence_pages.get(str(p["page_no"]))
+        p["docling_confidence"] = c["grade"] if c else None
+    steps = [
+        {"step": "docling", "tool": "docling", "version": res.versions.get("docling"), "params": cfg.params(),
+         "versions": res.versions, "models": res.models, "cache_key": res.cache_key, "cached": res.cached,
+         "status": res.status, "seconds": res.seconds if not res.cached else None,
+         "failed_pages": res.failed_pages},
+        {"step": "regions", "tool": "kb_intake.docling_post", "version": __version__,
+         "params": {"layout_model": layout_model, "layout_version": layout_version},
+         "counts": dict(sorted(__import__("collections").Counter(r["type"] for r in out["regions"]).items()))},
+        {"step": "headings", "tool": "kb_intake.headings", "version": __version__, "params": heading_summary},
+        {"step": "tables_3b", "tool": "kb_intake.assemble", "version": __version__,
+         "params": {"primary": "docling", "secondary": native.TABLE_METHOD}, "summary": out["summary"]},
+    ]
+    return out["regions"], heading_rows, out["tables"], steps, out["summary"], gaps + out["gaps"]

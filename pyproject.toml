@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "Turn any file into a standard intake package that the knowledge base can read (contract v1)"
 requires-python = "==3.12.*"
 dependencies = [
+    "docling==2.140.0",
+    "docling-core==2.103.0",
+    "docling-ibm-models==4.0.3",
+    "docling-parse==7.22.3",
     "jsonschema==4.23.0",
     # Same version as kb's uv.lock: step 2 byte-equality with the kb baseline depends on it.
     # Upgrading must pass the regression gate (intake-design §9.3).
@@ -27,7 +31,7 @@ packages = ["src/kb_intake"]
 [dependency-groups]
 dev = [
     "import-linter==2.1",
-    "pillow==11.0.0",
+    "pillow==12.3.0",
     "pytest==9.1.1",
 ]
 

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import yaml
 
+from kb_intake import config as config_mod
 from kb_intake import contract, declaration, package
 
 
@@ -26,7 +27,7 @@ def _run(args) -> int:
         print(json.dumps({"ok": False, "error": "file", "message": f"no such file: {args.file}"}), file=sys.stderr)
         return 1
     try:
-        pkg = package.run(Path(args.file), decl, Path(out), replace=args.replace)
+        pkg = package.run(Path(args.file), decl, Path(out), replace=args.replace, config=config_mod.load(args.config))
     except declaration.DeclarationError as e:
         print(json.dumps({"ok": False, "error": "declaration", "param": e.param, "message": str(e)}), file=sys.stderr)
         return 1
@@ -57,6 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("--decl", required=True, help="declaration YAML (doc_id, issuer_id, doc_type, period_end, lang, "
                                                  "source_url, completeness)")
     r.add_argument("--out", help="directory that receives packages (default: $KB_PACKAGES_DIR)")
+    r.add_argument("--config", help="intake.yaml (default: $KB_INTAKE_CONFIG; none = find_tables only)")
     r.add_argument("--replace", action="store_true", help="replace a package of the same doc_id built from another file")
     r.set_defaults(fn=_run)
     c = sub.add_parser("check", help="check packages (directory or zip) against contract v1")

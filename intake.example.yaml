@@ -1,0 +1,14 @@
+# Copy to intake.yaml (or point KB_INTAKE_CONFIG at it). Paths are machine specific.
+tables:
+  primary: docling
+  secondary: find_tables
+docling:
+  version: "2.140.0"            # informative; the real pin is uv.lock
+  table_mode: accurate
+  device: cpu
+  num_threads: 4
+  artifacts_path: ~/workspace/intake-data/models
+  cache_dir: ~/workspace/intake-data/cache
+  document_timeout: 1800
+headings:
+  font_profiles: profiles/fonts/
