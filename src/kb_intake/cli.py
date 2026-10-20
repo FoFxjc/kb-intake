@@ -16,7 +16,15 @@ def _run(args) -> int:
     if not out:
         print("error: give --out or set KB_PACKAGES_DIR", file=sys.stderr)
         return 2
-    decl = yaml.safe_load(Path(args.decl).read_text(encoding="utf-8"))
+    try:
+        decl = yaml.safe_load(Path(args.decl).read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as e:
+        print(json.dumps({"ok": False, "error": "declaration", "param": "decl", "message": f"{type(e).__name__}: {e}"}),
+              file=sys.stderr)
+        return 1
+    if not Path(args.file).is_file():
+        print(json.dumps({"ok": False, "error": "file", "message": f"no such file: {args.file}"}), file=sys.stderr)
+        return 1
     try:
         pkg = package.run(Path(args.file), decl, Path(out), replace=args.replace)
     except declaration.DeclarationError as e:

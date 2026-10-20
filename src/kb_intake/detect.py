@@ -19,7 +19,11 @@ def sniff(data: bytes) -> str | None:
 
 def detect_pdf(path: str, lang: str) -> tuple[dict, list[dict]]:
     """(detection summary, per-page classification rows)."""
-    pdf = pymupdf.open(path)
+    with pymupdf.open(path) as pdf:
+        return _detect(pdf, path, lang)
+
+
+def _detect(pdf: pymupdf.Document, path: str, lang: str) -> tuple[dict, list[dict]]:
     text = "".join(p.get_text() for p in pdf)
     chars = [c for c in text if not c.isspace()]
     cjk = sum(1 for c in chars if "\u4e00" <= c <= "\u9fff") / max(1, len(chars))

@@ -92,23 +92,22 @@ def run(file: Path, decl: dict, out: Path, replace: bool = False) -> Path:
 
         (tmp / f"source.{kind}").write_bytes(data)
         (tmp / "working.pdf").write_bytes(data)        # a native PDF is its own working PDF
-        pdf = pymupdf.open(tmp / "working.pdf")
         by_page = {k["page_no"]: k for k in kinds}
         pages_rows, layout_rows, tables = [], [], []
-        for i, page in enumerate(pdf):
-            pages_rows.append(native.page_record(page, i + 1, labels[i], by_page.get(i + 1)))
-        for i, page in enumerate(pdf):
-            layout_rows.append(native.layout_record(page, i + 1))
-            t, g = native.tables_on(page, decl["doc_id"], i + 1)
-            tables += t
-            gaps += g
+        with pymupdf.open(tmp / "working.pdf") as pdf:
+            for i, page in enumerate(pdf):
+                pages_rows.append(native.page_record(page, i + 1, labels[i], by_page.get(i + 1)))
+            for i, page in enumerate(pdf):
+                layout_rows.append(native.layout_record(page, i + 1))
+                t, g = native.tables_on(page, decl["doc_id"], i + 1)
+                tables += t
+                gaps += g
         counts = {"pages.jsonl": _write_jsonl(tmp / "pages.jsonl", pages_rows),
                   "layout.jsonl": _write_jsonl(tmp / "layout.jsonl", layout_rows),
                   "regions.jsonl": _write_jsonl(tmp / "regions.jsonl", []),
                   "tables.jsonl": _write_jsonl(tmp / "tables.jsonl", tables),
                   "headings.jsonl": _write_jsonl(tmp / "headings.jsonl", []),
                   "gaps.jsonl": _write_jsonl(tmp / "gaps.jsonl", gaps)}
-        pdf.close()
 
         files = {f"source.{kind}": None, "working.pdf": None, **{f: counts[f] for f in DATA_FILES}}
         manifest = {
@@ -127,7 +126,8 @@ def run(file: Path, decl: dict, out: Path, replace: bool = False) -> Path:
                 {"step": "text_layer", "tool": "pymupdf", "version": pymupdf.VersionBind, "params": {}},
                 {"step": "words", "tool": "pymupdf", "version": pymupdf.VersionBind, "params": {}},
                 {"step": "tables", "tool": "pymupdf.find_tables", "version": pymupdf.VersionBind,
-                 "params": {"primary": native.TABLE_METHOD, "secondary": None}},
+                 "params": {"primary": native.TABLE_METHOD, "secondary": None,
+                            "pymupdf_layout": native.PYMUPDF_LAYOUT}},
                 {"step": "regions", "tool": None, "version": None, "params": {}, "status": "not_run"},
                 {"step": "headings", "tool": None, "version": None, "params": {}, "status": "not_run"},
             ],
@@ -150,9 +150,10 @@ def run(file: Path, decl: dict, out: Path, replace: bool = False) -> Path:
             raise IntakeError(f"package fails its own contract check: {result['errors'][:3]}")
 
         final = out / name
-        for p in [final, *(others if replace else [])]:
-            if p.exists():
-                shutil.rmtree(p)
+        # Move the old package(s) aside inside the work directory first, so that a crash never leaves a half-deleted
+        # package under the final name; the work directory is removed below (review nit 1).
+        for k, old in enumerate(p for p in [final, *(others if replace else [])] if p.exists()):
+            os.replace(old, work / f"old-{k}")
         os.replace(tmp, final)
         return final
     finally:

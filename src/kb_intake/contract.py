@@ -65,10 +65,17 @@ def check(pkg: Path, expected_name: str | None = None, require_checks: bool = Fa
         add([f"package name {pkg.name!r} is not <doc_id>@<sha256[:12]>"])
     if expected_name and pkg.name != expected_name:
         add([f"package name {pkg.name!r} != expected {expected_name!r}"])
-    mpath = pkg / "manifest.json"
-    if not mpath.is_file():
-        return {"contract_version": CONTRACT_VERSION, "ok": False, "errors": errors + ["manifest.json missing"], "counts": {}}
-    manifest = json.loads(mpath.read_text(encoding="utf-8"))
+    def failed(msg: str) -> dict:
+        return {"contract_version": CONTRACT_VERSION, "ok": False, "errors": errors + [msg], "counts": {}}
+
+    try:
+        manifest = json.loads((pkg / "manifest.json").read_text(encoding="utf-8"))
+    except OSError:
+        return failed("manifest.json missing")
+    except ValueError as e:
+        return failed(f"manifest.json is not JSON ({e})")
+    if not isinstance(manifest, dict):
+        return failed("manifest.json is not an object")
     add(_schema_errors("manifest", manifest, "manifest.json"))
     if manifest.get("contract_version") != CONTRACT_VERSION:
         return {"contract_version": CONTRACT_VERSION, "ok": False,
@@ -83,8 +90,14 @@ def check(pkg: Path, expected_name: str | None = None, require_checks: bool = Fa
     for f in ("working.pdf", f"source.{manifest.get('source', {}).get('ext')}", *ROWS):
         if f not in files:
             add([f"manifest.files lacks {f}"])
+    root = pkg.resolve()
     for f, meta in files.items():
         p = pkg / f
+        if not p.resolve().is_relative_to(root) or p.resolve().parent != root:   # files live in the package (review S3)
+            add([f"{f}: listed file is outside the package"])
+            continue
+        if not isinstance(meta, dict):
+            continue                    # already reported by the schema
         if not p.is_file():
             add([f"{f}: listed in manifest but missing"])
             continue
@@ -122,10 +135,12 @@ def check(pkg: Path, expected_name: str | None = None, require_checks: bool = Fa
 
     if require_checks:
         cpath = pkg / "checks.json"
-        if not cpath.is_file():
-            add(["checks.json missing"])
-        else:
+        try:
             add(_schema_errors("checks", json.loads(cpath.read_text(encoding="utf-8")), "checks.json"))
+        except OSError:
+            add(["checks.json missing"])
+        except ValueError as e:
+            add([f"checks.json is not JSON ({e})"])
     return {"contract_version": CONTRACT_VERSION, "ok": not errors, "errors": errors, "counts": counts}
 
 
