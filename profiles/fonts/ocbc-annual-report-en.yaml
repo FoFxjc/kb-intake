@@ -7,5 +7,5 @@ match:
 levels:
   - {level: 1, kind: chapter, font: Geomanist-Medium, size: 20}
   - {level: 2, kind: note, font: Roboto-Bold, size: 13}            # "21. Debt Issued" and unnumbered section titles
-  - {level: 3, kind: subnote, font: Roboto-Bold, size: 10, numbering: '^\d{1,3}\.\d{1,3}(?:\.\d+)*\s'}
+  - {level: 3, kind: subnote, font: Roboto-Bold, size: 10, numbering: '^\d{1,3}\.\d{1,3}(?:\.\d+)*\s+[^\d\s(]'}
 # Not headings: Roboto-Bold 9pt (infographic labels, in-table titles) and the 24-26pt KPI figures are simply not listed.

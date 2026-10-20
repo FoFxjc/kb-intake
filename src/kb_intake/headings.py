@@ -17,8 +17,8 @@ from pathlib import Path
 import pymupdf
 import yaml
 
-NOTE = re.compile(r"^\d{1,3}\.\s+\S")
-SUBNOTE = re.compile(r"^\d{1,3}\.\d{1,3}(?:\.\d+)*\s+\S")
+NOTE = re.compile(r"^\d{1,3}\.\s+[^\d\s(]")             # "21. Debt Issued", not "1. 2. 3." or figures
+SUBNOTE = re.compile(r"^\d{1,3}\.\d{1,3}(?:\.\d+)*\s+[^\d\s(]")   # "21.1 Subordinated", not "1.07 1.22"
 CONTINUED = re.compile(r"\(continued\)|\uff08\u7eed\uff09", re.I)
 PROFILE_DIR = Path(__file__).resolve().parents[2] / "profiles" / "fonts"
 
@@ -76,11 +76,16 @@ def load_profiles(directory: Path = PROFILE_DIR) -> list[dict]:
 
 
 def pick_profile(all_lines: list[dict], profiles: list[dict]) -> dict | None:
+    """Among the profiles whose fonts the document uses, the one whose rules match the most lines (an edition can
+    use the fonts of another edition's template too); None when no profile matches any line."""
     fonts = {ln["font"] for ln in all_lines}
+    best, best_n = None, 0
     for p in profiles:
         if set(p["match"]["fonts_all"]) <= fonts:
-            return p
-    return None
+            n = len(candidates(all_lines, p))
+            if n > best_n:
+                best, best_n = p, n
+    return best
 
 
 def infer_profile(all_lines: list[dict]) -> dict:
