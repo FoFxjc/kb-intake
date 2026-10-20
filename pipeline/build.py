@@ -91,7 +91,7 @@ def tables_of(page: pymupdf.Page, doc_id: str, page_no: int, covering: list[str]
                      "bbox": json.dumps([round(x, 1) for x in t.bbox]), "extract_method": "pymupdf_find_tables",
                      "status": "ok",
                      # 表格的共同底座（内容类型设计 §C）：误识别、拆合并格、表头路径、主体列；原有字段不动
-                     "structure": table_base.structure(page, t, entity_words)})
+                     "structure": table_base.structure(page, t, entity_words, [o.bbox for o in found.tables if o is not t])})
     return rows
 
 
