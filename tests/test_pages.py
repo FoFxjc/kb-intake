@@ -124,3 +124,52 @@ def test_large_photo_with_only_a_title_overlay_is_still_pending():
         p.insert_textbox(pymupdf.Rect(50, 580, 545, 820), TEXT, fontsize=9)
     r = kind(build)
     assert [g["status"] for g in r["regions"]] == ["pending_ocr"] and r["kind"] == "mixed"
+
+
+# ---------- 审查之后 ----------
+
+def test_rotated_full_page_scan_is_scanned():
+    """审查 I1：旋转页的 page.rect 是转过之后的尺寸，图片框是未旋转的坐标；按未旋转的页面尺寸裁剪。"""
+    doc, page = make(lambda p: p.insert_image(p.rect, stream=png(400, 560)))
+    page.set_rotation(90)
+    r = pages.classify(page)
+    assert r["kind"] == "scanned" and r["regions"][0]["area"] > 0.95
+
+
+def test_scan_cut_into_strips_or_tiles_is_scanned_not_blank():
+    """审查 I2：整页切成 40 条（每条约 2.5%）或 6×6 小块，不能因为每块都小于 3% 被丢弃后判成空白。"""
+    def strips(p):
+        h = p.rect.height / 40
+        for i in range(40):
+            p.insert_image(pymupdf.Rect(0, i * h, p.rect.width, (i + 1) * h), stream=png(200, 5), keep_proportion=False)
+    def tiles(p):
+        w, h = p.rect.width / 6, p.rect.height / 6
+        for i in range(6):
+            for j in range(6):
+                p.insert_image(pymupdf.Rect(i * w, j * h, (i + 1) * w, (j + 1) * h), stream=png(30, 40))
+    assert kind(strips)["kind"] == "scanned" and kind(tiles)["kind"] == "scanned"
+
+
+def test_blank_needs_few_characters():
+    """审查 I3：正文页里出现一句“……intentionally left blank”，不是空白页。"""
+    r = kind(lambda p: p.insert_textbox(pymupdf.Rect(50, 50, 545, 800), TEXT + " Page 12 has been intentionally left blank.", fontsize=10))
+    assert r["kind"] == "native"
+
+
+def test_mixed_requires_native_text():
+    """审查 M3：没有原生文字、只有一张中等大小的图，不算混合页（按规则是待识别的扫描内容）。"""
+    r = kind(lambda p: p.insert_image(pymupdf.Rect(50, 50, 545, 500), stream=png(300, 280)))
+    assert r["kind"] == "scanned"
+
+
+def test_detect_survives_a_classification_error(tmp_path, monkeypatch):
+    """审查 M4：分类或写中间产物出错时，检测阶段降级记录错误，不让整份文档因此被拒。"""
+    from pipeline import ingest
+    doc = pymupdf.open()
+    doc.new_page().insert_text((72, 72), "Hello world " * 20)
+    pdf = tmp_path / "x.pdf"
+    doc.save(pdf)
+    monkeypatch.setattr(ingest, "PAGES_DIR", tmp_path / "pages")
+    monkeypatch.setattr(ingest.pages, "classify", lambda page: 1 / 0)
+    d = ingest.detect({"doc_id": "x_doc_2025_en", "path": str(pdf), "lang": "en"})
+    assert d["has_text_layer"] and "ZeroDivisionError" in d["page_kinds_error"]

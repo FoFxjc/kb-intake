@@ -49,12 +49,16 @@ def detect(decl: dict) -> dict:
     detected_lang = "zh" if cjk > 0.2 else "en"
     _, method = page_labels(str(ROOT / decl["path"]))
     # 按页分类（O-1）：原生 / 扫描 / 混合 / 空白与图片区域；拒收规则本轮不变（ocr 阶段在 O-3）
-    rows = [{"page_no": i + 1, **pages.classify(p)} for i, p in enumerate(pdf)]
-    PAGES_DIR.mkdir(parents=True, exist_ok=True)
-    (PAGES_DIR / f"{decl['doc_id']}.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
-    return {"page_count": len(pdf), "has_text_layer": bool(chars), "cjk_ratio": round(cjk, 4),
-            "detected_lang": detected_lang, "lang_matches": detected_lang == decl["lang"],
-            "page_label_method": method, **pages.summary(rows)}
+    out = {"page_count": len(pdf), "has_text_layer": bool(chars), "cjk_ratio": round(cjk, 4),
+           "detected_lang": detected_lang, "lang_matches": detected_lang == decl["lang"], "page_label_method": method}
+    try:      # 分类只是记录，出错时降级记下错误，不影响拒收判断（审查 M4）
+        rows = [{"page_no": i + 1, **pages.classify(p)} for i, p in enumerate(pdf)]
+        PAGES_DIR.mkdir(parents=True, exist_ok=True)
+        (PAGES_DIR / f"{decl['doc_id']}.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows))
+        out.update(pages.summary(rows))
+    except Exception as e:  # noqa: BLE001
+        out["page_kinds_error"] = f"{type(e).__name__}: {e}"[:300]
+    return out
 
 
 def tree(decl: dict) -> dict:
