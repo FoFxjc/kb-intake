@@ -11,9 +11,10 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+import profiles
+
 ROOT = Path(__file__).resolve().parents[1]
 PG_DSN = os.environ.get("KB_PG_DSN", "postgresql://kb:kb@127.0.0.1:5432/kb")
-DOC_TYPE_ABBR = {"annual_report": "ar"}
 REQUIRED = ("issuer_id", "doc_type", "period_end", "lang", "source_url", "completeness")
 OPTIONAL = ("translation_of", "publisher", "published_at")
 STAGES = ("detect", "tree", "build", "load")
@@ -29,8 +30,13 @@ def connect() -> psycopg.Connection:
     return psycopg.connect(PG_DSN, row_factory=dict_row)
 
 
+def fiscal_year_of(decl: dict) -> int:
+    """财年由类型配置的“期间与主体”决定（D43）。"""
+    return profiles.get(decl["doc_type"]).period_entity(decl)[0]
+
+
 def doc_id_of(decl: dict) -> str:
-    return f"{decl['issuer_id']}_{DOC_TYPE_ABBR[decl['doc_type']]}_{int(str(decl['period_end'])[:4])}_{decl['lang']}"
+    return f"{decl['issuer_id']}_{profiles.abbr(decl['doc_type'])}_{fiscal_year_of(decl)}_{decl['lang']}"
 
 
 def validate(decl: dict) -> dict:
@@ -42,8 +48,13 @@ def validate(decl: dict) -> dict:
     unknown = sorted(set(decl) - set(REQUIRED) - set(OPTIONAL))
     if unknown:
         raise DeclarationError(unknown[0], f"unknown declaration field(s): {unknown}", list(REQUIRED + OPTIONAL))
-    if decl["doc_type"] not in DOC_TYPE_ABBR:
-        raise DeclarationError("doc_type", "unsupported doc_type", list(DOC_TYPE_ABBR))
+    # 已注册的类型按各自的类型配置入库；其他类型走 generic 配置（D43）
+    if not re.fullmatch(r"[a-z][a-z0-9_]*", str(decl["doc_type"])):
+        raise DeclarationError("doc_type", "doc_type must match [a-z][a-z0-9_]*", sorted(profiles.registry()))
+    taken = {p.doc_type_abbr for p in profiles.registry().values() if p.doc_type_abbr}
+    if decl["doc_type"] in taken:     # 与已注册类型的 doc_id 缩写同名会撞 doc_id（如 ar）
+        raise DeclarationError("doc_type", f"doc_type {decl['doc_type']!r} is reserved as a doc_id abbreviation",
+                               sorted(profiles.registry()))
     if decl["lang"] not in ("en", "zh"):
         raise DeclarationError("lang", "lang must be en or zh", ["en", "zh"])
     if not re.fullmatch(r"[a-z0-9-]+", decl["issuer_id"]):
@@ -83,9 +94,9 @@ def register(decl: dict, pdf: bytes) -> tuple[dict, bool]:
         pg.execute("INSERT INTO document (source_id, issuer_id, doc_type, period_end, fiscal_year, lang, source_url, "
                    "completeness, translation_of, parallel_group_id, sha256, path) "
                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                   (doc_id, decl["issuer_id"], decl["doc_type"], decl["period_end"], int(str(decl["period_end"])[:4]),
+                   (doc_id, decl["issuer_id"], decl["doc_type"], decl["period_end"], fiscal_year_of(decl),
                     decl["lang"], decl["source_url"], Jsonb(decl["completeness"]), decl.get("translation_of"),
-                    doc_id.rsplit("_", 1)[0], sha, rel))
+                    profiles.get(decl["doc_type"]).parallel_group(dict(decl, doc_id=doc_id)), sha, rel))
     return get(doc_id), True
 
 
@@ -103,11 +114,11 @@ def declaration(doc_id: str) -> dict | None:
 def upsert_detected(pg, doc: dict, status: str) -> None:
     """入库完成后把推导字段写回权威表（来自 JSONL 的 document 记录）。"""
     pg.execute("UPDATE document SET page_count = %s, has_text_layer = %s, page_label_source = %s, accept_level = %s, "
-               "primary_tree_source = %s, pipeline_version = %s, sha256 = %s, parallel_group_id = %s "
-               "WHERE source_id = %s",
+               "primary_tree_source = %s, pipeline_version = %s, sha256 = %s, parallel_group_id = %s, "
+               "profile = %s, profile_version = %s WHERE source_id = %s",
                (doc["page_count"], doc["has_text_layer"], doc["page_label_source"], doc["accept_level"],
                 doc["primary_tree_source"], doc["pipeline_version"], doc["sha256"], doc["parallel_group_id"],
-                doc["doc_id"]))
+                doc["profile"], doc["profile_version"], doc["doc_id"]))
     pg.execute("UPDATE source SET status = %s, updated_at = now() WHERE source_id = %s", (status, doc["doc_id"]))
 
 

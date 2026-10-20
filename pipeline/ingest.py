@@ -1,7 +1,7 @@
 """入库运行（管理接口“触发入库”）：detect → tree → build → load，每个阶段一行 ingest_run（knowledge-model §3.8）。
 
 - detect：文本层、页数、页码来源、语言与声明是否一致（不一致 → 来源状态 review，运行在此停止）
-- tree：PageIndex Flash（summary=False、optimize="merge"，不调 LLM）+ toc_flash 混合树（D22）
+- tree：按 doc_type 取类型配置建树（D43）：年报为 PageIndex Flash + toc_flash 混合树（D22），未注册类型只用 Flash
 - build：生成 JSONL（pipeline.build）；completeness.sections 有声明时须与检测一致
 - load：按 doc_id 删除后重放到 Doris，写覆盖率和 Postgres 权威表
 """
@@ -16,6 +16,7 @@ from pathlib import Path
 import pymupdf
 from psycopg.types.json import Jsonb
 
+import profiles
 from pipeline import registry
 from pipeline.tree import PIPELINE_VERSION, page_labels
 
@@ -50,23 +51,13 @@ def detect(decl: dict) -> dict:
 
 
 def tree(decl: dict) -> dict:
-    from pageindex.flash.api import flash_rejection_reason, page_index_flash
-    from scripts.t3_tocflash import build as build_toc_flash  # toc_flash 规则实现（D22）
     doc_id = decl["doc_id"]
     raw = ROOT / "data" / "raw" / f"{doc_id}.pdf"
     if not raw.exists() or raw.resolve() != (ROOT / decl["path"]).resolve():
         raw.parent.mkdir(parents=True, exist_ok=True)
         raw.write_bytes((ROOT / decl["path"]).read_bytes())
-    flash = page_index_flash(str(raw), summary=False, optimize="merge", use_embedded_toc=True)
-    (ROOT / "data" / "t3" / f"{doc_id}.flash.json").write_text(json.dumps(flash, ensure_ascii=False, indent=1))
-    toc_tree, mapping = build_toc_flash(doc_id)
-    (ROOT / "data" / "t3" / f"{doc_id}.toc_flash.json").write_text(json.dumps(toc_tree, ensure_ascii=False, indent=1))
-
-    def count(ns):
-        return sum(1 + count(n.get("nodes") or []) for n in ns)
-    return {"flash_toc_source": flash.get("toc_source"), "flash_rejection": flash_rejection_reason(flash),
-            "flash_nodes": count(flash["structure"]), "toc_flash_nodes": count(toc_tree["structure"]),
-            "page_mapping": mapping}
+    profile = profiles.get(decl["doc_type"])
+    return {"profile": profile.name, "profile_version": profile.version, **profile.build_trees(decl, raw)}
 
 
 def build(decl: dict) -> dict:
@@ -77,14 +68,14 @@ def build(decl: dict) -> dict:
     b.write_jsonl(decl["doc_id"], out)
     counts = {t: len(r) for t, r in out.items()}
     # 概念打标（P2-2）：替换这份文档的 node_concept，并把 concept_tok 写回 node JSONL，load 阶段随之进 Doris
-    # Postgres 的概念表须已由 pipeline.concepts --import 导入且与 ref/concepts.yaml 同一版本，否则跳过（node_concept 有外键）
+    # Postgres 的概念表须已由 pipeline.concepts --import 导入且与领域包 concepts.yaml 同一版本，否则跳过（node_concept 有外键）
     from pipeline import concepts
     spec = concepts.load_spec()
     with registry.connect() as pg:
         row = pg.execute("SELECT max(spec_version) AS v FROM concept").fetchone()
         if row is None or row["v"] != int(spec["version"]):
             counts["node_concept"] = "skipped"
-            counts["node_concept_reason"] = (f"Postgres 概念表版本 {row and row['v']} 与 ref/concepts.yaml v{spec['version']} 不一致，"
+            counts["node_concept_reason"] = (f"Postgres 概念表版本 {row and row['v']} 与领域包 concepts.yaml v{spec['version']} 不一致，"
                                              "先运行 uv run python -m pipeline.concepts --import --tag")
         else:
             counts["node_concept"] = len(concepts.tag_one(decl["doc_id"], spec, pg))

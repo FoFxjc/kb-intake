@@ -1,8 +1,8 @@
 """入库：由原件与树产物生成 JSONL 标准记录（knowledge-model.md §3.1、§3.3–3.4）。
 
-输出 data/jsonl/{document,node,page,table_block}/{doc_id}.jsonl。主树为 toc_flash，PageIndex Flash 树作对照。
-summary = 标题 + 起始页中标题之后的正文前 300 字（不调用 LLM）；section_type 按 ref/doc_type_vocab.yaml 在主树上赋值，
-每个节点记录命中的规则 id（section_rule）；completeness.sections 声明须与检测结果一致。
+输出 data/jsonl/{document,node,page,table_block}/{doc_id}.jsonl。按 doc_type 取类型配置（profiles/，D43）：
+用哪些树、哪棵是主树、章节怎么分类、平行版本与完整性怎么校验、财年与主体怎么定，都由配置决定；
+记录里的 profile / profile_version 写实际使用的配置。summary = 标题 + 起始页中标题之后的正文前 300 字（不调用 LLM）。
 
 用法：uv run python -m pipeline.build [doc_id ...]   （默认 ref/documents.yaml 中的全部文档）
 """
@@ -16,15 +16,16 @@ from pathlib import Path
 import pymupdf
 import yaml
 
-from pipeline import sections
+import domains
+
+import profiles
 from pipeline.tokenize import to_field
-from pipeline.tree import PIPELINE_VERSION, PROFILE, PROFILE_VERSION, flatten, page_labels
+from pipeline.tree import PIPELINE_VERSION, flatten, page_labels
 
 ROOT = Path(__file__).resolve().parents[1]
 JSONL = ROOT / "data" / "jsonl"
 SUMMARY_CHARS = 300
 PAGE_LABEL_SOURCE = {"page_labels": "pdf_labels", "footer_offset": "footer_offset", "none": "none"}
-UNIT_HINT = re.compile(r"(\$\s*(?:million|billion|’000|'000)|百万(?:新)?元|千元|十亿元|%)", re.I)
 
 
 def load_ref() -> tuple[dict, list[dict], list[dict]]:
@@ -81,7 +82,7 @@ def tables_of(page: pymupdf.Page, doc_id: str, page_no: int, covering: list[str]
         md = t.to_markdown(clean=False).strip()
         if not md or md.count("\n") < 2:
             continue
-        hint = UNIT_HINT.search(md[:400])
+        hint = domains.current().units().table_unit_hint.search(md[:400])   # 单位提示的写法来自领域包（D44）
         rows.append({"doc_id": doc_id, "table_id": f"{doc_id}:t{page_no:04d}_{i + 1:02d}",
                      "node_id": covering[0] if covering else None, "page_start": page_no, "page_end": page_no,
                      "caption": None, "unit_hint": hint.group(1) if hint else None, "markdown": md,
@@ -105,28 +106,26 @@ def build(decl: dict, issuers: dict, evals: list[dict], manifest: dict) -> dict[
     pdf = pymupdf.open(pdf_path)
     texts = [p.get_text() for p in pdf]
     labels, label_method = page_labels(str(pdf_path))
-    common = {"fiscal_year": int(str(decl["period_end"])[:4]), "lang": decl["lang"], "issuer": decl["issuer_id"]}
+    profile = profiles.get(decl["doc_type"])
+    fiscal_year, _entity = profile.period_entity(decl)
+    common = {"fiscal_year": fiscal_year, "lang": decl["lang"], "issuer": decl["issuer_id"]}
 
     nodes: list[dict] = []
     art = artifact_id(decl)
-    for tree_source, path, primary in (("toc_flash", f"data/t3/{art}.toc_flash.json", True),
-                                       ("pageindex_flash", f"data/t3/{art}.flash.json", False)):
+    for tree_source, primary in profile.tree_sources:
         acc = latest_accuracy(evals, doc_id, tree_source)
-        tree = json.loads((ROOT / path).read_text())
+        tree = json.loads(profiles.tree_path(art, tree_source).read_text())
         section_of: dict[str, tuple] = {}
-        if primary:  # section_type 只在主树上赋值（ref/doc_type_vocab.yaml）
-            sections.assign(tree["structure"])
-            detected = sections.present_types(tree["structure"])
-            declared = (decl["completeness"] or {}).get("sections")
-            if declared is not None and declared != detected:
-                raise ValueError(f"{doc_id}: completeness.sections {declared} != detected {detected}")
+        if primary:  # section_type 只在主树上赋值（类型配置的章节词表）
+            detected = profile.classify_sections(tree["structure"])
+            profile.check_completeness(dict(decl, doc_id=doc_id), detected)
 
             def collect(ns):
                 for x in ns:
                     section_of[x["node_id"]] = (x.get("section_type"), x.get("section_rule"))
                     collect(x.get("nodes") or [])
             collect(tree["structure"])
-        for n in flatten(tree, doc_id, tree_source, primary):
+        for n in flatten(tree, doc_id, tree_source, primary, profile=(profile.name, profile.version)):
             st, rule = section_of.get(n["node_id"].rsplit(":", 1)[1], (None, None))
             summary = summary_of(n["title"], texts[n["start_page"] - 1])
             n.update(title_tok=to_field(n["title"]), summary=summary, summary_tok=to_field(summary),
@@ -153,16 +152,17 @@ def build(decl: dict, issuers: dict, evals: list[dict], manifest: dict) -> dict[
         tables += tables_of(page, doc_id, page_no, covering[page_no])
 
     layout.close()
-    parallel = decl["doc_id"].rsplit("_", 1)[0]
+    parallel = profile.parallel_group(decl)
     document = {
-        "doc_id": doc_id, "issuer_id": decl["issuer_id"], "issuer_name": issuers[decl["issuer_id"]]["name_en"],
+        "doc_id": doc_id, "issuer_id": decl["issuer_id"],
+        "issuer_name": (issuers.get(decl["issuer_id"]) or {}).get("name_en", decl["issuer_id"]),
         "doc_type": decl["doc_type"], "period_end": str(decl["period_end"]), "fiscal_year": common["fiscal_year"],
         "lang": decl["lang"], "source_url": decl["source_url"], "completeness": json.dumps(decl["completeness"], ensure_ascii=False),
         "translation_of": decl.get("translation_of"), "parallel_group_id": parallel,
         "sha256": hashlib.sha256(pdf_path.read_bytes()).hexdigest(), "path": rel_path, "page_count": len(pdf),
         "has_text_layer": any(t.strip() for t in texts), "page_label_source": PAGE_LABEL_SOURCE[label_method["method"]],
-        "accept_level": "full", "primary_tree_source": "toc_flash",
-        "profile": PROFILE, "profile_version": PROFILE_VERSION, "pipeline_version": PIPELINE_VERSION, "ext": "{}",
+        "accept_level": "full", "primary_tree_source": profile.primary_tree,
+        "profile": profile.name, "profile_version": profile.version, "pipeline_version": PIPELINE_VERSION, "ext": "{}",
     }
     return {"document": [document], "node": nodes, "page": pages, "table_block": tables}
 

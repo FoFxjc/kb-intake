@@ -15,7 +15,7 @@ from pathlib import Path
 import pymupdf
 
 TREE_SOURCES = {"bookmark", "pageindex_flash", "toc_flash", "en_mapped", "pageindex_llm"}
-PROFILE, PROFILE_VERSION, PIPELINE_VERSION = "generic", "0", "p0"
+PIPELINE_VERSION = "p0"
 _FOOTER_NUM = re.compile(r"^\d{1,3}$")
 
 
@@ -48,8 +48,10 @@ def _walk(nodes):
         yield from _walk(node.get("nodes") or [])
 
 
-def flatten(tree: dict, doc_id: str, tree_source: str, is_primary: bool) -> list[dict]:
-    """统一树 → node 记录（先序）。富化字段（summary、*_tok、向量、概念、对齐）留空，由后续阶段填写。"""
+def flatten(tree: dict, doc_id: str, tree_source: str, is_primary: bool,
+            profile: tuple[str, str] = ("generic", "1")) -> list[dict]:
+    """统一树 → node 记录（先序）。富化字段（summary、*_tok、向量、概念、对齐）留空，由后续阶段填写。
+    profile 为建这棵树所用的类型配置 (名称, 版本)，写进每条记录（D43）。"""
     if tree_source not in TREE_SOURCES:
         raise ValueError(f"unknown tree_source: {tree_source}")
     rows: list[dict] = []
@@ -67,7 +69,7 @@ def flatten(tree: dict, doc_id: str, tree_source: str, is_primary: bool) -> list
                 "title": node["title"], "summary": None,
                 "start_page": start, "end_page": end,
                 "tree_source": tree_source, "is_primary": is_primary,
-                "profile": PROFILE, "profile_version": PROFILE_VERSION,
+                "profile": profile[0], "profile_version": profile[1],
                 "pipeline_version": PIPELINE_VERSION, "ext": {},
             })
             visit(node.get("nodes") or [], node_id, ancestors + [node_id], depth + 1)
