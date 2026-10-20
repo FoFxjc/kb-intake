@@ -19,6 +19,7 @@ import yaml
 import domains
 
 import profiles
+from pipeline import tables as table_base
 from pipeline.tokenize import to_field
 from pipeline.tree import PIPELINE_VERSION, flatten, page_labels
 
@@ -72,7 +73,8 @@ def deepest_covering(nodes: list[dict], page_count: int) -> dict[int, list[str]]
     return out
 
 
-def tables_of(page: pymupdf.Page, doc_id: str, page_no: int, covering: list[str]) -> list[dict]:
+def tables_of(page: pymupdf.Page, doc_id: str, page_no: int, covering: list[str],
+              entity_words: dict[str, list[str]] | None = None) -> list[dict]:
     rows = []
     try:
         found = page.find_tables()
@@ -87,7 +89,9 @@ def tables_of(page: pymupdf.Page, doc_id: str, page_no: int, covering: list[str]
                      "node_id": covering[0] if covering else None, "page_start": page_no, "page_end": page_no,
                      "caption": None, "unit_hint": hint.group(1) if hint else None, "markdown": md,
                      "bbox": json.dumps([round(x, 1) for x in t.bbox]), "extract_method": "pymupdf_find_tables",
-                     "status": "ok"})
+                     "status": "ok",
+                     # 表格的共同底座（内容类型设计 §C）：误识别、拆合并格、表头路径、主体列；原有字段不动
+                     "structure": table_base.structure(page, t, entity_words)})
     return rows
 
 
@@ -149,7 +153,7 @@ def build(decl: dict, issuers: dict, evals: list[dict], manifest: dict) -> dict[
                       "page_label_source": PAGE_LABEL_SOURCE[label_method["method"]], **common,
                       "text": texts[i], "text_tok": to_field(texts[i]),
                       "image_path": f"data/pages/{doc_id}/{page_no:04d}.png", "covering_node_ids": covering[page_no]})
-        tables += tables_of(page, doc_id, page_no, covering[page_no])
+        tables += tables_of(page, doc_id, page_no, covering[page_no], profile.table_entity_words())
 
     layout.close()
     parallel = profile.parallel_group(decl)
