@@ -14,7 +14,11 @@ _FOOTER_NUM = re.compile(r"^\d{1,3}$")
 def page_labels(pdf_path: str) -> tuple[list[str | None], dict]:
     """Printed label of every physical page. Prefer the PDF PageLabels; otherwise take the most common
     offset between physical pages and footer numbers; otherwise no labels."""
-    doc = pymupdf.open(pdf_path)
+    with pymupdf.open(pdf_path) as doc:
+        return _labels(doc)
+
+
+def _labels(doc: pymupdf.Document) -> tuple[list[str | None], dict]:
     if doc.get_page_labels():
         return [doc[i].get_label() or None for i in range(len(doc))], {"method": "page_labels"}
     offsets = Counter()

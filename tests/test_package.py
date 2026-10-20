@@ -151,3 +151,64 @@ def test_cli_run_and_check(pdf, tmp_path, monkeypatch, capsys):
     assert out["ok"] and out["rows"]["pages.jsonl"] == 3
     assert cli.main(["check", out["package"]]) == 0
     assert json.loads(capsys.readouterr().out)["ok"]
+
+
+# ---------- after review ----------
+
+def test_parse_value_never_merges_two_numbers():
+    """Review B1: "2023 2024" or "7 13.4" are two numbers in one cell, not 20232024 or 713.4."""
+    for text in ("2023 2024", "7 13.4", "295 297", "1, 234", "(-5)", "12.5%", "1,23", "(1,234"):
+        assert native.parse_value(text) == (None, False), text
+    assert native.parse_value("−5") == (-5, False)
+    assert native.parse_value("-1,234.5") == (-1234.5, False) and native.parse_value("+7") == (7, False)
+
+
+def test_cells_carry_their_page(pdf, tmp_path):
+    pkg = package.run(pdf, dict(DECL), tmp_path / "out")
+    (t,) = read_jsonl(pkg / "tables.jsonl")
+    assert {c["page_no"] for c in t["cells"]} == {2} and all((c["rs"], c["cs"]) == (1, 1) for c in t["cells"])
+
+
+def test_cli_stdout_is_pure_json(pdf, tmp_path):
+    """Review S2: PyMuPDF's one-off layout recommendation must not reach the CLI's stdout."""
+    import subprocess
+    import sys
+    decl = tmp_path / "decl.yaml"
+    decl.write_text("\n".join(f"{k}: {json.dumps(v)}" for k, v in DECL.items()))
+    r = subprocess.run([sys.executable, "-m", "kb_intake.cli", "run", str(pdf), "--decl", str(decl),
+                        "--out", str(tmp_path / "pk")], capture_output=True, text=True, check=True)
+    assert json.loads(r.stdout)["ok"] is True
+
+
+def test_cli_errors_are_json_not_tracebacks(pdf, tmp_path, capsys):
+    assert cli.main(["run", str(pdf), "--decl", str(tmp_path / "missing.yaml"), "--out", str(tmp_path)]) == 1
+    assert json.loads(capsys.readouterr().err)["error"] == "declaration"
+    pkg = package.run(pdf, dict(DECL), tmp_path / "out")
+    (pkg / "checks.json").write_text("{bad")
+    assert cli.main(["check", str(pkg)]) == 1
+    assert any("checks.json is not JSON" in e for e in json.loads(capsys.readouterr().out)["errors"])
+    (pkg / "manifest.json").write_text("[]")
+    assert contract.check_path(pkg)["errors"][-1] == "manifest.json is not an object"
+
+
+def test_files_listed_outside_the_package_are_rejected(pdf, tmp_path):
+    """Review S3: a manifest must not make a package "own" a path outside its directory."""
+    pkg = package.run(pdf, dict(DECL), tmp_path / "out")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("x")
+    m = json.loads((pkg / "manifest.json").read_text())
+    m["files"]["../../outside.txt"] = {"sha256": contract._sha(outside), "bytes": 1, "rows": None}
+    (pkg / "manifest.json").write_text(json.dumps(m))
+    errors = contract.check_path(pkg)["errors"]
+    assert any("outside the package" in e for e in errors) and any("files" in e for e in errors)
+
+
+def test_one_bad_table_degrades_instead_of_failing(pdf, tmp_path, monkeypatch):
+    """Review S4 / intake-design §9.3.5: a table that cannot be read becomes an extractor_degraded gap."""
+    monkeypatch.setattr(native, "_table", lambda *a: (_ for _ in ()).throw(ValueError("irregular find_tables grid")))
+    pkg = package.run(pdf, dict(DECL), tmp_path / "out")
+    gaps = read_jsonl(pkg / "gaps.jsonl")
+    assert read_jsonl(pkg / "tables.jsonl") == []
+    assert gaps == [{"code": "extractor_degraded", "page_no": 2, "extractor": "find_tables", "table_index": 1,
+                     "detail": "ValueError: irregular find_tables grid"}]
+    assert json.loads((pkg / "manifest.json").read_text())["degraded"] is True

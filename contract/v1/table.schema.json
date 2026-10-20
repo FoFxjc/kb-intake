@@ -98,8 +98,14 @@
      },
      "is_header": {
       "type": "boolean"
+     },
+     "page_no": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "page of this cell (merged cross-page tables have cells on several pages)"
      }
-    }
+    },
+    "description": "One cell. rs/cs are row and column spans. extract_method=find_tables has no span information: every cell has rs = cs = 1 and grid positions covered by a merged neighbour have no cell (the owner's bbox spans them)."
    }
   },
   "header_rows": {

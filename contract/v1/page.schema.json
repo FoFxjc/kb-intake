@@ -48,8 +48,10 @@
   "docling_confidence": {
    "type": [
     "string",
+    "number",
     "null"
-   ]
+   ],
+   "description": "Docling page confidence (grade or score); null when Docling did not run"
   },
   "chars": {
    "type": "integer"
