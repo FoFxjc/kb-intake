@@ -17,7 +17,8 @@ import re
 import pymupdf
 
 MIN_REGION = 0.03          # 小于页面这个比例的图片直接丢弃
-NATIVE_TEXT_MIN = 20       # 区域里原生文字超过这些字符，算“图上有原生文字”
+NATIVE_TEXT_MIN = 6        # 区域里原生文字（非空白字符）至少这些，才算“图上有原生文字”；按中文短标签定（2024 中文 p11 每张卡片 13–19 字）
+NATIVE_TEXT_DENSITY = 100  # 并且按面积折算：至少“区域占页面比例 × 100”个字（大照片上只压一个标题仍要识别，盲标 s06）
 SCANNED_COVER = 0.85       # 待识别区域覆盖页面的比例，达到即可能是扫描页
 SCANNED_MAX_CHARS = 50     # 扫描页的原生字数上限
 BLANK = re.compile(r"(?:intentionally|deliberately)\s+(?:been\s+)?left\s+blank|this page is blank|本页(?:特意|刻意)?(?:留白|空白)|"
@@ -28,18 +29,10 @@ def _area(r) -> float:
     return max(0.0, r[2] - r[0]) * max(0.0, r[3] - r[1])
 
 
-def _inside(word, r) -> bool:
-    """词框有八成以上落在区域内。"""
-    x0, y0, x1, y1 = max(word[0], r[0]), max(word[1], r[1]), min(word[2], r[2]), min(word[3], r[3])
-    a = _area(word[:4])
-    return a > 0 and _area((x0, y0, x1, y1)) / a > 0.8
-
-
 def classify(page: pymupdf.Page) -> dict:
     """一页的分类：{kind, chars, regions: [{bbox, area, text_chars, status}], discarded}。"""
     W, H = page.rect.width, page.rect.height
     pa = W * H or 1.0
-    words = page.get_text("words")
     text = page.get_text()
     chars = sum(1 for c in text if not c.isspace())
     regions, discarded, seen = [], 0, set()
@@ -54,9 +47,10 @@ def classify(page: pymupdf.Page) -> dict:
         if ratio < MIN_REGION:
             discarded += 1
             continue
-        inside = sum(len(w[4]) for w in words if _inside(w, r))
+        # 区域里的原生文字按字符计（裁取区域内的文字）：中文按词取坐标时一整行是一个“词”，词框会超出区域
+        inside = sum(1 for c in page.get_text(clip=pymupdf.Rect(r)) if not c.isspace())
         regions.append({"bbox": list(key), "area": round(ratio, 4), "text_chars": inside,
-                        "status": "native_text" if inside > NATIVE_TEXT_MIN else "pending_ocr"})
+                        "status": "native_text" if inside >= max(NATIVE_TEXT_MIN, ratio * NATIVE_TEXT_DENSITY) else "pending_ocr"})
     regions.sort(key=lambda g: (g["bbox"][1], g["bbox"][0]))
     pending = [g for g in regions if g["status"] == "pending_ocr"]
     cover = min(1.0, sum(g["area"] for g in pending))

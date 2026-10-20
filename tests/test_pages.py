@@ -94,3 +94,33 @@ def test_detect_reports_page_kinds_and_writes_the_artifact(tmp_path, monkeypatch
     assert d["image_regions"]["pending_ocr"] == 1 and d["page_count"] == 3
     rows = (tmp_path / "pages" / "x_doc_2025_en.jsonl").read_text().splitlines()
     assert [__import__("json").loads(r)["kind"] for r in rows] == ["native", "scanned", "blank"]
+
+
+def test_cjk_text_over_an_image_counts_as_native_text():
+    """中文按词取坐标时一整行是一个“词”，词框会超出图片区域；按区域裁取文字计数（盘点发现：2024 中文版 p11 的四张底图）。"""
+    def build(p):
+        p.insert_textbox(pymupdf.Rect(50, 50, 545, 300), TEXT, fontsize=10)
+        p.insert_image(pymupdf.Rect(60, 400, 300, 560), stream=png(200, 130, (245, 245, 245)))
+        p.insert_text((40, 480), "广泛业务的独特性。总收入创新高145亿元  7%净利润创新高75亿9000万元  8%", fontname="china-s", fontsize=11)
+    r = kind(build)
+    assert [g["status"] for g in r["regions"]] == ["native_text"] and r["kind"] == "native"
+
+
+def test_short_cjk_label_over_an_image_counts_as_native_text():
+    """财务重点卡片：底图上只压着十几个字（“净利润创新高 75亿9000万元 8%”），也算图上有原生文字。"""
+    def build(p):
+        p.insert_textbox(pymupdf.Rect(50, 50, 545, 300), TEXT, fontsize=10)
+        p.insert_image(pymupdf.Rect(60, 400, 300, 560), stream=png(200, 130, (245, 245, 245)))
+        p.insert_text((80, 450), "净利润创新高", fontname="china-s", fontsize=11)
+        p.insert_text((80, 480), "75亿9000万元  8%", fontname="china-s", fontsize=11)
+    assert [g["status"] for g in kind(build)["regions"]] == ["native_text"]
+
+
+def test_large_photo_with_only_a_title_overlay_is_still_pending():
+    """大照片上只压着一个标题（2023 英 p30 “Our Board”）：原生字数按区域面积折算，不够就仍交给 OCR（盲标 s06）。"""
+    def build(p):
+        p.insert_image(pymupdf.Rect(0, 0, 595, 560), stream=png(400, 380, (90, 80, 70)))
+        p.insert_text((40, 60), "Our Board", fontsize=24)
+        p.insert_textbox(pymupdf.Rect(50, 580, 545, 820), TEXT, fontsize=9)
+    r = kind(build)
+    assert [g["status"] for g in r["regions"]] == ["pending_ocr"] and r["kind"] == "mixed"
