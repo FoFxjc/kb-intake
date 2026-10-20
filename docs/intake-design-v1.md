@@ -1,6 +1,6 @@
 # kb-intake 设计 v1：把入库前的部分拆成独立库
 
-状态：草案；决定编号待分配（D46–D48 已被 kb 的 #26、#29、#30 占用，拆分取下一个空号）；第 9 节"抽取层：Docling 主 + find_tables 副，稳定性优先"已确认（2026-10-20）
+状态：草案；决定编号拟为拆分 D49、Docling 抽取层 D50（已核实未被占用）；第 9 节"抽取层：Docling 主 + find_tables 副，稳定性优先"已确认（2026-10-20）
 日期：2026-10-20（review 修订 17:30；对齐 kb #29 / #30 修订 17:45，见第 11 节）
 相关：`layout-design-v1.md`（区域与类型）、`ocr-design-v1.md`（OCR）、`docling-eval-v1.md`（实测依据）
 
@@ -8,7 +8,7 @@
 
 kb-intake 是一个独立仓库里的单一组件，负责把“任意文件”变成“知识库可以读的标准入件包”。它只关心文件格式，不关心知识。
 
-- 输入：一个文件 + 一份声明
+- 输入：一个文件 + 一份声明（声明里显式写 `doc_id`；intake 只校验格式并用它给包命名，kb 导入时按自己的类型配置复算，对不上就拒收）
 - 输出：一个入件包（目录或 zip），带版本号的契约
 - 自带：Web UI、命令行、大模型 API 配置、本地状态
 - 不做：常驻进程、任务队列、服务间调用、写 Doris、写 kb 的 Postgres
@@ -126,7 +126,8 @@ UI 里有同样的配置页，可以测试连通性。
 
 ## 5. kb 侧改动
 
-- 新增 `pipeline/import_package.py`：校验契约 → 把入件包放到 `data/packages/` → 登记 document
+- 新增 `pipeline/import_package.py`：校验契约 → 复算 `doc_id`（`profiles.abbr(doc_type)` 等类型配置规则，含保留缩写校验），与声明不符则拒收 → 把入件包放到 `data/packages/` → 登记 document
+- `document.path` 改为指向 `data/packages/{doc_id}@{sha12}/working.pdf`（kb 实际读取的文件）；原生 PDF 时 working.pdf 与原件逐字节相同
 - `build.py` 的页文字、词坐标、表格改读 `pages.jsonl`、`layout.jsonl`、`tables.jsonl`
 - 表格：kb 保留 `structure` 计算（#30 的逻辑，用 profile 实体词），输入从“自己跑 find_tables + 词坐标”改为读 `tables.jsonl` 的单元格及框 + `layout.jsonl` 的全精度词坐标；字段映射写在一个适配层里。3b 之后同一个适配层接 Docling 产出的单元格
 - 建树读 `headings.jsonl` 作为骨架候选；建树和 `service/read.py` 的页面渲染改读 `working.pdf`
@@ -142,7 +143,7 @@ UI 里有同样的配置页，可以测试连通性。
 | 0 | 定基线：合并 kb 的 #26、#29、#30，在合并后的 main 上重建 6 份报告的 `data/jsonl` 与 layout，跑 31 题评测，打 tag `pre-intake-baseline` | 基线产物与评测结果存档；之后所有“逐字节不变”都对这个 tag |
 | 1 | 建仓库 FoFxjc/kb-intake；用 git filter-repo 带历史从基线搬出相关文件；写契约 v1 schema | `kb-intake check` 能跑 |
 | 2 | 流程 A（原生 PDF）跑通：对 6 份 OCBC 报告出包，先只用 find_tables（`regions.jsonl`、`headings.jsonl`、`docling.json` 可为空或缺省） | 包内页文字、页分类、词坐标、表格单元格与框，与基线产物逐项一致 |
-| 3 | kb 切到读包，删掉搬走的代码；`structure` 改读包 | 重建后 kb 的 JSONL 与基线逐字节一致；31 题评测与基线一致 |
+| 3 | kb 切到读包，删掉搬走的代码；`structure` 改读包 | 重建后 kb 的 4 类 JSONL 除 `document.path` 外与基线逐字节一致（`path` 的差异单独列出）；node_concept、observation、fact 与基线一致；31 题评测与基线一致 |
 | 3b | 接入 Docling：区域、表格主抽取、后处理、三重检查、标题候选（第 9 节） | 见 9.4 |
 | 4 | UI 4 个视图 + 配置页 | 浏览器里上传一份报告，下载到的包通过契约校验 |
 | 5 | 部署：Dockerfile（含 tesseract、rapidocr、Docling 模型权重）、`uv tool install` 两种方式 | 新机器一条命令起 UI，运行时不访问 Hugging Face |
@@ -231,3 +232,7 @@ UI 里有同样的配置页，可以测试连通性。
   - 边界：`tables_of()` 按“是否用到类型配置”切开；#30 的 `structure` 用 profile 实体词，留在 kb，改读包
   - 契约：坐标不再取 2 位小数，词坐标和单元格框保持全精度；每个单元格必须有 bbox
   - #29 的页分类随 `ingest.detect()` 搬到 intake
+- 2026-10-20 17:50 第 0–3 步开工前确认：
+  - `doc_id` 写在声明里，kb 导入时复算校验（`profiles.abbr` 属于类型配置，intake 不能 import）
+  - `document.path` 指向 working.pdf；第 3 步逐字节验收豁免这一个字段
+  - 编号：拆分 D49，Docling 抽取层 D50
