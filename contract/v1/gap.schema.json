@@ -1,0 +1,23 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://github.com/FoFxjc/kb-intake/contract/v1/gap.schema.json",
+ "title": "gaps.jsonl row",
+ "type": "object",
+ "properties": {
+  "code": {
+   "type": "string",
+   "pattern": "^[a-z][a-z0-9_]*$"
+  },
+  "page_no": {
+   "type": "integer",
+   "minimum": 1
+  },
+  "detail": {
+   "type": "string"
+  }
+ },
+ "required": [
+  "code"
+ ],
+ "additionalProperties": true
+}

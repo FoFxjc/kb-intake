@@ -1,0 +1,186 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://github.com/FoFxjc/kb-intake/contract/v1/manifest.schema.json",
+ "title": "Intake package manifest",
+ "type": "object",
+ "properties": {
+  "contract_version": {
+   "const": "1"
+  },
+  "package": {
+   "type": "string",
+   "pattern": "^[a-z0-9-]+_[a-z][a-z0-9_]*_\\d{4}_(en|zh)@[0-9a-f]{12}$"
+  },
+  "doc_id": {
+   "type": "string"
+  },
+  "declaration": {
+   "type": "object",
+   "required": [
+    "doc_id",
+    "issuer_id",
+    "doc_type",
+    "period_end",
+    "lang",
+    "source_url",
+    "completeness"
+   ],
+   "properties": {
+    "lang": {
+     "enum": [
+      "en",
+      "zh"
+     ]
+    },
+    "completeness": {
+     "type": "object",
+     "required": [
+      "full"
+     ],
+     "properties": {
+      "full": {
+       "type": "boolean"
+      }
+     }
+    }
+   }
+  },
+  "source": {
+   "type": "object",
+   "required": [
+    "filename",
+    "ext",
+    "media_type",
+    "sha256",
+    "bytes"
+   ],
+   "properties": {
+    "sha256": {
+     "type": "string",
+     "pattern": "^[0-9a-f]{64}$"
+    },
+    "bytes": {
+     "type": "integer",
+     "minimum": 0
+    }
+   }
+  },
+  "detection": {
+   "type": "object",
+   "required": [
+    "page_count",
+    "has_text_layer",
+    "detected_lang",
+    "lang_matches",
+    "page_label_method"
+   ],
+   "properties": {
+    "page_count": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "page_label_method": {
+     "type": "object",
+     "required": [
+      "method"
+     ],
+     "properties": {
+      "method": {
+       "enum": [
+        "page_labels",
+        "footer_offset",
+        "none"
+       ]
+      }
+     }
+    }
+   }
+  },
+  "flow": {
+   "enum": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F"
+   ]
+  },
+  "steps": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "step",
+     "tool",
+     "version",
+     "params"
+    ]
+   }
+  },
+  "files": {
+   "type": "object",
+   "additionalProperties": {
+    "type": "object",
+    "required": [
+     "sha256",
+     "bytes",
+     "rows"
+    ],
+    "properties": {
+     "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+     },
+     "rows": {
+      "type": [
+       "integer",
+       "null"
+      ]
+     }
+    }
+   }
+  },
+  "cross_checks": {
+   "type": "object"
+  },
+  "degraded": {
+   "type": "boolean"
+  },
+  "llm": {
+   "type": "object",
+   "required": [
+    "used"
+   ],
+   "properties": {
+    "used": {
+     "type": "boolean"
+    }
+   }
+  },
+  "kb_intake_version": {
+   "type": "string"
+  },
+  "run": {
+   "type": "object",
+   "description": "Only non-deterministic part of a package (timestamps, host)."
+  }
+ },
+ "required": [
+  "contract_version",
+  "package",
+  "doc_id",
+  "declaration",
+  "source",
+  "detection",
+  "flow",
+  "steps",
+  "files",
+  "cross_checks",
+  "degraded",
+  "llm",
+  "kb_intake_version",
+  "run"
+ ],
+ "additionalProperties": true
+}

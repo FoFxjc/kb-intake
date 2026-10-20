@@ -1,0 +1,117 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://github.com/FoFxjc/kb-intake/contract/v1/region.schema.json",
+ "title": "regions.jsonl row (layout-design §4)",
+ "type": "object",
+ "properties": {
+  "region_id": {
+   "type": "string"
+  },
+  "page_no": {
+   "type": "integer",
+   "minimum": 1
+  },
+  "bbox": {
+   "type": "array",
+   "items": {
+    "type": "number"
+   },
+   "minItems": 4,
+   "maxItems": 4
+  },
+  "type": {
+   "enum": [
+    "title",
+    "heading",
+    "text",
+    "list",
+    "caption",
+    "footnote",
+    "page_header",
+    "page_footer",
+    "page_number",
+    "toc",
+    "table",
+    "chart",
+    "diagram",
+    "picture",
+    "logo",
+    "icon",
+    "signature",
+    "stamp",
+    "screenshot",
+    "formula",
+    "unknown"
+   ]
+  },
+  "subtype": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "score": {
+   "type": [
+    "number",
+    "null"
+   ]
+  },
+  "type_source": {
+   "enum": [
+    "model",
+    "native",
+    "fused"
+   ]
+  },
+  "agree": {
+   "type": [
+    "boolean",
+    "null"
+   ]
+  },
+  "text_source": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "reading_order": {
+   "type": "integer"
+  },
+  "status": {
+   "enum": [
+    "kept",
+    "discarded",
+    "unhandled"
+   ]
+  },
+  "ref": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "layout_model": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "layout_version": {
+   "type": [
+    "string",
+    "null"
+   ]
+  }
+ },
+ "required": [
+  "region_id",
+  "page_no",
+  "bbox",
+  "type",
+  "type_source",
+  "reading_order",
+  "status"
+ ],
+ "additionalProperties": true
+}

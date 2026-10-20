@@ -1,0 +1,46 @@
+[project]
+name = "kb-intake"
+version = "0.1.0"
+description = "Turn any file into a standard intake package that the knowledge base can read (contract v1)"
+requires-python = "==3.12.*"
+dependencies = [
+    "jsonschema==4.23.0",
+    # Same version as kb's uv.lock: step 2 byte-equality with the kb baseline depends on it.
+    # Upgrading must pass the regression gate (intake-design §9.3).
+    "pymupdf==1.28.2",
+    "pyyaml==6.0.3",
+]
+
+[project.scripts]
+kb-intake = "kb_intake.cli:main"
+
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kb_intake"]
+# Ship the contract schemas inside the wheel so `kb-intake check` reads the same copy however it is installed
+[tool.hatch.build.targets.wheel.force-include]
+"contract" = "kb_intake/contract"
+
+[dependency-groups]
+dev = [
+    "import-linter==2.1",
+    "pillow==11.0.0",
+    "pytest==9.1.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# No imports across repos (D49): kb-intake never imports any kb package
+[tool.importlinter]
+root_packages = ["kb_intake"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "kb-intake does not import kb"
+type = "forbidden"
+source_modules = ["kb_intake"]
+forbidden_modules = ["pipeline", "service", "profiles", "domains", "scripts", "kb"]
