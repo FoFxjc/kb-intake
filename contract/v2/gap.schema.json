@@ -106,7 +106,7 @@
   },
   "reason": {
    "type": "string",
-   "title": "llm_failed: why (timeout, network, http_<status>, quota, rate_limit, refused, auth, bad_response, empty, invalid_table)"
+   "title": "llm_failed: why (timeout, network, http_<status>, quota, rate_limit, refused, auth, bad_response, empty, invalid_table, unavailable: the LLM was off or had no key when the approved workflow asked for it)"
   }
  },
  "required": [

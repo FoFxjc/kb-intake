@@ -333,12 +333,17 @@ def describe_regions(job_dir: Path, cfg: config.Config, wf: dict, regions: list[
     {"rows", "failed", "regions"}; nothing is called or written when the LLM or the use is off (the old rows of
     those regions are still dropped)."""
     runner = Runner(cfg, chat=chat, env=env)
+    wanted = [r for r in regions if r.get("handler") == "describe" and r.get("status") == "extracted"
+              and (only is None or r["region_id"] in only)]
     on = runner.enabled("describe", wf)
-    todo = [r for r in regions if r.get("handler") == "describe" and r.get("status") == "extracted"
-            and (only is None or r["region_id"] in only)] if on else []
+    todo = wanted if on else []
+    # asked for by the approved workflow, but the LLM is off or has no key now: a gap each, not silence (Peter,
+    # 2026-10-21); a use switched off in the configuration or the workflow is a choice, not a failure
+    unavailable = wanted if not runner.info["enabled"] and runner.llm.features.get("describe") \
+        and workflow.llm_switch(wf, "describe", True) else []
     keep = (lambda x: x["kind"] == "summary") if only is None else \
         (lambda x: x["kind"] == "summary" or x.get("region_id") not in only)
-    if not todo and not (job_dir / "llm").is_dir():
+    if not todo and not unavailable and not (job_dir / "llm").is_dir():
         return {"rows": 0, "failed": 0, "regions": 0}
     if progress and todo:
         progress("llm", "started", {"regions": len(todo)})
@@ -348,8 +353,9 @@ def describe_regions(job_dir: Path, cfg: config.Config, wf: dict, regions: list[
         rows, gaps = [r for r in rows_of(job_dir) if keep(r)], [g for g in gaps_of(job_dir) if keep(g)]
         for out in outs:
             (gaps if out.get("code") == "llm_failed" else rows).append(out)
+        gaps += [runner._gap("describe", r["page_no"], r["region_id"], "unavailable") for r in unavailable]
         _save(job_dir, rows, gaps, runner if todo else None)
-    done = {"rows": sum(1 for r in rows if r["kind"] != "summary"), "failed": runner.stats["failed"],
+    done = {"rows": sum(1 for r in rows if r["kind"] != "summary"), "failed": runner.stats["failed"] + len(unavailable),
             "regions": len(todo)}
     if progress and todo:
         progress("llm", "done", done)
@@ -361,7 +367,7 @@ def manifest_entry(job_dir: Path, cfg: config.Config) -> tuple[dict, dict | None
     from kb_intake.package import read_json
     rows, gaps = rows_of(job_dir), gaps_of(job_dir)
     run = job_dir / "llm" / "run.json"
-    if not rows and not gaps:
+    if not rows and all(g["reason"] == "unavailable" for g in gaps):    # nothing was sent: no call was made
         return {"used": False}, None
     counts = {k: sum(r["kind"] == k for r in rows) for k in PROMPTS}
     by_kind = read_json(run) if run.is_file() else {}

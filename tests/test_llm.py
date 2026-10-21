@@ -253,3 +253,47 @@ def test_chart_table_only_for_bar_line_and_pie_charts(tmp_path, page):
                           ("other", False), (None, False)):
         kinds = [c[0] for c in r.describe_inputs({**REGION, "subtype": subtype}, page, None)]
         assert ("chart_table" in kinds) is want, subtype
+
+
+def test_describe_asked_for_but_unavailable_is_a_gap_not_silence(tmp_path):
+    """Peter, 2026-10-21 (replaces stage L plan Review Focus 5): an approved workflow with `describe` regions,
+    extracted when the key is missing (or the LLM switched off in the configuration): each such region gets an
+    llm_failed gap `unavailable`; nothing is called."""
+    doc = pymupdf.open()
+    doc.new_page(width=595, height=842)
+    region = {**REGION, "handler": "describe", "status": "extracted"}
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    chat = Chat(RuntimeError("must not be called"))
+    off = dataclasses.replace(enabled_cfg(tmp_path), llm=dataclasses.replace(enabled_cfg(tmp_path).llm, enabled=False))
+    for cfg, env in ((enabled_cfg(tmp_path), {}), (off, ENV)):
+        done = llm.describe_regions(job_dir, cfg, {"handlers": {}}, [region], doc, chat=chat, env=env)
+        [gap] = llm.gaps_of(job_dir)
+        assert (gap["code"], gap["kind"], gap["reason"], gap["region_id"]) == \
+            ("llm_failed", "describe", "unavailable", REGION["region_id"])
+        assert contract.schema_errors("gap", gap, "gap") == [] and done["failed"] == 1 and not chat.calls
+
+
+def test_describe_switched_off_on_purpose_is_not_a_gap(tmp_path):
+    doc = pymupdf.open()
+    doc.new_page(width=595, height=842)
+    region = {**REGION, "handler": "describe", "status": "extracted"}
+    off = dataclasses.replace(enabled_cfg(tmp_path), llm=dataclasses.replace(
+        enabled_cfg(tmp_path).llm, features={"summary": True, "describe": False, "chart_table": False}))
+    for i, (cfg, wf) in enumerate(((enabled_cfg(tmp_path), {"handlers": {}, "llm": {"describe": False}}),
+                                   (off, {"handlers": {}}))):
+        job_dir = tmp_path / f"job-{i}"
+        job_dir.mkdir()
+        llm.describe_regions(job_dir, cfg, wf, [region], doc, chat=Chat(), env=ENV)
+        assert llm.gaps_of(job_dir) == [] and llm.rows_of(job_dir) == []
+
+
+def test_only_unavailable_gaps_mean_the_llm_was_not_used(tmp_path):
+    doc = pymupdf.open()
+    doc.new_page(width=595, height=842)
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    cfg = enabled_cfg(tmp_path)
+    llm.describe_regions(job_dir, cfg, {"handlers": {}}, [{**REGION, "handler": "describe", "status": "extracted"}],
+                         doc, chat=Chat(), env={})
+    assert llm.manifest_entry(job_dir, cfg) == ({"used": False}, None)

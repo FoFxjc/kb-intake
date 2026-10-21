@@ -58,7 +58,9 @@ def test_chart_table_when_switched_on_in_the_workflow(tmp_path, fake):
     assert [r["kind"] for r in read_jsonl(f.job.dir / "llm" / "llm.jsonl")] == ["describe"]
 
 
-def test_describe_without_llm_is_text(tmp_path, monkeypatch):
+def test_describe_without_llm_is_text_with_an_unavailable_gap(tmp_path, monkeypatch):
+    """Approved `describe`, no key at extraction: the region is extracted as text, an llm_failed gap `unavailable`
+    says the description was asked for and not made (Peter, 2026-10-21), and the LLM counts as not used."""
     monkeypatch.delenv("INTAKE_LLM_API_KEY", raising=False)
     plain = jobflow.in_review(tmp_path / "plain", chart=True)
     wf = workflow.parse(plain.jobs.workflow(plain.job.id)["text"])
@@ -66,10 +68,12 @@ def test_describe_without_llm_is_text(tmp_path, monkeypatch):
     f = jobflow.in_review(tmp_path / "d", chart=True, workflow_text=text)
     chart = chart_region(f)
     assert chart["handler"] == "describe" and chart["status"] == "extracted"
-    assert not (f.job.dir / "llm" / "llm.jsonl").is_file()
-    assert not [g for g in review.all_gaps(f.job.dir) if g["code"] == "llm_failed"]
+    assert llm.rows_of(f.job.dir) == []
+    [gap] = [g for g in review.all_gaps(f.job.dir) if g["code"] == "llm_failed"]
+    assert (gap["region_id"], gap["kind"], gap["reason"]) == (chart["region_id"], "describe", "unavailable")
     pkg = deliver.confirm(f.jobs, f.job.id, "anna", f.cfg)
     assert not (pkg / "llm.jsonl").exists()
+    assert any(json.loads(line)["code"] == "llm_failed" for line in (pkg / "gaps.jsonl").read_text().splitlines())
     assert json.loads((pkg / "manifest.json").read_text())["llm"] == {"used": False}
 
 
