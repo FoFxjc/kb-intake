@@ -12,6 +12,17 @@ export type Table = Schemas['Table'];
 export type Gap = Schemas['Gap'];
 export type Health = Schemas['Health'];
 export type CreateJobResult = Schemas['CreateJobResult'];
+export type RegionRow = Schemas['RegionRow'];
+export type RegionPage = Schemas['RegionPage'];
+export type Facets = Schemas['Facets'];
+export type Summary = Schemas['Summary'];
+export type Cluster = Schemas['Cluster'];
+export type QueueView = Schemas['QueueView'];
+export type QueueGroup = Schemas['QueueGroup'];
+export type QueueItem = Schemas['QueueItem'];
+export type LlmItem = Schemas['LlmItem'];
+export type ReviewRow = Schemas['ReviewRow'];
+export type ReviewOp = Schemas['ReviewBody']['ops'][number];
 
 /** An error answer of the API (status and the server's `detail`), or status 0 when the server is unreachable. */
 export class ApiError extends Error {
@@ -88,6 +99,9 @@ export function detailText(detail: unknown): string {
   return detail === undefined ? '' : String(detail);
 }
 
+export type RegionQuery = QueryParams<Op<'/v1/jobs/{job_id}/regions', 'get'>>;
+export type FacetQuery = QueryParams<Op<'/v1/jobs/{job_id}/facets', 'get'>>;
+
 export async function call<P extends keyof paths, M extends Method>(
   method: M,
   path: P,
@@ -145,6 +159,24 @@ export const api = {
     return call('post', '/v1/jobs', { body: form });
   },
   retry: (jobId: string) => call('post', '/v1/jobs/{job_id}/retry', { path: { job_id: jobId } }),
+  regions: (jobId: string, query: RegionQuery, signal?: AbortSignal) =>
+    call('get', '/v1/jobs/{job_id}/regions', { path: { job_id: jobId }, query, signal }),
+  facets: (jobId: string, query: FacetQuery, signal?: AbortSignal) =>
+    call('get', '/v1/jobs/{job_id}/facets', { path: { job_id: jobId }, query, signal }),
+  summary: (jobId: string, signal?: AbortSignal) =>
+    call('get', '/v1/jobs/{job_id}/summary', { path: { job_id: jobId }, signal }),
+  clusters: (jobId: string, signal?: AbortSignal) =>
+    call('get', '/v1/jobs/{job_id}/clusters', { path: { job_id: jobId }, signal }),
+  queue: (jobId: string, signal?: AbortSignal) => call('get', '/v1/jobs/{job_id}/queue', { path: { job_id: jobId }, signal }),
+  seen: (jobId: string, itemIds: string[]) =>
+    call('post', '/v1/jobs/{job_id}/queue/seen', { path: { job_id: jobId }, json: { item_ids: itemIds } }),
+  llm: (jobId: string, regionId: string, signal?: AbortSignal) =>
+    call('get', '/v1/jobs/{job_id}/llm', { path: { job_id: jobId }, query: { region_id: regionId }, signal }),
+  reviewOps: (jobId: string, signal?: AbortSignal) =>
+    call('get', '/v1/jobs/{job_id}/review', { path: { job_id: jobId }, signal }),
+  /** POST /review: every op of one user action in one call (all applied, or none with a 400). */
+  review: (jobId: string, by: string, ops: ReviewOp[]) =>
+    call('post', '/v1/jobs/{job_id}/review', { path: { job_id: jobId }, json: { by, ops } }),
 };
 
 /** The job's source file (HTTP Range), for pdf.js. */
