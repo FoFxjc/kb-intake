@@ -106,7 +106,7 @@ delivery/
 
 - 确认之前所有东西都在工作目录里。确认时先写到交付文件夹里的临时目录（`.tmp-…`），写完后整体改名为正式目录名，所以交付文件夹里出现的包一定是完整的
 - 坐标一律以左上角为原点，单位为 PDF 点，保留全精度
-- 同一份原文件、同一份 workflow、同样的人工操作，生成的包除 `manifest.run` 外逐字节相同
+- 同一份原文件、同一份 workflow、同样的人工操作，生成的包除 `manifest.run` 和人工操作的时间字段（`review.jsonl` 的 `at`、`workflow.json` 的批准时间、`manifest.status` 的确认时间）外逐字节相同
 - JSON Schema 在 `contract/v2/`；`kb-intake check <包>` 校验。契约以后只增不改
 
 ### 5.1 `source.pdf`
@@ -136,9 +136,9 @@ delivery/
 |---|---|
 | `region_id` | `{doc_id}:p{页号四位}:r{序号三位}`，按阅读顺序 |
 | `page_no`、`bbox` | 位置 |
-| `type`、`subtype` | layout-design §2 的类型；子类型来自图形分类器（如 `bar`、`line`、`pie`），没有为 null |
+| `type`、`subtype` | layout-design §2 的类型；版面模型只有 `picture` 一类图形，`chart` / `logo` / `icon` / `signature` / `stamp` / `diagram` 由图形分类器对 `picture` 改判得出（映射见 §5.11）；子类型如 `bar`、`line`、`pie`，没有为 null |
 | `score` | 类型置信度 |
-| `label_source` | `model` / `user` |
+| `label_source` | `model` / `user` / `native`（文字层有文字、但没有任何 Docling 区块覆盖，补成 `text` 区块） |
 | `layer` | `body` / `furniture`（页眉页脚等） |
 | `reading_order` | 全文档内的顺序 |
 | `text` | 按框从文字层取的文字；`discard` / `record` / `excluded` 时为 null |
@@ -168,10 +168,10 @@ delivery/
 
 | `code` | 含义 |
 |---|---|
-| `table_suspected` | find_tables 在一个非表格区块里找到了表（p106 那种），附 find_tables 的框 |
-| `low_confidence` | 区块类型置信度低于阈值 |
+| `table_suspected` | 疑似表格但没被当成表格：find_tables 在非表格区块里找到了表（p106 那种，附 find_tables 的框）；或图形分类器把一张图片判为表格（图片形式的表，需要 OCR，`source: classifier`） |
+| `low_confidence` | 版面置信度 < 0.5，或图形分类器最高分 < 0.5（阈值可配置） |
 | `table_words_unassigned` | 表格框里有词没有归到任何单元格 |
-| `table_unmatched` | 打标签时是表格的区块，抓取时没匹配到 TableFormer 的结果 |
+| `table_unmatched` | 两个阶段的表格对不上：打标签时是表格、抓取时没匹配到（`side: label`），或抓取时多出来的表（`side: extract`，不交付） |
 | `unhandled` | workflow 规定不处理的区块（含 `ocr` 未实现、`unknown`） |
 | `no_text_layer` | 页或区块没有文字层 |
 | `lang_mismatch` | 声明的语言与检测不符 |
@@ -183,8 +183,22 @@ delivery/
 ### 5.9 `review.jsonl`（一条人工操作一行）
 `action`（`reclassify` / `exclude` / `confirm`）、`region_id`、`from`、`to`、`by`、`at`、`note`
 
-### 5.10 `raw/docling.json`
-Docling 的原始输出（打标签阶段与抓取阶段各一份时都保留），只用于审计和复现，使用方不需要读。
+### 5.10 `raw/docling.json`、`raw/docling.extract.json`
+Docling 的原始输出：打标签阶段一份、抓取阶段一份。只用于审计和复现，使用方不需要读。
+
+### 5.11 图形分类器结果 → 区块类型
+
+| 分类器结果 | type / subtype |
+|---|---|
+| `bar_chart` / `line_chart` / `pie_chart` / `flow_chart` | chart / bar、line、pie、flow |
+| `geographical_map`、`topographical_map` | chart / map |
+| `scatter_plot`、`box_plot` | chart / other |
+| `logo`、`icon`、`signature`、`stamp` | 同名类型 |
+| `screenshot_*`、`engineering_drawing` | diagram |
+| `table` | picture，另记 `table_suspected`（`source: classifier`） |
+| 其余（`photograph`、`full_page_image` 等） | picture |
+
+“图片上压着足够多的原生文字就判为 diagram”的规则，只在分类结果是 picture 时生效。分类器模型 `docling-project/DocumentFigureClassifier-v2.5` 锁定到具体 commit，不用浮动的 `main`。
 
 ## 6. 界面与接口
 
@@ -240,3 +254,7 @@ kb-intake check   <包>
 | 续表合并、`context_above`、`value` / `nil`、标题层级与 profile、`headings.jsonl`、`tables_secondary.jsonl`、`working.pdf` | 删除（续表只保留提示） |
 | `scan` 一次跑完的流程 | 拆成 §2 的分步作业 |
 | UI 与 API | 按 §6 重排 |
+
+## 修订记录
+
+- 2026-10-21 开工前决定（Peter）：确定性比较豁免人工操作时间字段；图形分类器映射（§5.11），图片形式的表记 `table_suspected`；`label_source` 增加 `native`；`low_confidence` 阈值 0.5；抓取阶段多出来的表记 `table_unmatched`（`side: extract`）；抓取阶段原始输出存为 `raw/docling.extract.json`
