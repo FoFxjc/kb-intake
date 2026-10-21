@@ -36,7 +36,6 @@ REGION_TYPE = {
     "picture": "picture", "chart": "chart",
 }
 DISCARDED = {"picture", "logo", "icon"}
-NUMBER = re.compile(r"\(?[-+−]?\d[\d,]*(?:\.\d+)?\)?%?")
 NATIVE_TEXT_MIN, NATIVE_TEXT_DENSITY = 6, 100      # same thresholds as pages.py: picture with native text = diagram
 CONTINUED = re.compile(r"\(continued\)|\uff08\u7eed\uff09", re.I)
 
@@ -72,13 +71,19 @@ def _center_in(w, box, pad: float = 1.0) -> bool:
     return box[0] - pad <= cx <= box[2] + pad and box[1] - pad <= cy <= box[3] + pad
 
 
+_NUMBER_IN = re.compile(r"(?<![\w.,])\(?[-+\u2212\u2013]?\d[\d,]*(?:\.\d+)?\)?%?")
+_SIGNS = "+-\u2212\u2013"
+
+
 def numbers(text: str | None) -> list[str]:
-    """Number tokens of a text, normalised (no parentheses, percent sign or control characters)."""
+    """Number tokens of a text, normalised to the digits (no parentheses, sign, percent sign or control characters).
+    Found anywhere in the string, not by splitting on spaces, so a cell "2022 (1)" and a text-layer word "2022(1)" give
+    the same tokens. The sign is dropped like the parentheses: Docling writes a hyphen where the text layer has an
+    en dash or a minus sign ("-100" against "\u2013100"), and the check is that the text is there, not its sign."""
     out = []
-    for tok in (clean(text) or "").split():
-        tok = tok.strip(".,;:")
-        if NUMBER.fullmatch(tok) and any(ch.isdigit() for ch in tok):
-            out.append(tok.strip("()%").replace("−", "-").lstrip("+"))
+    for m in _NUMBER_IN.finditer(clean(text) or ""):
+        tok = m.group(0).rstrip(",")
+        out.append(tok.strip("()%").lstrip(_SIGNS))
     return out
 
 

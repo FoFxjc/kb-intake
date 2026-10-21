@@ -85,6 +85,9 @@ def test_boxes_match_by_iou_or_containment():
 def test_numbers_are_normalised():
     assert post.numbers("(1,234) 12.5% \x07 7,422 Net 2025:") == ["1,234", "12.5", "7,422", "2025"]
     assert post.numbers("- – n/a") == []
+    assert post.numbers("+100 basis points") == post.numbers("-100") == post.numbers("\u2013100") == ["100"]
+    assert post.numbers("\u606f\u5dee\u2013100") == post.numbers("\u606f\u5dee-100") == ["100"]   # CJK label + dash
+    assert post.numbers("2022(1)") == post.numbers("2022 (1)") == ["2022", "1"]
 
 
 def test_header_text_rule():
