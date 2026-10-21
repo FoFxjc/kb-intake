@@ -62,6 +62,23 @@ kb-intake check ./packages/<doc_id>@<sha12>                         # contract c
   subdirectories; `--replace` rebuilds packages that already exist.
 - `--out` defaults to `$INTAKE_PACKAGES_DIR`, else `./packages`.
 
+### Web UI and HTTP API
+
+```bash
+kb-intake serve --data ./intake-data --port 8700        # http://127.0.0.1:8700/
+```
+
+One process: the API of intake-design §3.2 and a static web UI (no build step). Submit uploaded PDFs or a directory
+on the same machine with a declaration; follow every step of every file (detection, text layer, find_tables,
+Docling with cache hits and engine time, post-processing and checks, package); review page by page (the page image
+with Docling's region boxes and types, table cell boxes coloured by `bbox_source`, find_tables grid and secondary
+candidates, words and heading candidates, and the page's gaps); list, check and download packages as zip; edit the
+configuration (validated before it is saved) and test the engine.
+
+Jobs run one at a time in a background thread of the server (no queue: a second submission while one runs gets
+409). State lives in the data directory: `intake.db` (SQLite: jobs, step events, results), `packages/`, `uploads/`,
+`intake.yaml`, and `cache/` unless the configuration sets `cache_dir`. The server listens on 127.0.0.1 by default.
+
 ### Declarations
 
 For one file, a plain mapping:

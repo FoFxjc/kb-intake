@@ -53,8 +53,8 @@ def packaged(out: Path) -> dict[str, str]:
 
 
 def scan(target: Path, decl_raw: dict | None, out: Path, config: Config | None = None, replace: bool = False,
-         recursive: bool = False, force: bool = False):
-    """Yield one result dict per file."""
+         recursive: bool = False, force: bool = False, progress=None):
+    """Yield one result dict per file. progress(file, step, status, info) reports the steps of each file."""
     root = target if target.is_dir() else None
     index = packaged(out)
     used_ids: dict[str, str] = {}
@@ -78,7 +78,8 @@ def scan(target: Path, decl_raw: dict | None, out: Path, config: Config | None =
                        "message": f"doc_id {decl['doc_id']!r} is already used by {used_ids[decl['doc_id']]} in this scan"}
                 continue
             used_ids[decl["doc_id"]] = rel
-            pkg = pipeline.process(path, decl, out, config, replace=replace, force=force)
+            pkg = pipeline.process(path, decl, out, config, replace=replace, force=force,
+                                   progress=(lambda s, st, i, rel=rel: progress(rel, s, st, i)) if progress else None)
             index[sha] = pkg.name
             yield {**result, "status": "ok", "package": pkg.name}
         except declaration.DeclarationError as e:

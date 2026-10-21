@@ -3,11 +3,15 @@
 accelerate==1.15.0
     # via docling-slim
 annotated-doc==0.0.5
-    # via typer
+    # via
+    #   fastapi
+    #   typer
 annotated-types==0.8.0
     # via pydantic
 anyio==4.15.1
-    # via httpx
+    # via
+    #   httpx
+    #   starlette
 attrs==26.1.0
     # via
     #   jsonschema
@@ -26,6 +30,7 @@ click==8.5.0
     # via
     #   huggingface-hub
     #   python-oxmsg
+    #   uvicorn
 colorama==0.4.6 ; sys_platform == 'win32'
     # via
     #   colorlog
@@ -68,6 +73,8 @@ et-xmlfile==2.0.0
     # via openpyxl
 faker==40.43.0
     # via polyfactory
+fastapi==0.128.0
+    # via kb-intake
 filelock==4.2.4
     # via
     #   huggingface-hub
@@ -79,7 +86,9 @@ fsspec==2026.9.0
     #   huggingface-hub
     #   torch
 h11==0.16.0
-    # via httpcore
+    # via
+    #   httpcore
+    #   uvicorn
 hf-xet==1.7.0 ; platform_machine == 'AMD64' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64'
     # via huggingface-hub
 httpcore==1.0.9
@@ -230,6 +239,7 @@ pydantic==2.14.1
     #   docling-core
     #   docling-parse
     #   docling-slim
+    #   fastapi
     #   pydantic-settings
 pydantic-core==2.50.1
     # via pydantic
@@ -255,6 +265,8 @@ python-dotenv==1.2.4
     # via
     #   docling-slim
     #   pydantic-settings
+python-multipart==0.0.20
+    # via kb-intake
 python-oxmsg==0.0.2
     # via docling-slim
 python-pptx==1.0.2
@@ -316,6 +328,8 @@ six==1.17.0
     #   rapidocr
 soupsieve==3.0.3
     # via beautifulsoup4
+starlette==0.50.0
+    # via fastapi
 sympy==1.14.0
     # via torch
 tabulate==0.10.0
@@ -368,6 +382,7 @@ typing-extensions==4.16.0
     #   anyio
     #   beautifulsoup4
     #   docling-core
+    #   fastapi
     #   huggingface-hub
     #   polyfactory
     #   pydantic
@@ -377,6 +392,7 @@ typing-extensions==4.16.0
     #   python-oxmsg
     #   python-pptx
     #   referencing
+    #   starlette
     #   torch
     #   typing-inspection
 typing-inspection==0.4.4
@@ -389,6 +405,8 @@ tzdata==2026.5 ; sys_platform == 'emscripten' or sys_platform == 'win32'
     #   pandas
 urllib3==2.8.0
     # via requests
+uvicorn==0.40.0
+    # via kb-intake
 websockets==16.1.1
     # via docling-slim
 xlsxwriter==3.2.9

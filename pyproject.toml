@@ -8,12 +8,15 @@ dependencies = [
     "docling-core==2.103.0",
     "docling-ibm-models==4.0.3",
     "docling-parse==7.22.3",
+    "fastapi==0.128.0",
     "huggingface-hub==1.33.0",
     "jsonschema==4.23.0",
     "packaging==26.3",
     # Upgrading must pass the regression gate (intake-design §9.3): 24 snapshot tables + determinism.
     "pymupdf==1.28.2",
+    "python-multipart==0.0.20",
     "pyyaml==6.0.3",
+    "uvicorn==0.40.0",
 ]
 
 [project.scripts]

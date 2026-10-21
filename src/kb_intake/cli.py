@@ -6,6 +6,7 @@
     kb-intake scan <file|dir> --decl d.yaml    one package per file into --out (default $INTAKE_PACKAGES_DIR or
                                                ./packages); already packaged files are skipped
     kb-intake check <package> ...              contract v1 check of packages (directories or zips)
+    kb-intake serve [--data DIR] [--port 8700] web UI + HTTP API; jobs run one at a time in this process
 
 stdout carries JSON only (one object per line); errors are JSON on stderr. Hugging Face is put offline for every
 command except `models download`, so nothing but that command can reach the network.
@@ -79,6 +80,17 @@ def _scan(args) -> int:
     return worst
 
 
+def _serve(args) -> int:
+    import uvicorn
+
+    from kb_intake.service.app import create_app
+    data = Path(args.data or os.environ.get("INTAKE_DATA_DIR") or "intake-data").expanduser()
+    print(json.dumps({"ok": True, "url": f"http://{args.host}:{args.port}/", "data": str(data.resolve())}),
+          flush=True)
+    uvicorn.run(create_app(data), host=args.host, port=args.port, log_level="warning")
+    return 0
+
+
 def _check(args) -> int:
     from kb_intake import contract
     worst = 0
@@ -116,6 +128,13 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--no-layout", action="store_true",
                    help="debugging: skip the layout engine; the package is the fully degraded one")
     s.set_defaults(fn=_scan)
+
+    v = sub.add_parser("serve", help="web UI and HTTP API")
+    v.add_argument("--data", help="data directory: packages, uploads, intake.db, intake.yaml, cache "
+                                  "(default: $INTAKE_DATA_DIR or ./intake-data)")
+    v.add_argument("--host", default="127.0.0.1")
+    v.add_argument("--port", type=int, default=8700)
+    v.set_defaults(fn=_serve)
 
     c = sub.add_parser("check", help="check packages (directory or zip) against contract v1")
     c.add_argument("package", nargs="+")

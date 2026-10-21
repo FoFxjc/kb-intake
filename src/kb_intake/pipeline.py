@@ -7,6 +7,9 @@ Failure isolation (§9.3.5, §9.3.6): the text layer is written whatever happens
 in a child process with a hard timeout; when it is not ready, times out, crashes, or post-processing fails, the file
 falls back to the find_tables tables (as without an engine) and the document gets one `extractor_degraded` gap.
 Pages the engine could not convert fall back the same way, page by page.
+
+`progress(step, status, info)` is called when a step starts ("running") and ends ("done"), for the run view of the
+web UI; it never changes the package.
 """
 
 import hashlib
@@ -27,13 +30,33 @@ from kb_intake.engines import LAYOUT
 from kb_intake.package import DATA_FILES, Builder, IntakeError, existing, name, write_jsonl
 
 
+def _quiet(step: str, status: str, info: dict | None = None) -> None:
+    pass
+
+
+class _Steps:
+    """Reports step boundaries with their durations to a progress callback."""
+
+    def __init__(self, progress):
+        self.progress, self.t = progress or _quiet, {}
+
+    def start(self, step: str, **info) -> None:
+        self.t[step] = time.monotonic()
+        self.progress(step, "running", info)
+
+    def done(self, step: str, **info) -> None:
+        ms = int((time.monotonic() - self.t.pop(step, time.monotonic())) * 1000)
+        self.progress(step, "done", {**info, "duration_ms": ms})
+
+
 def process(file: Path, decl: dict, out: Path, config: Config | None = None, replace: bool = False,
-            force: bool = False) -> Path:
+            force: bool = False, progress=None) -> Path:
     """Build the package of one file under `out`; return its directory.
 
     The same doc_id with the same file rewrites the package; the same doc_id with a different file is refused unless
     `replace`. `force` runs the layout engine although it is not ready (debugging only; recorded in the manifest)."""
     cfg = config or Config()
+    steps = _Steps(progress)
     started, t0 = datetime.now(timezone.utc), time.monotonic()
     decl = declaration.validate(decl)
     data = file.read_bytes()
@@ -47,6 +70,7 @@ def process(file: Path, decl: dict, out: Path, config: Config | None = None, rep
         raise IntakeError(f"{decl['doc_id']} already has a package from a different file: {others[0].name}")
 
     # 1 detection; an omitted lang is taken from the detection
+    steps.start("detect")
     detection, kinds = detect.detect_pdf(str(file), decl.get("lang"))
     labels = detection.pop("page_labels")
     filled = []
@@ -61,6 +85,8 @@ def process(file: Path, decl: dict, out: Path, config: Config | None = None, rep
         gaps.append({"code": "lang_mismatch", "declared": decl["lang"], "detected": detection["detected_lang"]})
     if "page_kinds_error" in detection:
         gaps.append({"code": "extractor_degraded", "extractor": "page_kinds", "detail": detection["page_kinds_error"]})
+    steps.done("detect", pages=detection["page_count"], flow=detect.FLOWS[kind], lang=decl["lang"],
+               page_kinds=detection.get("page_kinds"), has_text_layer=detection["has_text_layer"])
 
     b = Builder(out, pkg_name)
     try:
@@ -69,18 +95,24 @@ def process(file: Path, decl: dict, out: Path, config: Config | None = None, rep
         working.write_bytes(data)                      # a native PDF is its own working PDF
         with pymupdf.open(working) as pdf:
             # 2 text layer, 4 secondary tables
+            steps.start("text_layer")
             by_page = {k["page_no"]: k for k in kinds}
             pages_rows = [textlayer.page_record(p, i + 1, labels[i], by_page.get(i + 1)) for i, p in enumerate(pdf)]
             layout_rows = [textlayer.layout_record(p, i + 1) for i, p in enumerate(pdf)]
             words = {r["page_no"]: [w[:5] for w in r["words"]] for r in layout_rows}
+            steps.done("text_layer", words=sum(len(w) for w in words.values()))
+            steps.start("tables_secondary")
             ft_tables = []
             if cfg.secondary == "find_tables":
                 for i, page in enumerate(pdf):
                     t, g = secondary.tables_on(page, decl["doc_id"], i + 1, words[i + 1])
                     ft_tables += t
                     gaps += g
+            steps.done("tables_secondary", tables=len(ft_tables))
             # 3 layout engine, 5-7 post-processing and checks, heading candidates
-            layer = _extraction(pdf, working, b.dir, decl["doc_id"], sha, cfg, force, ft_tables, words, pages_rows)
+            layer = _extraction(pdf, working, b.dir, decl["doc_id"], sha, cfg, force, ft_tables, words, pages_rows,
+                                steps)
+        steps.start("package")
         gaps += layer["gaps"]
         counts = {"pages.jsonl": write_jsonl(b.dir / "pages.jsonl", pages_rows),
                   "layout.jsonl": write_jsonl(b.dir / "layout.jsonl", layout_rows),
@@ -121,19 +153,23 @@ def process(file: Path, decl: dict, out: Path, config: Config | None = None, rep
         manifest["run"] = {"started_at": started.isoformat(), "finished_at": datetime.now(timezone.utc).isoformat(),
                            "duration_ms": int((time.monotonic() - t0) * 1000), "python": sys.version.split()[0],
                            "platform": platform.platform(), "layout": layer["run"]}
-        return b.finish(manifest, others if replace else [])
+        final = b.finish(manifest, others if replace else [])
+        steps.done("package", package=pkg_name, degraded=manifest["degraded"])
+        return final
     finally:
         b.close()
 
 
 def _extraction(pdf, working: Path, pkg_dir: Path, doc_id: str, sha: str, cfg: Config, force: bool,
-                ft_tables: list[dict], words: dict, pages_rows: list[dict]) -> dict:
+                ft_tables: list[dict], words: dict, pages_rows: list[dict], steps: _Steps | None = None) -> dict:
     """Layout engine + post-processing + checks + headings. Never raises for an engine, runner, cache or
     post-processing failure: those degrade to the find_tables tables, as without an engine."""
     engine = LAYOUT[cfg.primary](models_dir=cfg.models_dir, params=cfg.docling)
     pins = models.pins()
     layout_model, layout_version = pins[0]["repo_id"], pins[0]["revision"]
+    steps = steps or _Steps(None)
     info = None
+    steps.start("layout", engine=cfg.primary)
     outcome = runner.Outcome("disabled", None, None, False, None, errors=["layout engine disabled (--no-layout)"])
     if cfg.layout_enabled:
         try:
@@ -141,6 +177,9 @@ def _extraction(pdf, working: Path, pkg_dir: Path, doc_id: str, sha: str, cfg: C
             outcome = runner.run(engine, working, sha, cfg.cache_dir, cfg.docling.wall_timeout, info, force)
         except Exception as e:  # noqa: BLE001 - the engine or its runner failed before producing output
             outcome = runner.Outcome("error", None, None, False, None, errors=[f"{type(e).__name__}: {e}"[:500]])
+    steps.done("layout", status=outcome.status, cached=outcome.cached, seconds=outcome.seconds,
+               failed_pages=outcome.failed_pages, errors=outcome.errors[:3])
+    steps.start("postprocess")
     all_pages = set(range(1, len(pdf) + 1))
     lines = headings.lines(pdf)
     profiles = headings.load_profiles(cfg.font_profiles)
@@ -171,6 +210,7 @@ def _extraction(pdf, working: Path, pkg_dir: Path, doc_id: str, sha: str, cfg: C
         for p in pages_rows:
             c = outcome.page_confidence.get(str(p["page_no"]))
             p["docling_confidence"] = c["grade"] if c else None
+    steps.done("postprocess", engine_pages=len(covered), postprocess_error=post_error, summary=layer["summary"])
     if covered != all_pages:
         layer["gaps"].insert(0, {"code": "extractor_degraded", "extractor": cfg.primary, "status": outcome.status,
                                  "pages": "all" if not covered else sorted(all_pages - covered),
