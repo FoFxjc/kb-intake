@@ -447,3 +447,22 @@ def test_queue_and_seen(p106, svc):
     assert svc.get(f"/v1/jobs/{planned}/queue").json() == {"total": 0, "done": 0, "groups": []}
     assert svc.post(f"/v1/jobs/{planned}/queue/seen", json={"item_ids": []}).status_code == 409
     assert svc.get(f"/v1/jobs/{unlabelled_job(svc)}/queue").status_code == 409
+
+
+def test_ack_through_the_api_gaps_resolved_and_review_list(p106):
+    c, job_id = p106, p106.job_id
+    item = c.get(f"/v1/jobs/{job_id}/queue").json()["groups"][0]["items"][0]
+    r = c.post(f"/v1/jobs/{job_id}/review", json={"by": "peter", "ops": [
+        {"action": "ack", "item_id": item["item_id"], "verdict": "wrong", "note": "an aligned list"}]})
+    assert r.status_code == 200, r.text
+    assert r.json()["applied"][0]["target"] == item["target"] and r.json()["applied"][0]["verdict"] == "wrong"
+    gaps = c.get(f"/v1/jobs/{job_id}/gaps").json()["gaps"]
+    sus = next(g for g in gaps if g["code"] == "table_suspected")
+    assert sus["resolved"] == {"action": "ack", "review_seq": 1} and sus["stage"] == "label"
+    ops = c.get(f"/v1/jobs/{job_id}/review").json()["ops"]
+    assert [o["action"] for o in ops] == ["ack"] and ops[0]["by"] == "peter"
+    q = c.get(f"/v1/jobs/{job_id}/queue").json()
+    assert q["done"] == 1 and q["groups"][0]["items"][0]["status"] == "resolved"
+    again = c.post(f"/v1/jobs/{job_id}/review", json={"by": "peter", "ops": [
+        {"action": "ack", "item_id": item["item_id"]}]})
+    assert again.status_code == 400 and "resolved" in again.json()["detail"]

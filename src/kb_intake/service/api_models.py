@@ -86,6 +86,14 @@ class Resolution(BaseModel):
     review_seq: int
 
 
+class Target(BaseModel):
+    kind: Literal["gap", "hint", "llm"]
+    code: str | None
+    page_no: int | None
+    region_id: str | None
+    table_id: str | None
+
+
 class Gap(Open):
     code: str
     page_no: int | None
@@ -105,6 +113,13 @@ class ReviewRow(Open):
     by: str
     at: str
     note: str | None
+    target: Target | None = Field(None, description="ack rows: the queue item answered")
+    verdict: Literal["ok", "wrong"] | None = Field(None, description="ack rows: the reviewer's verdict")
+
+
+class ReviewOps(BaseModel):
+    ops: list[ReviewRow] = Field(description="the review operations so far, in order (review.jsonl without the final "
+                                             "confirm row)")
 
 
 # ---------- jobs ----------
@@ -317,9 +332,16 @@ class ExcludeOp(BaseModel):
     note: str | None = None
 
 
+class AckOp(BaseModel):
+    action: Literal["ack"]
+    item_id: str = Field(description="a queue item (GET /queue)")
+    verdict: Literal["ok", "wrong"] = "ok"
+    note: str | None = None
+
+
 class ReviewBody(BaseModel):
     by: str
-    ops: list[ReclassifyOp | ExcludeOp]
+    ops: list[ReclassifyOp | ExcludeOp | AckOp]
 
 
 class ConfirmBody(BaseModel):
@@ -389,14 +411,6 @@ class ClusterList(BaseModel):
 
 
 # ---------- review queue (intake-ui-llm-design-v1 §3.1, §3.4) ----------
-
-class Target(BaseModel):
-    kind: Literal["gap", "hint", "llm"]
-    code: str | None
-    page_no: int | None
-    region_id: str | None
-    table_id: str | None
-
 
 class QueueItem(BaseModel):
     item_id: str = Field(description="stable across review; pass to the `ack` op and to /queue/seen")

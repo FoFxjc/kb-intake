@@ -314,3 +314,73 @@ def test_reclassify_to_or_from_a_page_header_moves_the_layer(tmp_path):
     assert region_of(j.job, rid(1, 2))["layer"] == "furniture"
     review.apply(j.jobs, j.job.id, [{"action": "reclassify", "region_id": rid(1, 2), "to": "text"}], "peter", j.cfg)
     assert region_of(j.job, rid(1, 2))["layer"] == "body"
+
+
+# ---------- ack (intake-ui-llm-design-v1 §3.4) ----------
+
+SUSPECTED = f"gap:table_suspected:2:{rid(2, 3)}"
+
+
+def work_digest(job):
+    import hashlib
+    return {p.relative_to(job.dir).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted(job.dir.rglob("*.json*")) if p.parts[-2] in ("extract", "label")}
+
+
+def test_ack_resolves_gap_and_records_target(tmp_path):
+    f = in_review(tmp_path, p106_split=True)
+    before = work_digest(f.job)
+    [row] = review.apply(f.jobs, f.job.id, [{"action": "ack", "item_id": SUSPECTED, "note": "kept as text"}], "peter",
+                         f.cfg)
+    assert {k: row[k] for k in ("action", "region_id", "from", "to", "by", "note", "verdict")} == \
+        {"action": "ack", "region_id": rid(2, 3), "from": None, "to": None, "by": "peter", "note": "kept as text",
+         "verdict": "ok"}
+    assert row["target"] == {"kind": "gap", "code": "table_suspected", "page_no": 2, "region_id": rid(2, 3),
+                             "table_id": None}
+    assert contract.schema_errors("review", row, "row") == []
+    gap = next(g for g in review.all_gaps(f.job.dir) if g["code"] == "table_suspected")
+    assert gap["resolved"] == {"action": "ack", "review_seq": 1}
+    assert contract.schema_errors("gap", gap, "gap") == []
+    assert work_digest(f.job) == before                     # only review/resolved.jsonl changed
+
+
+def test_ack_wrong_verdict_on_hint_changes_no_file(tmp_path):
+    from kb_intake import queue
+    f = in_review(tmp_path, p106_split=True)
+    p = f.job.dir / "extract" / "tables.jsonl"
+    tables = read_jsonl(p)
+    tables[0]["continued_hint"] = {"table_id": "demo-ar-2025-en:t0000_01", "reason": "same_first_row"}
+    write_jsonl(p, tables)
+    hint = f"hint:{tables[0]['region_id']}"
+    before = work_digest(f.job)
+    [row] = review.apply(f.jobs, f.job.id, [{"action": "ack", "item_id": hint, "verdict": "wrong"}], "peter", f.cfg)
+    assert row["verdict"] == "wrong" and row["target"]["kind"] == "hint"
+    assert work_digest(f.job) == before
+    assert read_jsonl(p)[0]["continued_hint"]["reason"] == "same_first_row"      # the hint stays; review records
+    item = next(i for i in queue.items(f.jobs, f.job.id) if i["item_id"] == hint)
+    assert item["status"] == "resolved" and item["resolution"] == {"action": "ack", "review_seq": 1}
+
+
+@pytest.mark.parametrize("ops", [
+    [{"action": "ack", "item_id": "gap:nope:1:-"}],
+    [{"action": "ack", "item_id": SUSPECTED}, {"action": "ack", "item_id": SUSPECTED}],
+    [{"action": "ack", "item_id": SUSPECTED}, {"action": "exclude", "region_id": rid(2, 3)}],
+    [{"action": "exclude", "region_id": rid(2, 3)}, {"action": "ack", "item_id": SUSPECTED}],
+    [{"action": "ack", "item_id": SUSPECTED, "verdict": "maybe"}],
+    [{"action": "ack", "item_id": SUSPECTED, "region_id": rid(2, 3)}],
+    [{"action": "ack"}],
+])
+def test_ack_refusals_apply_nothing(tmp_path, ops):
+    f = in_review(tmp_path, p106_split=True)
+    before = work_digest(f.job)
+    with pytest.raises(review.ReviewError):
+        review.apply(f.jobs, f.job.id, ops, "peter", f.cfg)
+    assert f.jobs.ops(f.job.id) == [] and work_digest(f.job) == before
+
+
+def test_ack_of_a_resolved_item_is_refused(tmp_path):
+    f = in_review(tmp_path, p106_split=True)
+    review.apply(f.jobs, f.job.id, [{"action": "ack", "item_id": SUSPECTED}], "peter", f.cfg)
+    with pytest.raises(review.ReviewError, match="resolved"):
+        review.apply(f.jobs, f.job.id, [{"action": "ack", "item_id": SUSPECTED}], "peter", f.cfg)
+    assert len(f.jobs.ops(f.job.id)) == 1

@@ -277,3 +277,28 @@ def test_a_delivered_file_cannot_start_a_new_job(tmp_path):
     other = Jobs(tmp_path / "other-work")                                 # another work dir, same delivery folder
     with pytest.raises(AlreadyDelivered):
         other.create(f.src, dict(f.job.declaration), f.cfg.delivery_dir)
+
+
+def test_delivery_accepts_ack_rows(tmp_path):
+    f = in_review(tmp_path, p106_split=True)
+    review.apply(f.jobs, f.job.id, [{"action": "ack", "item_id": f"gap:table_suspected:2:{rid(2, 3)}",
+                                     "verdict": "ok"}], "peter", f.cfg)
+    review.apply(f.jobs, f.job.id, [{"action": "exclude", "region_id": rid(1, 2)}], "peter", f.cfg)
+    pkg = deliver.confirm(f.jobs, f.job.id, "anna", f.cfg)
+    assert contract.check(pkg)["ok"], contract.check(pkg)["errors"]
+    rows = read_jsonl(pkg / "review.jsonl")
+    assert [r["action"] for r in rows] == ["ack", "exclude", "confirm"]
+    gap = next(g for g in read_jsonl(pkg / "gaps.jsonl") if g["code"] == "table_suspected")
+    assert gap["resolved"] == {"action": "ack", "review_seq": 1}
+
+
+def test_check_review_ignores_ack_for_the_last_op_and_checks_its_gap():
+    regions = [{"region_id": "a", "type": "text", "label_source": "user", "status": "extracted"}]
+    target = {"kind": "gap", "code": "low_confidence", "page_no": 1, "region_id": "a", "table_id": None}
+    ops = [{"action": "reclassify", "region_id": "a", "to": "table"},
+           {"action": "ack", "region_id": "a", "target": target}]
+    gaps = [{"code": "low_confidence", "page_no": 1, "region_id": "a", "resolved": {"action": "ack", "review_seq": 2}}]
+    assert deliver.check_review(ops, regions, gaps) == ["a was reclassified to table, but is text (user)"]
+    assert deliver.check_review(ops[1:], regions, gaps) == []
+    assert deliver.check_review(ops[1:], regions, [{**gaps[0], "resolved": None}]) == \
+        ["ack 1 of gap low_confidence on a: the gap is not resolved"]

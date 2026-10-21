@@ -3,7 +3,13 @@ region is extracted again with the workflow handler of its new type. Content is 
 source.
 
     apply(jobs, job_id, [{"action": "reclassify", "region_id", "to", "note"?},
-                         {"action": "exclude", "region_id", "note"?}], by, cfg)
+                         {"action": "exclude", "region_id", "note"?},
+                         {"action": "ack", "item_id", "verdict"?: "ok" | "wrong", "note"?}], by, cfg)
+
+- Ack (intake-ui-llm-design-v1 §3.4): the reviewer looked at a queue item (kb_intake.queue) and changes nothing.
+  The row records the item as `target` and the `verdict`; a gap item gets `resolved: {action: ack}`. Refused for an
+  unknown or already resolved item, twice in a call, or with a reclassify / exclude of the item's region in the same
+  call.
 
 - All or nothing per call: every op is validated against the current regions before any is applied; one bad op
   (unknown action, key, region or type; the region's current type; a region already excluded, by review or by the
@@ -33,6 +39,7 @@ or delivery of a job at a time, across the CLI and the server (confirmation is B
 stored in the job store just before the files are replaced; a crash between the two is not replayed.
 """
 
+from contextlib import nullcontext
 from pathlib import Path
 
 from kb_intake import extract, textlayer, workflow
@@ -41,7 +48,10 @@ from kb_intake.jobs import Jobs, WrongState, now
 from kb_intake.package import read_json, read_jsonl, write_json, write_jsonl
 from kb_intake.vocab import REGION_TYPES
 
-ACTIONS = {"reclassify": {"action", "region_id", "to", "note"}, "exclude": {"action", "region_id", "note"}}
+ACTIONS = {"reclassify": {"action", "region_id", "to", "note"}, "exclude": {"action", "region_id", "note"},
+           "ack": {"action", "item_id", "verdict", "note"}}
+REGION_ACTIONS = ("reclassify", "exclude")
+VERDICTS = ("ok", "wrong")
 POST_EXTRACT = ("extracted", "in_review", "confirmed", "delivered")
 
 
@@ -76,12 +86,12 @@ def all_gaps(job_dir: Path, state: dict | None = None) -> list[dict]:
 
 # ---------- validation ----------
 
-def _validate(ops, by, regions: dict[str, dict]) -> None:
+def _validate(ops, by, regions: dict[str, dict], items: dict[str, dict]) -> None:
     if not isinstance(by, str) or not by.strip():
         raise ReviewError("review needs a name (by)")
     if not isinstance(ops, list) or not ops:
         raise ReviewError("review needs a non-empty list of ops")
-    seen = set()
+    seen, acked = set(), {}
     for i, op in enumerate(ops, 1):
         where = f"op {i}"
         if not isinstance(op, dict):
@@ -96,6 +106,18 @@ def _validate(ops, by, regions: dict[str, dict]) -> None:
         note = op.get("note")
         if note is not None and not isinstance(note, str):
             raise ReviewError(f"{where}: note must be a string")
+        if action == "ack":
+            iid = op.get("item_id")
+            if not isinstance(iid, str) or iid not in items:
+                raise ReviewError(f"{where}: unknown queue item {iid!r}")
+            if iid in acked:
+                raise ReviewError(f"{where}: item {iid} appears more than once in this call")
+            if items[iid]["status"] == "resolved":
+                raise ReviewError(f"{where}: item {iid} is already resolved")
+            if op.get("verdict", "ok") not in VERDICTS:
+                raise ReviewError(f"{where}: verdict must be one of {list(VERDICTS)}")
+            acked[iid] = where
+            continue
         rid = op.get("region_id")
         if not isinstance(rid, str) or rid not in regions:
             raise ReviewError(f"{where}: unknown region {rid!r}")
@@ -114,6 +136,10 @@ def _validate(ops, by, regions: dict[str, dict]) -> None:
                 raise ReviewError(f"{where}: unknown region type {to!r} (known: {list(REGION_TYPES)})")
             if to == region["type"]:
                 raise ReviewError(f"{where}: region {rid} already has type {to}")
+    for iid, where in acked.items():         # an ack answers the item as it is; a change in the same call moves it
+        if items[iid]["region_id"] in seen:
+            raise ReviewError(f"{where}: region {items[iid]['region_id']} of item {iid} is also changed in this call; "
+                              "ack it in a call of its own")
 
 
 # ---------- apply ----------
@@ -124,12 +150,16 @@ def apply(jobs: Jobs, job_id: str, ops: list[dict], by: str, cfg: Config) -> lis
     job = jobs.get(job_id)
     if job.status != "in_review":
         raise WrongState(f"job {job_id} is {job.status}; review needs in_review")
-    _validate(ops, by, {r["region_id"]: r for r in current(job.dir)["regions"]})    # bad input is not a failed step
+    from kb_intake import queue                   # queue reads review's state
+    _validate(ops, by, {r["region_id"]: r for r in current(job.dir)["regions"]},     # bad input is not a failed step
+              {i["item_id"]: i for i in queue.items(jobs, job_id)})
     # The job store's step lock: one review, extract or delivery of a job at a time, across processes.
     with jobs.running(job_id, "review") as job:
         state = current(job.dir)
         regions = {r["region_id"]: r for r in state["regions"]}
-        _validate(ops, by, regions)
+        items = {i["item_id"]: i for i in queue.items(jobs, job_id)}
+        _validate(ops, by, regions, items)
+        touches_regions = any(op["action"] in REGION_ACTIONS for op in ops)
         (job.dir / "review").mkdir(exist_ok=True)
         label = {r["region_id"]: r for r in read_jsonl(job.dir / "label" / "regions.jsonl")}
         label_gaps = read_jsonl(job.dir / "label" / "gaps.jsonl")
@@ -139,8 +169,8 @@ def apply(jobs: Jobs, job_id: str, ops: list[dict], by: str, cfg: Config) -> lis
 
         new_regions, tables = dict(regions), {t["region_id"]: t for t in state["tables"]}
         changed, review_gaps, records = set(), [], []
-        with extract.Context.load(jobs, job_id) as ctx:
-            wf = extract.load_workflow(jobs, job)
+        with extract.Context.load(jobs, job_id) if touches_regions else nullcontext() as ctx:
+            wf = extract.load_workflow(jobs, job) if touches_regions else None
 
             def redo(src: dict) -> None:
                 rid = src["region_id"]
@@ -153,7 +183,17 @@ def apply(jobs: Jobs, job_id: str, ops: list[dict], by: str, cfg: Config) -> lis
                 changed.add(rid)
 
             for i, op in enumerate(ops):
-                rid, seq = op["region_id"], seq0 + i + 1
+                seq = seq0 + i + 1
+                if op["action"] == "ack":
+                    item = items[op["item_id"]]
+                    if item["kind"] == "gap":
+                        resolved.append({"code": item["code"], "page_no": item["page_no"],
+                                         "region_id": item["region_id"], "resolved": {"action": "ack", "review_seq": seq}})
+                    records.append({"action": "ack", "region_id": item["region_id"], "from": None, "to": None, "by": by,
+                                    "at": now(), "note": op.get("note"), "target": item["target"],
+                                    "verdict": op.get("verdict", "ok")})
+                    continue
+                rid = op["region_id"]
                 old = regions[rid]
                 changed.add(rid)
                 tables.pop(rid, None)
@@ -210,11 +250,12 @@ def apply(jobs: Jobs, job_id: str, ops: list[dict], by: str, cfg: Config) -> lis
         # files. Nothing replays them, but delivery refuses a package whose regions do not match the review record
         # (deliver.check_review).
         jobs.add_ops(job_id, records, op="review")
-        write_jsonl(job.dir / "extract" / "regions.jsonl", rows)
-        write_jsonl(job.dir / "extract" / "tables.jsonl", out_tables)
-        write_jsonl(job.dir / "extract" / "gaps.jsonl", extract_gaps)
-        write_jsonl(job.dir / "review" / "gaps.jsonl", review_gaps)
-        write_json(job.dir / "review" / "absorbed.json", dict(sorted(absorbed.items())))
+        if touches_regions:                       # ack ops change no region, table or gap file
+            write_jsonl(job.dir / "extract" / "regions.jsonl", rows)
+            write_jsonl(job.dir / "extract" / "tables.jsonl", out_tables)
+            write_jsonl(job.dir / "extract" / "gaps.jsonl", extract_gaps)
+            write_jsonl(job.dir / "review" / "gaps.jsonl", review_gaps)
+            write_json(job.dir / "review" / "absorbed.json", dict(sorted(absorbed.items())))
         write_jsonl(job.dir / "review" / "resolved.jsonl", resolved)
     jobs.event(job_id, "review", "applied", {"ops": len(records), "by": by})
     return records

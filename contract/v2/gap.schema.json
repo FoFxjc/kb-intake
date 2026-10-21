@@ -80,7 +80,8 @@
     "action": {
      "enum": [
       "reclassify",
-      "exclude"
+      "exclude",
+      "ack"
      ]
     },
     "review_seq": {

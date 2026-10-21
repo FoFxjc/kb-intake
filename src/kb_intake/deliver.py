@@ -101,12 +101,13 @@ def _own_package(final: Path, job: Job) -> bool:
 
 # ---------- the package ----------
 
-def check_review(ops: list[dict], regions: list[dict]) -> list[str]:
-    """Where the regions do not show what the review record says (the last op on each region wins): a reclassified
-    region must have the new type and label_source "user", an excluded one status "excluded". Guards the known crash
-    window of review.apply (ops recorded, work files not all replaced)."""
+def check_review(ops: list[dict], regions: list[dict], gaps: list[dict] | None = None) -> list[str]:
+    """Where the package does not show what the review record says. The last reclassify or exclude on each region
+    wins: a reclassified region must have the new type and label_source "user", an excluded one status "excluded".
+    An ack of a gap needs that gap resolved (when `gaps` is given). Guards the known crash window of review.apply
+    (ops recorded, work files not all replaced)."""
     by_id = {r["region_id"]: r for r in regions}
-    last = {op["region_id"]: op for op in ops if op.get("region_id")}
+    last = {op["region_id"]: op for op in ops if op.get("region_id") and op["action"] in ("reclassify", "exclude")}
     errors = []
     for rid, op in sorted(last.items()):
         r = by_id.get(rid)
@@ -116,6 +117,15 @@ def check_review(ops: list[dict], regions: list[dict]) -> list[str]:
             errors.append(f"{rid} was reclassified to {op['to']}, but is {r['type']} ({r['label_source']})")
         elif op["action"] == "exclude" and r["status"] != "excluded":
             errors.append(f"{rid} was excluded, but its status is {r['status']}")
+    for seq, op in enumerate(ops, 1):
+        t = op.get("target") or {}
+        if gaps is None or op["action"] != "ack" or t.get("kind") != "gap":
+            continue
+        same = [g for g in gaps if (g["code"], g["page_no"], g.get("region_id")) == (t["code"], t["page_no"],
+                                                                                     t["region_id"])]
+        if not any(g.get("resolved") for g in same):
+            where = t["region_id"] or t["table_id"] or f"page {t['page_no']}"
+            errors.append(f"ack {seq} of gap {t['code']} on {where}: the gap is not resolved")
     return errors
 
 
@@ -144,7 +154,7 @@ def _build(jobs: Jobs, job: Job, pkg: Path, t0: float) -> None:
     pages = [{**p, "excluded": p["page_no"] in excluded} for p in read_jsonl(d / "label" / "pages.jsonl")]
     state = review.current(d)
     regions, tables, gaps = state["regions"], state["tables"], review.all_gaps(d, state)
-    mismatch = check_review(jobs.ops(job.id), regions)
+    mismatch = check_review(jobs.ops(job.id), regions, gaps)
     if mismatch:
         raise DeliveryError("the work files do not match the review record (a review was interrupted?): "
                             + "; ".join(mismatch[:5]))

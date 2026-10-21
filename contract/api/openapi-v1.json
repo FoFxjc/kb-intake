@@ -1,6 +1,47 @@
 {
   "components": {
     "schemas": {
+      "AckOp": {
+        "properties": {
+          "action": {
+            "const": "ack",
+            "title": "Action",
+            "type": "string"
+          },
+          "item_id": {
+            "description": "a queue item (GET /queue)",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Note"
+          },
+          "verdict": {
+            "default": "ok",
+            "enum": [
+              "ok",
+              "wrong"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "item_id"
+        ],
+        "title": "AckOp",
+        "type": "object"
+      },
       "ApproveBody": {
         "properties": {
           "by": {
@@ -1918,6 +1959,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/ExcludeOp"
+                },
+                {
+                  "$ref": "#/components/schemas/AckOp"
                 }
               ]
             },
@@ -1930,6 +1974,23 @@
           "ops"
         ],
         "title": "ReviewBody",
+        "type": "object"
+      },
+      "ReviewOps": {
+        "properties": {
+          "ops": {
+            "description": "the review operations so far, in order (review.jsonl without the final confirm row)",
+            "items": {
+              "$ref": "#/components/schemas/ReviewRow"
+            },
+            "title": "Ops",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ops"
+        ],
+        "title": "ReviewOps",
         "type": "object"
       },
       "ReviewResult": {
@@ -2002,6 +2063,17 @@
             ],
             "title": "Region Id"
           },
+          "target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Target"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ack rows: the queue item answered"
+          },
           "to": {
             "anyOf": [
               {
@@ -2012,6 +2084,22 @@
               }
             ],
             "title": "To"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ok",
+                  "wrong"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ack rows: the reviewer's verdict",
+            "title": "Verdict"
           }
         },
         "required": [
@@ -3630,6 +3718,53 @@
       }
     },
     "/v1/jobs/{job_id}/review": {
+      "get": {
+        "operationId": "review_list_v1_jobs__job_id__review_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewOps"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Review List"
+      },
       "post": {
         "operationId": "review_ops_v1_jobs__job_id__review_post",
         "parameters": [

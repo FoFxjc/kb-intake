@@ -6,7 +6,8 @@ The API is frozen in contract/api/openapi-v1.json (kb_intake.service.openapi_sna
     GET  /v1/jobs                       jobs, newest first
     GET  /v1/jobs/{id}                  the job, its label stats, extract run summary and recent events
     GET  /v1/jobs/{id}/events?after=n   progress events after seq n
-    GET  /v1/jobs/{id}/gaps             label, extract and review gaps of the work directory (each with `stage`)
+    GET  /v1/jobs/{id}/gaps             label, extract and review gaps of the work directory (each with `stage`, and
+                                        `resolved` when review dealt with it)
     GET  /v1/jobs/{id}/source.pdf       the source file, with HTTP Range
     GET  /v1/jobs/{id}/regions          regions in reading order: search (q), filters, cursor paging
     GET  /v1/jobs/{id}/facets           counts per type, status and gap code for the same filters
@@ -18,7 +19,9 @@ The API is frozen in contract/api/openapi-v1.json (kb_intake.service.openapi_sna
     POST /v1/jobs/{id}/approve          {"by", "version"?} -> 202, starts extract
     GET  /v1/jobs/{id}/pages/{n}        page review data (kb_intake.review.page_view)
     GET  /v1/jobs/{id}/pages/{n}/image  the page rendered from the job's source.pdf (?dpi=, PNG)
-    POST /v1/jobs/{id}/review           {"by", "ops"} (400 when an op is refused; nothing is applied then)
+    GET  /v1/jobs/{id}/review           the review operations so far
+    POST /v1/jobs/{id}/review           {"by", "ops"} (400 when an op is refused; nothing is applied then); ops are
+                                        reclassify, exclude and ack (a queue item looked at, nothing changed)
     POST /v1/jobs/{id}/confirm          {"by"} -> 202, starts delivery
     POST /v1/jobs/{id}/retry            re-run the step that failed in the job's current state
     GET  /v1/packages                   the delivery folder, with a contract check of each package
@@ -303,12 +306,22 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
     @app.get("/v1/jobs/{job_id}/gaps", **route(m.GapList, 404))
     def job_gaps(job_id: str):
         job = get_job(job_id)
+        res = job.dir / "review" / "resolved.jsonl"
+        resolved = {(x["code"], x["page_no"], x["region_id"]): x["resolved"] for x in read_jsonl(res)} \
+            if res.is_file() else {}
         out = []
         for stage, rel in GAP_FILES:
             p = job.dir / rel
             if p.is_file():
-                out += [{**g, "stage": stage} for g in read_jsonl(p)]
+                for g in read_jsonl(p):
+                    r = resolved.get((g["code"], g["page_no"], g.get("region_id")))
+                    out.append({**g, "stage": stage, **({"resolved": r} if r else {})})
         return {"gaps": out}
+
+    @app.get("/v1/jobs/{job_id}/review", **route(m.ReviewOps, 404))
+    def review_list(job_id: str):
+        get_job(job_id)
+        return {"ops": jobs.ops(job_id)}
 
     @app.get("/v1/jobs/{job_id}/source.pdf", response_class=FileResponse, responses={
         200: {"content": {"application/pdf": {}}, "description": "the source file"},
