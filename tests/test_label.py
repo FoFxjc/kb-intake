@@ -217,6 +217,16 @@ def test_find_tables_hit_outside_table_regions_is_table_suspected(tmp_path, setu
     assert out(job, "stats.json")["table_suspected"] == 1
 
 
+@pytest.mark.parametrize("label_,box", [("table", (60, 150, 560, 520)),       # IoU < 0.5, but holds the box
+                                        ("picture", (60, 190, 420, 310))])    # a chart's labels (OCBC p22)
+def test_find_tables_box_mostly_inside_a_table_or_graphic_region_is_not_reported(tmp_path, setup, label_, box):
+    jobs, job, cfg = setup()
+    doc, clusters = document(table_page=0)
+    add_item(doc, clusters, label_, 1, box)
+    label.run(jobs, job.id, cfg, engine=engine_of(tmp_path, doc, clusters))
+    assert gaps_of(job, "table_suspected") == []
+
+
 def test_no_table_suspected_when_a_table_region_matches(tmp_path, setup):
     jobs, job, cfg = setup()
     label.run(jobs, job.id, cfg, engine=fake_engine(tmp_path))

@@ -232,6 +232,7 @@ def test_table_cells_read_from_the_text_layer(tmp_path):
     reg = next(r for r in out.regions if r["type"] == "table")
     assert reg["table_id"] == t["table_id"] and reg["status"] == "extracted" and reg["handler"] == "table_structure"
     assert not [g for g in out.gaps if g["code"] == "table_words_unassigned"]
+    assert t["checks"] == {"unassigned_words": 0}
 
 
 def test_table_cells_read_from_the_text_layer_and_unassigned_words_are_reported(tmp_path):
@@ -241,10 +242,18 @@ def test_table_cells_read_from_the_text_layer_and_unassigned_words_are_reported(
     ctx = context(tmp_path, regs, [only_first_row])
     row, table, gaps = extract.extract_region(regs[2], "table_structure", ctx)
     assert [c["text"] for c in table["cells"]] == ["Item", "2025"]
-    [gap] = gaps
-    assert gap["code"] == "table_words_unassigned" and gap["count"] == 2 and gap["region_id"] == regs[2]["region_id"]
-    assert "Loans" in gap["detail"] and "1,234" in gap["detail"]
+    [gap] = gaps                                    # only the number is a gap; "Loans" is only counted
+    assert gap["code"] == "table_words_unassigned" and gap["count"] == 1 and gap["region_id"] == regs[2]["region_id"]
+    assert "1,234" in gap["detail"] and "Loans" not in gap["detail"]
+    assert table["checks"] == {"unassigned_words": 2}
     assert row["status"] == "extracted"
+
+
+@pytest.mark.parametrize("text,is_value", [("1,234", True), ("(12.5)", True), ("-3%", True), ("\u2013", True),
+                                           ("-", True), ("Loans", False), ("39)", False), ("(Note", False),
+                                           ("2025", True)])
+def test_only_numbers_and_nil_signs_are_values(text, is_value):
+    assert extract.is_value_word(text) is is_value
 
 
 def test_table_gaps_get_the_table_id_of_their_region():
@@ -444,7 +453,8 @@ def _row(page, n, rtype, bbox, order, layer="body"):
 
 def _table(reg, n_cols=3):
     return {"region_id": reg["region_id"], "page_no": reg["page_no"], "bbox": reg["bbox"], "n_rows": 1,
-            "n_cols": n_cols, "cells": [], "markdown": "", "extract_method": "docling"}
+            "n_cols": n_cols, "cells": [], "markdown": "", "extract_method": "docling",
+            "checks": {"unassigned_words": 0}}
 
 
 def test_continued_hint_links_last_table_to_first_table_of_next_page():

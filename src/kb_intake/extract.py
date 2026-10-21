@@ -11,7 +11,8 @@ the approved workflow gives its type.
     for regions the model did not label (`label_source` user after a review reclassify, or native when the label
     stage itself degraded to find_tables).
 - Every text, region and cell alike, is read from the PDF text layer by box (kb_intake.textlayer).
-- Words centred in a table's box but in none of its cells are reported (`table_words_unassigned`).
+- Words centred in a table's box but in none of its cells are counted in the table's `checks.unassigned_words`;
+  numbers and nil signs among them (a cell TableFormer probably missed) are also reported (`table_words_unassigned`).
 - `finish_tables` gives table ids in reading order and the continued-table hints; review calls it again after every
   change.
 
@@ -20,6 +21,7 @@ directory" section).
 """
 
 import dataclasses
+import re
 import resource
 import time
 from pathlib import Path
@@ -38,6 +40,12 @@ BODY_TYPES = ("text", "list", "table")          # content that breaks a table co
 SAMPLE_WORDS = 10
 REGION_KEYS = ("region_id", "page_no", "bbox", "type", "subtype", "score", "label_source", "layer", "reading_order")
 NO_FIND_TABLES = "find_tables found no table in the region"
+# a number (thousands separators, decimals, %, sign or parentheses, a leading currency sign) or a nil sign
+VALUE_WORD = re.compile(r"[-+\u2212\u2013]?\$?\d[\d,]*(?:\.\d+)?%?|\(\$?\d[\d,]*(?:\.\d+)?%?\)|[-\u2013]")
+
+
+def is_value_word(text: str) -> bool:
+    return VALUE_WORD.fullmatch(text) is not None
 
 
 # ---------- Task A modules, imported when used ----------
@@ -218,16 +226,18 @@ def table_from_cells(region: dict, grid: dict, words: list[list], method: str) -
         bbox, source = textlayer.text_box(words, box) if text is not None else (None, None)
         cells.append({"r": r, "c": c, "rs": rs, "cs": cs, "text": text, "bbox": bbox, "bbox_source": source,
                       "is_header": bool(is_header)})
+    lost = [w for w in textlayer.words_in(words, grid["bbox"]) if id(w) not in assigned]
     table = {"region_id": region["region_id"], "page_no": region["page_no"], "bbox": list(grid["bbox"]),
              "n_rows": grid["n_rows"], "n_cols": grid["n_cols"], "cells": cells,
-             "markdown": markdown(grid["n_rows"], grid["n_cols"], cells), "extract_method": method}
-    lost = [w for w in textlayer.words_in(words, grid["bbox"]) if id(w) not in assigned]
+             "markdown": markdown(grid["n_rows"], grid["n_cols"], cells), "extract_method": method,
+             "checks": {"unassigned_words": len(lost)}}
+    values = [w for w in lost if is_value_word(w[4])]
     gaps = []
-    if lost:
-        sample = " ".join(w[4] for w in lost[:SAMPLE_WORDS]) + (" ..." if len(lost) > SAMPLE_WORDS else "")
+    if values:
+        sample = " ".join(w[4] for w in values[:SAMPLE_WORDS]) + (" ..." if len(values) > SAMPLE_WORDS else "")
         gaps.append(_gap("table_words_unassigned", region["page_no"],
-                         f"{len(lost)} word(s) in the table box but in no cell: {sample}",
-                         region_id=region["region_id"], count=len(lost)))
+                         f"{len(values)} number(s) or nil sign(s) in the table box but in no cell: {sample}",
+                         region_id=region["region_id"], count=len(values)))
     return table, gaps
 
 

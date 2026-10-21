@@ -22,7 +22,8 @@ Regions (label/regions.jsonl, one row per region, rows in reading order):
 
 Gaps (label/gaps.jsonl): low_confidence (layout score or classifier top score below cfg.low_confidence; for a
 picture classified `table` the classifier side gives table_suspected instead, never low_confidence), table_suspected (find_tables found a table that no table region
-matches with IoU >= 0.5; region_id = the non-table region overlapping it most), no_text_layer (one per page that
+matches with IoU >= 0.5 and that does not lie mostly inside a table or graphic region; region_id = the
+non-table region overlapping it most), no_text_layer (one per page that
 is scanned, or has no words and is not blank), lang_mismatch, extractor_degraded (Docling: one gap for the
 document, with `pages` when only some pages failed; find_tables: one per page).
 
@@ -324,12 +325,21 @@ def _fallback_page(page_no: int, found: list[dict], words: list, page_spans: lis
     return sorted(tables + texts, key=lambda r: (r["bbox"][1], r["bbox"][0]))
 
 
+GRAPHIC_TYPES = ("chart", "diagram", "picture", "logo", "icon", "signature", "stamp")
+INSIDE_SHARE = 0.5
+
+
 def _suspected(page_no: int, found: list[dict], regions: list[dict]) -> list[dict]:
-    """table_suspected gaps for find_tables tables that no table region matches (IoU >= 0.5)."""
+    """table_suspected gaps for find_tables tables that no table region matches (IoU >= 0.5) and that do not lie
+    mostly (more than half of their box) inside a table region (find_tables cutting a known table differently) or a
+    graphic region (a chart's labels, an org chart's boxes)."""
     out = []
     tables = [r["bbox"] for r in regions if r["type"] == "table"]
+    holders = [r["bbox"] for r in regions if r["type"] == "table" or r["type"] in GRAPHIC_TYPES]
     for t in found:
         if any(iou(t["bbox"], b) >= 0.5 for b in tables):
+            continue
+        if any(inter(t["bbox"], b) > INSIDE_SHARE * area(t["bbox"]) for b in holders):
             continue
         overlap = [(inter(t["bbox"], r["bbox"]), -i) for i, r in enumerate(regions) if r["type"] != "table"]
         best = max(overlap, default=(0.0, 0))
