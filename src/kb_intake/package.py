@@ -1,8 +1,8 @@
 """Step 8 of the pipeline (intake-design §3.1, §4): writing an intake package.
 
 Layout: `{doc_id}@{sha256[:12]}/` with manifest.json, source.<ext>, working.pdf, pages.jsonl, layout.jsonl,
-regions.jsonl, tables.jsonl, headings.jsonl, gaps.jsonl, docling.json (when the layout engine produced it),
-checks.json.
+regions.jsonl, tables.jsonl (the tables entered for use), tables_secondary.jsonl (find_tables candidates kept for
+cross-checks; same fields), headings.jsonl, gaps.jsonl, docling.json (when the layout engine produced it), checks.json.
 
 Determinism: the same file with the same configuration gives byte-identical files; the only exception is the `run`
 field of manifest.json (timestamps, host, durations, cache hits). JSON is written with a fixed key order.
@@ -18,7 +18,8 @@ from pathlib import Path
 
 from kb_intake import contract
 
-DATA_FILES = ("pages.jsonl", "layout.jsonl", "regions.jsonl", "tables.jsonl", "headings.jsonl", "gaps.jsonl")
+DATA_FILES = ("pages.jsonl", "layout.jsonl", "regions.jsonl", "tables.jsonl", "tables_secondary.jsonl",
+              "headings.jsonl", "gaps.jsonl")
 
 
 class IntakeError(ValueError):

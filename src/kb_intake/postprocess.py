@@ -52,19 +52,27 @@ def center_in(w, box, pad: float = 1.0) -> bool:
     return box[0] - pad <= cx <= box[2] + pad and box[1] - pad <= cy <= box[3] + pad
 
 
-_NUMBER_IN = re.compile(r"(?<![\w.,])\(?[-+−–]?\d[\d,]*(?:\.\d+)?\)?%?")
-_SIGNS = "+-−–"
+_NUMBER_IN = re.compile(r"(?<![\w.,])\(?[-+\u2212\u2013]?\d[\d,]*(?:\.\d+)?%?\)?")
+_MINUS = "-\u2212\u2013"
+_OPEN_AFTER_WORD = re.compile(r"(?<=\w)\(")
 
 
 def numbers(text: str | None) -> list[str]:
-    """Number tokens of a text, normalised to the digits (no parentheses, sign, percent sign or control characters).
-    Found anywhere in the string, not by splitting on spaces, so a cell "2022 (1)" and a text-layer word "2022(1)" give
-    the same tokens. The sign is dropped like the parentheses: an engine may write a hyphen where the text layer has
-    an en dash or a minus sign ("-100" against "–100"), and the check is that the text is there, not its sign."""
+    """Number tokens of a text with their sign: "(1,234)" and "-1,234" (hyphen, minus sign or en dash) are
+    "-1,234", "+7" is "7"; percent signs and control characters are dropped. Found anywhere in the string, not by
+    splitting on spaces; an opening parenthesis right after a word or number starts a new token, so a cell
+    "2022 (1)" and a text-layer word "2022(1)" give the same tokens. A dash right after a word is a hyphen of a
+    label ("spread-100" gives "100"). A sign or parentheses lost on one side shows up as a missing and an extra
+    number."""
     out = []
-    for m in _NUMBER_IN.finditer(clean(text) or ""):
+    for m in _NUMBER_IN.finditer(_OPEN_AFTER_WORD.sub(" (", clean(text) or "")):
         tok = m.group(0).rstrip(",")
-        out.append(tok.strip("()%").lstrip(_SIGNS))
+        negative = tok.startswith("(") and tok.endswith(")")
+        tok = tok.strip("()").replace("%", "")
+        if tok[:1] in _MINUS:
+            negative, tok = True, tok[1:]
+        tok = tok.lstrip("+")
+        out.append(("-" if negative else "") + tok)
     return out
 
 

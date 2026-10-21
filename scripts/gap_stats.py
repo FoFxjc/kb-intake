@@ -41,7 +41,8 @@ def main() -> None:
             "gaps": dict(sorted(gaps.items())),
             "gaps_detail": dict(sorted(detail.items())),
             "tables_primary": dict(Counter(t["extract_method"] for t in tables if t.get("role", "primary") == "primary")),
-            "tables_secondary": sum(t.get("role") == "secondary" for t in tables),
+            "tables_secondary": sum(1 for _ in (pkg / "tables_secondary.jsonl").open(encoding="utf-8"))
+                                if (pkg / "tables_secondary.jsonl").is_file() else 0,
             "bbox_source": dict(sorted(Counter(c.get("bbox_source") or "empty" for t in tables
                                                if t.get("role", "primary") == "primary" for c in t["cells"]).items())),
             "tables_with_many_cell_boxes": _cell_heavy(tables),

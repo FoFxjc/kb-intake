@@ -51,9 +51,9 @@ def _layout_step(pkg):
 def test_engine_tables_are_primary_and_find_tables_cross_checks(pdf, tmp_path, monkeypatch):
     _engine(monkeypatch, tmp_path)
     pkg = _run(pdf, tmp_path, _cfg(tmp_path))
-    tables = read_jsonl(pkg / "tables.jsonl")
-    (p,) = [t for t in tables if t["role"] == "primary"]
-    (s,) = [t for t in tables if t["role"] == "secondary"]
+    (p,) = read_jsonl(pkg / "tables.jsonl")
+    (s,) = read_jsonl(pkg / "tables_secondary.jsonl")
+    assert p["role"] == "primary" and s["role"] == "secondary"           # only formal tables in tables.jsonl
     assert p["extract_method"] == "docling" and p["table_id"] == "acme_ar_2025_en:t0002_01"
     assert p["checks"]["text_conservation"] == {"missing": 0, "extra": 0}
     assert s["table_id"] == "acme_ar_2025_en:f0002_01" and p["checks"]["matched_find_tables"] == [s["table_id"]]
@@ -101,6 +101,17 @@ def test_a_post_processing_error_degrades_but_keeps_the_engine_output(pdf, tmp_p
     (g,) = [g for g in read_jsonl(pkg / "gaps.jsonl") if g["code"] == "extractor_degraded"]
     assert g["detail"].startswith("post-processing failed: KeyError") and (pkg / "docling.json").is_file()
     assert _layout_step(pkg)[0]["postprocess_error"].startswith("post-processing failed")
+
+
+@pytest.mark.parametrize("layout", [True, False])
+def test_a_context_above_error_only_empties_that_tables_context(pdf, tmp_path, monkeypatch, layout):
+    _engine(monkeypatch, tmp_path)
+    monkeypatch.setattr(post, "context_above", lambda *a: (_ for _ in ()).throw(IndexError("bad box")))
+    pkg = _run(pdf, tmp_path, replace(_cfg(tmp_path), layout_enabled=layout))
+    (t,) = read_jsonl(pkg / "tables.jsonl")
+    assert t["context_above"] == [] and t["extract_method"] == ("docling" if layout else "find_tables")
+    (g,) = [g for g in read_jsonl(pkg / "gaps.jsonl") if g.get("extractor") == "context_above"]
+    assert g["table_id"] == t["table_id"] and g["detail"] == "IndexError: bad box"
 
 
 def test_only_complete_successes_are_cached(pdf, tmp_path, monkeypatch):

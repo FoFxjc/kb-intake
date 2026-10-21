@@ -118,6 +118,7 @@ def process(file: Path, decl: dict, out: Path, config: Config | None = None, rep
                   "layout.jsonl": write_jsonl(b.dir / "layout.jsonl", layout_rows),
                   "regions.jsonl": write_jsonl(b.dir / "regions.jsonl", layer["regions"]),
                   "tables.jsonl": write_jsonl(b.dir / "tables.jsonl", layer["tables"]),
+                  "tables_secondary.jsonl": write_jsonl(b.dir / "tables_secondary.jsonl", layer["tables_secondary"]),
                   "headings.jsonl": write_jsonl(b.dir / "headings.jsonl", layer["headings"]),
                   "gaps.jsonl": write_jsonl(b.dir / "gaps.jsonl", gaps)}
         extra = {"docling.json": None} if (b.dir / "docling.json").exists() else {}
@@ -234,8 +235,9 @@ def _extraction(pdf, working: Path, pkg_dir: Path, doc_id: str, sha: str, cfg: C
 
 
 def _finish(primary, secondary_, regions, summary, gaps, lines, profiles, page_words) -> dict:
-    """Heading candidates (corroborated by the engine's headings, if any) and the tables.jsonl rows with
-    context_above. Headings and page furniture end a table's context."""
+    """Heading candidates (corroborated by the engine's headings, if any), the tables.jsonl rows with
+    context_above (headings and page furniture end a table's context) and the tables_secondary.jsonl rows.
+    context_above is computed table by table; a failure leaves that table's context empty with a gap."""
     gaps = list(gaps)
     engine_heads = [r for r in regions if r["type"] in ("title", "heading")]
     try:
@@ -253,14 +255,18 @@ def _finish(primary, secondary_, regions, summary, gaps, lines, profiles, page_w
     lines_by_page: dict[int, list] = {}
     for t in primary:
         page = t["pages"][0]
-        if page not in lines_by_page:
-            lines_by_page[page] = post.text_lines(page_words(page))
-        others = [o["bboxes"][0] for o in primary if o is not t and o["pages"][0] == page]
-        tables.append(checks.row(t, post.context_above(t["bboxes"][0], lines_by_page[page], others,
-                                                       stops.get(page, []))))
-    tables += [checks.row(t, []) for t in secondary_]
-    return {"regions": regions, "tables": tables, "headings": heading_rows, "heading_summary": heading_summary,
-            "gaps": gaps, "summary": summary}
+        try:
+            if page not in lines_by_page:
+                lines_by_page[page] = post.text_lines(page_words(page))
+            others = [o["bboxes"][0] for o in primary if o is not t and o["pages"][0] == page]
+            context = post.context_above(t["bboxes"][0], lines_by_page[page], others, stops.get(page, []))
+        except Exception as e:  # noqa: BLE001 - one table's context never fails the file
+            context = []
+            gaps.append({"code": "extractor_degraded", "extractor": "context_above", "page_no": page,
+                         "table_id": t["table_id"], "detail": f"{type(e).__name__}: {e}"[:300]})
+        tables.append(checks.row(t, context))
+    return {"regions": regions, "tables": tables, "tables_secondary": [checks.row(t, []) for t in secondary_],
+            "headings": heading_rows, "heading_summary": heading_summary, "gaps": gaps, "summary": summary}
 
 
 def _assemble(pdf, engine, data: bytes, doc_id: str, covered: set[int], ft_tables, words, page_words, font_heads,

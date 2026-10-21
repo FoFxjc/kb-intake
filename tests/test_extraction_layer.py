@@ -83,11 +83,13 @@ def test_boxes_match_by_iou_or_containment():
 
 
 def test_numbers_are_normalised():
-    assert post.numbers("(1,234) 12.5% \x07 7,422 Net 2025:") == ["1,234", "12.5", "7,422", "2025"]
+    assert post.numbers("(1,234) 12.5% \x07 7,422 Net 2025:") == ["-1,234", "12.5", "7,422", "2025"]
     assert post.numbers("- – n/a") == []
-    assert post.numbers("+100 basis points") == post.numbers("-100") == post.numbers("\u2013100") == ["100"]
-    assert post.numbers("\u606f\u5dee\u2013100") == post.numbers("\u606f\u5dee-100") == ["100"]   # CJK label + dash
-    assert post.numbers("2022(1)") == post.numbers("2022 (1)") == ["2022", "1"]
+    assert post.numbers("-100") == post.numbers("\u2013100") == post.numbers("\u2212100") == post.numbers("(100)") == ["-100"]
+    assert post.numbers("+100 basis points") == ["100"] and post.numbers("(12.5%)") == ["-12.5"]
+    # a dash right after a word is a hyphen of a label ("spread-100"), on both sides alike
+    assert post.numbers("\u606f\u5dee\u2013100") == post.numbers("\u606f\u5dee-100") == ["100"]
+    assert post.numbers("2022(1)") == post.numbers("2022 (1)") == ["2022", "-1"]
 
 
 def test_header_text_rule():
@@ -126,6 +128,27 @@ def test_continued_table_is_merged_only_after_a_continued_heading_or_none():
     assert len(post.merge_continued([a4, b5], lambda t: ctx[id(t)])) == 2       # other column headers
 
 
+def _one_cell(text):
+    return _table(1, [0, 0, 200, 100], [{"r": 1, "c": 1, "rs": 1, "cs": 1, "text": text, "is_header": False,
+                                          "bbox": [60, 20, 90, 30], "page_no": 1}])
+
+
+@pytest.mark.parametrize("layer,cell,reported", [
+    ("(225)", "225", True),          # the engine lost the parentheses
+    ("-100", "100", True),           # the engine lost the minus sign
+    ("\u2013100", "-100", False),    # en dash in the text layer, hyphen in the cell: the same number
+    ("\u2212100", "(100)", False),   # minus sign against parentheses: the same number
+])
+def test_text_conservation_compares_signs(layer, cell, reported):
+    words = {1: [[60, 20, 90, 30, "2025"], [60, 40, 90, 50, layer]]}
+    t = _one_cell(cell)
+    t["cells"][1]["text"] = "2025"                       # the header cell holds the year
+    missing, extra = checks.conservation(t, words)
+    assert bool(missing or extra) is reported, (missing, extra)
+    if reported:
+        assert [w[4] for w in missing] == [layer] and extra == post.numbers(cell)
+
+
 def test_text_conservation_finds_missing_and_extra_numbers():
     t = _table(1, [0, 0, 200, 100], [{"r": 1, "c": 0, "rs": 1, "cs": 1, "text": "Net profit", "is_header": False,
                                        "bbox": [0, 20, 50, 30], "page_no": 1},
@@ -134,6 +157,7 @@ def test_text_conservation_finds_missing_and_extra_numbers():
                                       {"r": 2, "c": 1, "rs": 1, "cs": 1, "text": "999", "is_header": False,
                                        "bbox": [60, 40, 90, 50], "page_no": 1}])
     words = {1: [[60, 5, 80, 12, "2025"], [60, 20, 90, 30, "7,422"], [60, 60, 90, 70, "(1,190)"], [300, 5, 320, 12, "17"]]}
+    # (1,190) is -1,190: missing from the cells; 999 only in the cells
     missing, extra = checks.conservation(t, words)
     assert [w[4] for w in missing] == ["(1,190)"] and extra == ["999"]
 
