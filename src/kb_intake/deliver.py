@@ -44,8 +44,7 @@ def confirm(jobs: Jobs, job_id: str, by: str, cfg: Config) -> Path:
     """Confirm a job in review and deliver it; a job already confirmed (a failed delivery) is only delivered."""
     job = jobs.get(job_id)
     if job.status == "in_review":
-        with review.review_lock(job.dir):        # not while a review call is replacing the files
-            jobs.confirm(job_id, by)
+        jobs.confirm(job_id, by)                 # Busy while a review step of the job is running
     elif job.status != "confirmed":
         raise WrongState(f"job {job_id} is {job.status}; confirm needs in_review (or confirmed, to retry delivery)")
     return deliver(jobs, job_id, cfg)
@@ -81,8 +80,7 @@ def _deliver(jobs: Jobs, job: Job, cfg: Config, name: str, t0: float) -> Path:
     try:
         pkg = tmp / name
         pkg.mkdir(parents=True)
-        with review.review_lock(job.dir):
-            _build(jobs, job, pkg, t0)
+        _build(jobs, job, pkg, t0)               # confirmed: no review can change the files any more
         result = contract.check(pkg)
         if not result["ok"]:
             raise DeliveryError("the package fails the contract v2 check: " + "; ".join(result["errors"][:5]))

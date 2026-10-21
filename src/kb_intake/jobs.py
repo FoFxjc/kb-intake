@@ -34,7 +34,7 @@ STATES = ("uploaded", "labeled", "planned", "approved", "extracted", "in_review"
 NEXT = {"uploaded": "labeled", "labeled": "planned", "planned": "approved", "approved": "extracted",
         "extracted": "in_review", "in_review": "confirmed", "confirmed": "delivered"}
 # the state a running step starts from
-OPS = {"label": "uploaded", "extract": "approved", "deliver": "confirmed"}
+OPS = {"label": "uploaded", "extract": "approved", "review": "in_review", "deliver": "confirmed"}
 
 SCHEMA = """
 create table if not exists jobs (
@@ -308,10 +308,12 @@ class Jobs:
 
     # ---------- review (§4) ----------
 
-    def add_ops(self, job_id: str, ops: list[dict]) -> None:
-        """Append review operations (already applied by kb_intake.review); only while in review."""
+    def add_ops(self, job_id: str, ops: list[dict], op: str | None = None) -> None:
+        """Append review operations (applied by kb_intake.review, which passes op="review"); only while in review."""
         with self._tx() as db:
-            self._require(db, job_id, ("in_review",))
+            r = self._require(db, job_id, ("in_review",), idle=False)
+            if r["running_op"] and r["running_op"] != op:
+                raise Busy(f"job {job_id} is running {r['running_op']}")
             seq = db.execute("select coalesce(max(seq), 0) from review_ops where job_id = ?", (job_id,)).fetchone()[0]
             for i, op in enumerate(ops, 1):
                 db.execute("insert into review_ops values (?, ?, ?)", (job_id, seq + i, json.dumps(op)))

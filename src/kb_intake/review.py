@@ -19,13 +19,11 @@ source.
   "note"}: reclassify from / to are types; exclude goes from the region's status to "excluded".
 
 The current state lives in the work files extract/regions.jsonl, extract/tables.jsonl, extract/gaps.jsonl and
-review/gaps.jsonl. A per-job file lock (`review_lock`, also taken by delivery while it reads them) serialises the CLI
-and the server; ops are stored in the job store before the files are replaced, so a concurrent confirmation either
-refuses the ops or waits for the files.
+review/gaps.jsonl. A review call is a step of the job store (`jobs.running(job, "review")`): one review, confirmation
+or delivery of a job at a time, across the CLI and the server (confirmation is Busy while a review runs). Ops are
+stored in the job store just before the files are replaced; a crash between the two is not replayed.
 """
 
-import fcntl
-from contextlib import contextmanager
 from pathlib import Path
 
 from kb_intake import extract, workflow
@@ -40,19 +38,6 @@ POST_EXTRACT = ("extracted", "in_review", "confirmed", "delivered")
 
 class ReviewError(ValueError):
     pass
-
-
-@contextmanager
-def review_lock(job_dir: Path):
-    """An exclusive lock on the job's review files (across processes)."""
-    d = job_dir / "review"
-    d.mkdir(parents=True, exist_ok=True)
-    with open(d / ".lock", "w") as f:
-        fcntl.flock(f, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(f, fcntl.LOCK_UN)
 
 
 def current(job_dir: Path) -> dict:
@@ -109,13 +94,15 @@ def apply(jobs: Jobs, job_id: str, ops: list[dict], by: str, cfg: Config) -> lis
     """Validate then apply the ops on a job in review; return the recorded op rows. Raises ReviewError (nothing
     applied), jobs.WrongState / jobs.Busy, KeyError for an unknown job."""
     job = jobs.get(job_id)
-    with review_lock(job.dir):
-        job = jobs.get(job_id)
-        if job.status != "in_review":
-            raise WrongState(f"job {job_id} is {job.status}; review needs in_review")
+    if job.status != "in_review":
+        raise WrongState(f"job {job_id} is {job.status}; review needs in_review")
+    _validate(ops, by, {r["region_id"]: r for r in current(job.dir)["regions"]})    # bad input is not a failed step
+    # The job store's step lock: one review, extract or delivery of a job at a time, across processes.
+    with jobs.running(job_id, "review") as job:
         state = current(job.dir)
         regions = {r["region_id"]: r for r in state["regions"]}
         _validate(ops, by, regions)
+        (job.dir / "review").mkdir(exist_ok=True)
         label = {r["region_id"]: r for r in read_jsonl(job.dir / "label" / "regions.jsonl")}
 
         new_regions, tables = dict(regions), {t["region_id"]: t for t in state["tables"]}
@@ -154,7 +141,7 @@ def apply(jobs: Jobs, job_id: str, ops: list[dict], by: str, cfg: Config) -> lis
         # The point of no return: refuses if the job left in_review. Known window: the four writes below are each
         # atomic but not together, so a crash among them leaves ops recorded whose effects are not (all) in the
         # work files; nothing replays them.
-        jobs.add_ops(job_id, records)
+        jobs.add_ops(job_id, records, op="review")
         write_jsonl(job.dir / "extract" / "regions.jsonl", rows)
         write_jsonl(job.dir / "extract" / "tables.jsonl", out_tables)
         write_jsonl(job.dir / "extract" / "gaps.jsonl", extract_gaps)
@@ -189,8 +176,7 @@ def page_view(jobs: Jobs, job_id: str, page_no: int) -> dict:
         raise KeyError(f"job {job_id} has no page {page_no}")
     gaps = read_jsonl(d / "label" / "gaps.jsonl")
     if job.status in POST_EXTRACT:
-        with review_lock(d):
-            state = current(d)
+        state = current(d)       # each file is replaced atomically; a view taken mid-review may mix old and new
         regions, tables = state["regions"], state["tables"]
         gaps += state["extract_gaps"] + state["review_gaps"]
     else:

@@ -1,18 +1,17 @@
 """The command line (intake-design-v2 §6): label -> approve -> extract -> review -> confirm, one JSON object per
 line on stdout, errors as JSON on stderr, exit 0 ok / 1 failed / 2 bad input.
 
-label and extract are the real steps on the fake Docling engine (tests/fakes.py); review and deliver are stand-ins
-(tests/stepstubs.py) until Task C is merged.
+Every step is the real one; Docling is the fake engine (tests/fakes.py).
 """
 
 import json
 from functools import partial
 
 import pytest
-import stepstubs
+import samples
 import yaml
 from fakes import fake_engine
-from stepstubs import DOC, build_pdf, decl_yaml
+from samples import DOC, build_pdf, decl_yaml
 
 from kb_intake import cli, contract, extract, label, workflow
 from kb_intake.jobs import Jobs
@@ -26,9 +25,6 @@ def env(tmp_path, monkeypatch):
                                    "cache_dir": str(tmp_path / "cache"), "models_dir": str(tmp_path / "models")}))
     monkeypatch.setattr(label, "run", partial(label.run, engine=fake_engine(tmp_path, stage="label")))
     monkeypatch.setattr(extract, "run", partial(extract.run, engine=fake_engine(tmp_path, stage="extract")))
-    stepstubs.install(monkeypatch)
-    monkeypatch.setattr(contract, "check_path", lambda p: {"contract_version": "2", "ok": True, "errors": [],
-                                                           "counts": {}})
     return tmp_path, str(cfg)
 
 

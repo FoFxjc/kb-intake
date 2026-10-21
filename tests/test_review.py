@@ -233,3 +233,18 @@ def test_page_view_before_and_after_extraction(tmp_path):
     assert [g["code"] for g in view["gaps"]] == ["table_suspected", "unhandled"]
     with pytest.raises(KeyError):
         review.page_view(jobs, job.id, 3)
+
+
+def test_review_is_a_step_of_the_job_store(tmp_path):
+    """One review, confirmation or delivery of a job at a time, across processes (jobs.running)."""
+    from kb_intake import deliver
+    from kb_intake.jobs import Busy
+    j = in_review(tmp_path)
+    with j.jobs.running(j.job.id, "review"):              # another process is applying ops
+        with pytest.raises(Busy):
+            deliver.confirm(j.jobs, j.job.id, "peter", j.cfg)
+        with pytest.raises(Busy):
+            review.apply(j.jobs, j.job.id, [{"action": "exclude", "region_id": rid(1, 2)}], "peter", j.cfg)
+    assert j.jobs.get(j.job.id).status == "in_review" and j.jobs.ops(j.job.id) == []
+    review.apply(j.jobs, j.job.id, [{"action": "exclude", "region_id": rid(1, 2)}], "peter", j.cfg)
+    assert j.jobs.get(j.job.id).running_op is None and len(j.jobs.ops(j.job.id)) == 1

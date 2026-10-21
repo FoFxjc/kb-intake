@@ -1,17 +1,16 @@
 """The HTTP API and web UI of `kb-intake serve` (intake-design-v2 §6) through fastapi's TestClient.
 
-label and extract are the real steps on the fake Docling engine; review and deliver are stand-ins
-(tests/stepstubs.py) until Task C is merged. Steps run in the service's one background thread.
+Every step is the real one, on the fake Docling engine. Steps run in the service's one background thread.
 """
 
 import threading
 
 import pymupdf
 import pytest
-import stepstubs
+import samples
 from fakes import fake_engine
 from fastapi.testclient import TestClient
-from stepstubs import DOC, build_pdf, decl_yaml
+from samples import DOC, build_pdf, decl_yaml
 
 from kb_intake import contract, label, workflow
 from kb_intake.config import Config
@@ -26,7 +25,6 @@ def make_cfg(tmp_path, roots=()) -> Config:
 
 @pytest.fixture
 def svc(tmp_path, monkeypatch):
-    stepstubs.install(monkeypatch)
     (tmp_path / "roots" / "inbox").mkdir(parents=True)
     cfg = make_cfg(tmp_path, roots=[tmp_path / "roots"])
     engines = {"label": fake_engine(tmp_path, stage="label"), "extract": fake_engine(tmp_path, stage="extract")}
@@ -124,7 +122,6 @@ def test_directories_outside_scan_roots_are_403(svc):
 
 
 def test_directories_without_scan_roots_are_403(tmp_path, monkeypatch):
-    stepstubs.install(monkeypatch)
     with TestClient(create_app(make_cfg(tmp_path))) as c:
         assert c.get("/v1/directories").status_code == 403
         assert c.post("/v1/jobs", json={"path": str(tmp_path), "declaration": decl_yaml()}).status_code == 403
@@ -152,10 +149,9 @@ def test_page_image_is_png(svc):
 
 
 def test_recover_on_startup_clears_running_op(tmp_path, monkeypatch):
-    stepstubs.install(monkeypatch)
     cfg = make_cfg(tmp_path)
     jobs = Jobs(cfg.work_dir)
-    job, _ = jobs.create(build_pdf(tmp_path / "a.pdf"), stepstubs.DECL)
+    job, _ = jobs.create(build_pdf(tmp_path / "a.pdf"), samples.DECL)
     cm = jobs.running(job.id, "label")
     cm.__enter__()                                   # a process that stopped in the middle of the label step
     assert jobs.get(job.id).running_op == "label"
@@ -192,7 +188,7 @@ def test_the_whole_flow(svc):
     assert j["job"]["status"] == "delivered" and j["job"]["package"].startswith(f"{DOC}@")
 
     pk = svc.get("/v1/packages").json()["packages"]
-    assert [p["package"] for p in pk] == [j["job"]["package"]] and pk[0]["check"]["ok"] is False   # a stand-in
+    assert [p["package"] for p in pk] == [j["job"]["package"]] and pk[0]["check"]["ok"] is True
     assert svc.post(f"/v1/jobs/{job_id}/confirm", json={"by": "carol"}).status_code == 409
 
 
