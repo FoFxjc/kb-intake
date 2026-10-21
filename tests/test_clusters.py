@@ -20,7 +20,7 @@ def build(regions, tables=(), gaps=()):
 
 def test_normalise():
     assert clusters.normalise("Page 12 of  276 ") == "page # of #"
-    assert clusters.normalise("１２ Notes") == "# notes"          # full-width digits
+    assert clusters.normalise("\uff11\uff12 Notes") == "# notes"          # full-width digits
 
 
 def test_repeated_header_grouped_across_pages():
