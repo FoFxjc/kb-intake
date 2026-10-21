@@ -13,6 +13,7 @@
     kb-intake models import SRC [--to DIR]             copy the pinned files found under SRC (any layout) into place
     kb-intake models verify [--dir DIR]                check a models directory against the shipped lock
     kb-intake engines                                  engine versions, models, dependency check (ready or not)
+    kb-intake doctor [--smoke] [--report FILE]         is this installation ready: PASS / FAIL / SKIP per item
     kb-intake check <package> ...                      contract v2 check of packages (directories or zips)
     kb-intake serve [--host 127.0.0.1] [--port 8700]   web UI + HTTP API on the same work and delivery directories
 
@@ -245,6 +246,26 @@ def _engines(args) -> int:
     return 0 if ready else 1
 
 
+def _doctor(args) -> int:
+    from kb_intake import config, doctor
+    report_path = Path(args.report).expanduser()
+    dotenv = Path.cwd() / ".env"
+    print("kb-intake doctor: checking" + (" (the smoke test runs Docling: about a minute)" if args.smoke else ""),
+          file=sys.stderr, flush=True)
+    try:
+        cfg = config.load(args.config)
+    except config.ConfigError as e:
+        report = {"ok": False, "blocking_failures": ["config"], "checks": [asdict(doctor.Check(
+            "config", doctor.FAIL, str(e), "correct the setting in .env (or intake.yaml) and run doctor again"))]}
+    else:
+        report = doctor.run(cfg, os.environ, smoke=args.smoke, dotenv=dotenv if dotenv.is_file() else None)
+    report_path.write_text(json.dumps(report, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+    print("\n" + doctor.table(report) if "kb_intake" in report else doctor.table_short(report), file=sys.stderr)
+    print(f"report: {report_path}", file=sys.stderr)
+    _out({"ok": report["ok"], "blocking_failures": report["blocking_failures"], "report": str(report_path)})
+    return 0 if report["ok"] else 1
+
+
 def _serve(args) -> int:
     import uvicorn
 
@@ -308,6 +329,11 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--to", help="target directory for download or import (default: models_dir)")
     p.add_argument("--dir", help="directory to verify (default: models_dir)")
     cmd("engines", _engines, "engine versions, models and dependency check")
+    p = cmd("doctor", _doctor, "check the installation item by item (PASS / FAIL / SKIP); --smoke runs a small PDF "
+                               "through the whole flow")
+    p.add_argument("--smoke", action="store_true", help="also run a generated 3-page PDF through label .. check")
+    p.add_argument("--report", default="kb-intake-doctor.json", help="where to write the JSON report "
+                                                                     "(default ./kb-intake-doctor.json)")
     p = cmd("serve", _serve, "web UI and HTTP API (work_dir and delivery_dir from the configuration)")
     p.add_argument("--host", default="127.0.0.1",
                    help="address to listen on (default 127.0.0.1; anything else must be given explicitly)")

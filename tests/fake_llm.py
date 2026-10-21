@@ -1,5 +1,6 @@
 """A local OpenAI-compatible chat server for the LLM flow tests (127.0.0.1, a real HTTP round trip): answers a
-summary, a description or a chart table depending on the prompt, counts requests, or fails every request."""
+summary, a description or a chart table depending on the prompt, counts requests, or fails every request; with
+images=False it refuses a request that carries an image (400), as a text-only model does."""
 
 import json
 import threading
@@ -10,8 +11,8 @@ TABLE = {"title": "Revenue", "columns": ["Year", "SGD m"], "rows": [["2024", 10.
 
 
 class FakeLlm:
-    def __init__(self, status: int = 200):
-        self.status, self.requests, self.keys = status, [], set()
+    def __init__(self, status: int = 200, images: bool = True):
+        self.status, self.requests, self.keys, self.images = status, [], set(), images
         fake = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -22,8 +23,10 @@ class FakeLlm:
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 fake.requests.append(body)
                 fake.keys.add(self.headers.get("Authorization"))
-                if fake.status != 200:
-                    self.send_response(fake.status)
+                has_image = any(p.get("type") == "image_url" for p in body["messages"][0]["content"])
+                status = 400 if has_image and not fake.images else fake.status
+                if status != 200:
+                    self.send_response(status)
                     self.end_headers()
                     return
                 prompt = body["messages"][0]["content"][-1]["text"]
