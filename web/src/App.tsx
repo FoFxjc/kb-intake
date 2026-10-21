@@ -5,6 +5,7 @@ import { StepBar } from './components/StepBar';
 import { HealthContext, useHealthOnce, useJob } from './lib/hooks';
 import { useRoute, type Tab } from './lib/route';
 import { JobsPage } from './pages/Jobs';
+import { LabelsPage } from './pages/Labels';
 import { Placeholder } from './pages/Placeholder';
 
 const TITLES: Record<Tab, string> = {
@@ -37,7 +38,7 @@ function JobShell({ jobId, tab }: { jobId: string; tab: Tab }) {
           )}
         </div>
       )}
-      {detail && <Placeholder title={TITLES[tab]} />}
+      {detail && (tab === 'labels' ? <LabelsPage detail={detail} /> : <Placeholder title={TITLES[tab]} />)}
     </div>
   );
 }
