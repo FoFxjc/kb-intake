@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Confirm and deliver</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#F6F6F3}
+a{color:#2457D6}a:hover{color:#1A3FA0}
+button{font-family:inherit}
+input{font-family:inherit}
+</style>
+</helmet>
+<div style="min-height: 940px; box-sizing: border-box; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #1C1C1A; background: #F6F6F3; display: flex; flex-direction: column">
+
+  <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 12px 24px; background: #FFFFFF; border-bottom: 1px solid #E2E2DC">
+    <div style="font-weight: 600; font-size: 15px">kb-intake</div>
+    <div style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid #E2E2DC; border-radius: 6px; font-size: 13px; background: #FAFAF8">
+      <span style="font-family: 'IBM Plex Mono', monospace">ocbc-group_ar_2025_en.pdf</span>
+      <span style="color: #5F5F58">276 pages · en</span>
+    </div>
+  </header>
+
+  <nav aria-label="Flow" style="display: flex; flex-wrap: wrap; gap: 4px; padding: 12px 24px; background: #FFFFFF; border-bottom: 1px solid #E2E2DC; font-size: 13px">
+    <a href="Main.dc.html" style="padding: 6px 10px; border-radius: 999px; background: #E7EFE9; color: #1E5B36; text-decoration: none">✓ Label &amp; stats</a>
+    <a href="Workflow.dc.html" style="padding: 6px 10px; border-radius: 999px; background: #E7EFE9; color: #1E5B36; text-decoration: none">✓ Workflow · approved</a>
+    <span style="padding: 6px 10px; border-radius: 999px; background: #E7EFE9; color: #1E5B36">✓ Extract</span>
+    <a href="Review.dc.html" style="padding: 6px 10px; border-radius: 999px; background: #E7EFE9; color: #1E5B36; text-decoration: none">✓ Review</a>
+    <span style="{{stepConfirm}}">{{stepConfirmLabel}}</span>
+    <span style="{{stepDeliver}}">{{stepDeliverLabel}}</span>
+  </nav>
+
+  <section style="display: flex; flex-wrap: wrap; gap: 16px; padding: 16px 24px 24px; flex: 1">
+
+    <main style="flex: 999 1 600px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px">
+        <sc-for list="{{kpis}}" as="k" hint-placeholder-count="5">
+          <div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px">
+            <div style="font-size: 12px; color: #5F5F58">{{k.label}}</div>
+            <div style="font-size: 22px; font-weight: 600; font-family: 'IBM Plex Mono', monospace">{{k.value}}</div>
+            <div style="font-size: 12px; color: #5F5F58">{{k.sub}}</div>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 8px">
+        <div style="padding: 12px 16px; border-bottom: 1px solid #E2E2DC; font-weight: 600; font-size: 14px">Open issues (delivered with the package)</div>
+        <sc-for list="{{gaps}}" as="g" hint-placeholder-count="5">
+          <div style="display: grid; grid-template-columns: minmax(0, 1fr) 80px 90px; gap: 12px; padding: 10px 16px; border-bottom: 1px solid #F0F0EB; font-size: 13px">
+            <span>{{g.label}}</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; text-align: right">{{g.open}}</span>
+            <span style="color: #1E5B36; text-align: right">{{g.resolved}}</span>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 8px">
+        <div style="padding: 12px 16px; border-bottom: 1px solid #E2E2DC; font-weight: 600; font-size: 14px">Human actions (review.jsonl)</div>
+        <sc-for list="{{ops}}" as="o" hint-placeholder-count="4">
+          <div style="display: flex; flex-wrap: wrap; gap: 12px; padding: 10px 16px; border-bottom: 1px solid #F0F0EB; font-size: 13px">
+            <span style="font-family: 'IBM Plex Mono', monospace; color: #5F5F58">{{o.what}}</span>
+            <span style="flex: 1; min-width: 0">{{o.detail}}</span>
+            <span style="color: #5F5F58">{{o.by}}</span>
+          </div>
+        </sc-for>
+      </div>
+    </main>
+
+    <aside style="flex: 1 1 340px; max-width: 420px; display: flex; flex-direction: column; gap: 16px">
+      <div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; font-size: 13px">
+        <div style="font-weight: 600; font-size: 14px">Delivery package</div>
+        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; word-break: break-all">delivery/ocbc-group_ar_2025_en@[sha12]/</div>
+        <sc-for list="{{files}}" as="f" hint-placeholder-count="10">
+          <div style="display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px solid #F4F4F0">
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">{{f.name}}</span>
+            <span style="color: #5F5F58; font-size: 12px; text-align: right">{{f.note}}</span>
+          </div>
+        </sc-for>
+      </div>
+
+      <sc-if value="{{pending}}" hint-placeholder-val="{{ true }}">
+        <div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px">
+          <div style="font-size: 13px; line-height: 1.55; color: #3A3A35">Once confirmed, the package is final and cannot be changed. It appears in the delivery folder all at once, so the downstream never reads a half-written package.</div>
+          <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px">Confirmed by
+            <input value="Peter" style="min-height: 40px; padding: 0 10px; border: 1px solid #CFCFC8; border-radius: 6px; font-size: 14px">
+          </label>
+          <button onClick="{{confirm}}" style="min-height: 44px; border: 0; border-radius: 6px; background: #1C1C1A; color: #FFFFFF; font-size: 14px; font-weight: 600; cursor: pointer">Confirm and deliver</button>
+        </div>
+      </sc-if>
+      <sc-if value="{{delivered}}" hint-placeholder-val="{{ false }}">
+        <div style="background: #F2F8F4; border: 1px solid #CFE3D6; border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #1E5B36">
+          <div style="font-weight: 600; font-size: 14px">Delivered</div>
+          <div>Contract v2 check passed · written to the delivery folder</div>
+          <div style="color: #3A3A35">The downstream (kb) reads from the delivery folder; intake neither calls nor notifies it.</div>
+        </div>
+      </sc-if>
+    </aside>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":940}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { delivered: false };
+  }
+  renderVals() {
+    const d = this.state.delivered;
+    const step = (kind) => 'padding: 6px 10px; border-radius: 999px; ' + (kind === 'now' ? 'background: #1C1C1A; color: #FFFFFF;' : kind === 'done' ? 'background: #E7EFE9; color: #1E5B36;' : 'color: #5F5F58;');
+    return {
+      kpis: [
+        { label: 'Regions', value: '4,159', sub: 'Extracted 3,753 · discarded 401 · absorbed 29' },
+        { label: 'Tables', value: '202', sub: 'TableFormer 201 · added in review 1' },
+        { label: 'LLM outputs', value: '11', sub: 'Summary 1 · chart descriptions 10 (llm.jsonl)' },
+        { label: 'Open issues', value: '[n]', sub: 'Handled ones are marked resolved' },
+        { label: 'Contract check', value: 'OK', sub: 'contract v2' }
+      ],
+      gaps: [
+        { label: 'Issue type', open: 'Open', resolved: 'Resolved' },
+        { label: 'Suspected missed tables', open: '1', resolved: '2' },
+        { label: 'Low confidence', open: '[n]', resolved: '[n]' },
+        { label: 'Unassigned values in tables', open: '9', resolved: '—' },
+        { label: 'No text layer (needs OCR)', open: '5', resolved: '—' }
+      ],
+      ops: [
+        { what: 'reclassify', detail: 'p106 text → table (29 regions absorbed)', by: 'Peter' },
+        { what: 'exclude', detail: 'Icons ×11 (bulk)', by: 'Peter' },
+        { what: 'confirm', detail: d ? 'Confirmed for delivery' : '(pending)', by: d ? 'Peter' : '' }
+      ],
+      files: [
+        { name: 'source.pdf', note: 'Original, byte for byte' },
+        { name: 'manifest.json', note: 'Identity, metadata, stats, versions' },
+        { name: 'pages.jsonl', note: '276 rows' },
+        { name: 'regions.jsonl', note: '4,159 rows' },
+        { name: 'tables.jsonl', note: '202 rows' },
+        { name: 'layout.jsonl', note: '276 rows · word boxes' },
+        { name: 'gaps.jsonl', note: 'Open issues' },
+        { name: 'llm.jsonl', note: 'Model outputs · low weight' },
+        { name: 'workflow.json', note: 'Approved plan' },
+        { name: 'review.jsonl', note: 'Human actions' },
+        { name: 'raw/docling*.json', note: 'For audit' }
+      ],
+      pending: !d, delivered: d,
+      confirm: () => this.setState({ delivered: true }),
+      stepConfirm: step(d ? 'done' : 'now'), stepConfirmLabel: d ? '✓ Confirm' : '● Confirm',
+      stepDeliver: step(d ? 'done' : 'todo'), stepDeliverLabel: d ? '✓ Delivered' : 'Deliver'
+    };
+  }
+}
+</script>
+</body>
+</html>

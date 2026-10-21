@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review inbox</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#F6F6F3}
+a{color:#2457D6}a:hover{color:#1A3FA0}
+button{font-family:inherit}
+input{font-family:inherit}
+</style>
+</helmet>
+<div style="min-height: 940px; box-sizing: border-box; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #1C1C1A; background: #F6F6F3; display: flex; flex-direction: column">
+
+  <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 12px 24px; background: #FFFFFF; border-bottom: 1px solid #E2E2DC">
+    <div style="font-weight: 600; font-size: 15px">kb-intake</div>
+    <div style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid #E2E2DC; border-radius: 6px; font-size: 13px; background: #FAFAF8">
+      <span style="font-family: 'IBM Plex Mono', monospace">ocbc-group_ar_2025_en.pdf</span>
+      <span style="color: #5F5F58">276 pages · en</span>
+    </div>
+    <label style="flex: 1 1 280px; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid #CFCFC8; border-radius: 6px; background: #FFFFFF; font-size: 14px; min-width: 0">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5F5F58" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+      <span style="position: absolute; width: 1px; height: 1px; overflow: hidden">Search</span>
+      <input placeholder="Search regions, table cells, model descriptions" style="border: 0; outline: none; flex: 1; font-size: 14px; min-width: 0; background: transparent">
+    </label>
+  </header>
+
+  <nav aria-label="Flow" style="display: flex; flex-wrap: wrap; gap: 4px; padding: 12px 24px; background: #FFFFFF; border-bottom: 1px solid #E2E2DC; font-size: 13px">
+    <a href="Main.dc.html" style="padding: 6px 10px; border-radius: 999px; background: #E7EFE9; color: #1E5B36; text-decoration: none">✓ Label &amp; stats</a>
+    <a href="Workflow.dc.html" style="padding: 6px 10px; border-radius: 999px; background: #E7EFE9; color: #1E5B36; text-decoration: none">✓ Workflow · approved</a>
+    <span style="padding: 6px 10px; border-radius: 999px; background: #E7EFE9; color: #1E5B36">✓ Extract</span>
+    <span style="padding: 6px 10px; border-radius: 999px; background: #1C1C1A; color: #FFFFFF">● Review · {{left}} left</span>
+    <a href="Deliver.dc.html" style="padding: 6px 10px; border-radius: 999px; color: #5F5F58; text-decoration: none">Confirm</a>
+    <span style="padding: 6px 10px; border-radius: 999px; color: #5F5F58">Deliver</span>
+  </nav>
+
+  <section style="display: flex; flex-wrap: wrap; gap: 16px; padding: 16px 24px 24px; flex: 1">
+
+    <aside style="flex: 1 1 260px; max-width: 300px; display: flex; flex-direction: column; gap: 16px">
+      <div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 8px; padding: 12px">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; padding: 4px 6px 8px">
+          <div style="font-size: 12px; color: #5F5F58; text-transform: uppercase; letter-spacing: 0.6px">To review</div>
+          <div style="font-size: 12px; color: #5F5F58">Done {{done}} / {{total}}</div>
+        </div>
+        <div style="height: 6px; margin: 0 6px 10px; background: #ECECE6; border-radius: 999px; overflow: hidden"><div style="width: {{pct}}%; height: 100%; background: #1E5B36"></div></div>
+        <sc-for list="{{groups}}" as="g" hint-placeholder-count="6">
+          <button onClick="{{g.pick}}" style="{{g.style}}">
+            <span style="display: flex; align-items: center; gap: 8px"><span style="width: 8px; height: 8px; border-radius: 999px; background: {{g.dot}}"></span>{{g.label}}</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">{{g.count}}</span>
+          </button>
+        </sc-for>
+      </div>
+
+      <div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px">
+        <div style="font-size: 12px; color: #5F5F58; text-transform: uppercase; letter-spacing: 0.6px; padding: 4px 6px 0">Similar groups · bulk actions</div>
+        <sc-for list="{{clusters}}" as="c" hint-placeholder-count="3">
+          <div style="border: 1px solid #ECECE6; border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 6px; font-size: 13px">
+            <div style="display: flex; justify-content: space-between; gap: 8px"><span>{{c.label}}</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #5F5F58">×{{c.n}}</span></div>
+            <div style="font-size: 12px; color: #5F5F58">{{c.basis}}</div>
+            <div style="display: flex; gap: 6px; align-items: center">
+              <sc-if value="{{c.open}}" hint-placeholder-val="{{ true }}">
+                <button onClick="{{c.act}}" style="min-height: 32px; padding: 4px 10px; border: 1px solid #CFCFC8; border-radius: 6px; background: #FFFFFF; font-size: 12px; cursor: pointer">{{c.action}}</button>
+              </sc-if>
+              <span style="font-size: 12px; color: #1E5B36">{{c.result}}</span>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </aside>
+
+    <main style="flex: 999 1 480px; min-width: 0; background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 8px; display: flex; flex-direction: column">
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #E2E2DC">
+        <button onClick="{{prev}}" aria-label="Previous item" style="min-width: 44px; min-height: 36px; border: 1px solid #CFCFC8; border-radius: 6px; background: #FFFFFF; cursor: pointer">←</button>
+        <button onClick="{{next}}" aria-label="Next item" style="min-width: 44px; min-height: 36px; border: 1px solid #CFCFC8; border-radius: 6px; background: #FFFFFF; cursor: pointer">→</button>
+        <div style="font-size: 14px; font-weight: 600">{{groupLabel}} · item {{pos}} of {{groupCount}}</div>
+        <div style="flex: 1"></div>
+        <div style="font-size: 12px; color: #5F5F58">Page {{item.page}} · PDF.js (mock)</div>
+      </div>
+      <div style="padding: 16px; display: flex; justify-content: center; background: #EFEFEA; flex: 1">
+        <div style="position: relative; width: 100%; max-width: 520px; aspect-ratio: 590 / 794; background: #FFFFFF; box-shadow: 0 1px 3px rgba(0,0,0,0.12)">
+          <div style="position: absolute; left: 9%; top: 6%; width: 46%; height: 2.4%; background: #E6E6E1"></div>
+          <div style="position: absolute; left: 9%; top: 11%; width: 82%; height: 1.3%; background: #EDEDE8"></div>
+          <div style="position: absolute; left: 9%; top: 14%; width: 70%; height: 1.3%; background: #EDEDE8"></div>
+          <div style="position: absolute; left: 9%; top: 21%; width: 30%; height: 1.6%; background: #E6E6E1"></div>
+          <sc-for list="{{item.cells}}" as="b" hint-placeholder-count="12">
+            <div style="position: absolute; left: {{b.x}}%; top: {{b.y}}%; width: {{b.w}}%; height: {{b.h}}%; background: #EDEDE8; outline: {{b.outline}}"></div>
+          </sc-for>
+          <div style="position: absolute; left: {{item.x}}%; top: {{item.y}}%; width: {{item.w}}%; height: {{item.h}}%; border: 2px {{item.lineStyle}} {{item.ink}}; background: {{item.wash}}"></div>
+          <div style="position: absolute; left: {{item.x}}%; top: {{item.labelY}}%; font-size: 11px; padding: 2px 6px; background: {{item.ink}}; color: #FFFFFF; border-radius: 3px">{{item.tag}}</div>
+        </div>
+      </div>
+    </main>
+
+    <aside style="flex: 1 1 320px; max-width: 380px; display: flex; flex-direction: column; gap: 12px">
+      <div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px">
+        <div style="font-size: 12px; color: #5F5F58; text-transform: uppercase; letter-spacing: 0.6px">Issue</div>
+        <div style="font-size: 15px; font-weight: 600; line-height: 1.4">{{item.title}}</div>
+        <div style="font-size: 13px; line-height: 1.55; color: #3A3A35">{{item.detail}}</div>
+        <sc-if value="{{item.hasLlm}}" hint-placeholder-val="{{ false }}">
+          <div style="border: 1px solid #E4D9F5; background: #FAF7FE; border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 6px">
+            <span style="align-self: flex-start; font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #F1ECFA; color: #5B2E9C">MiniMax-M3 description · low weight</span>
+            <div style="font-size: 13px; line-height: 1.5">{{item.llm}}</div>
+          </div>
+        </sc-if>
+        <sc-if value="{{item.resolved}}" hint-placeholder-val="{{ false }}">
+          <div style="border: 1px solid #CFE3D6; background: #F2F8F4; border-radius: 6px; padding: 10px; font-size: 13px; line-height: 1.5; color: #1E5B36">{{item.resolvedText}}</div>
+        </sc-if>
+      </div>
+
+      <div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px">
+        <div style="font-size: 12px; color: #5F5F58; text-transform: uppercase; letter-spacing: 0.6px">Actions</div>
+        <sc-for list="{{item.actions}}" as="a" hint-placeholder-count="3">
+          <button onClick="{{a.run}}" style="{{a.style}}">{{a.label}}</button>
+        </sc-for>
+        <div style="font-size: 12px; color: #5F5F58; line-height: 1.5">You can only reclassify or exclude regions; content comes from the source file and cannot be edited here.</div>
+      </div>
+    </aside>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":940}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { g: 'suspected', i: 0, done: {}, clusterDone: {} };
+  }
+  renderVals() {
+    const st = this.state;
+    const grid = (x0, y0, cols, rows, w, h, outline) => {
+      const out = [];
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++)
+        out.push({ x: x0 + c * (w / cols) + 0.6, y: y0 + r * (h / rows) + 0.6, w: w / cols - 1.6, h: h / rows - 1.4, outline });
+      return out;
+    };
+    const items = {
+      suspected: [
+        { page: 106, title: 'Suspected missed table: NPAs by Period Overdue', detail: 'Docling split this table into 29 text regions; find_tables found a 7×5 table here.', tag: 'find_tables 7×5', ink: '#C2410C', x: 8, y: 25, w: 84, h: 30, lineStyle: 'dashed',
+          cells: grid(9, 26, 5, 7, 82, 28, '1px dashed #E8B48F'), primary: ['Reclassify as table (absorb 29 regions)', 'Exclude these regions', 'Mark seen, no change'],
+          resolvedText: 'Reclassified as table t0106_02 (find_tables, 7×5); 29 text regions absorbed; gap marked resolved.' },
+        { page: 272, title: 'Suspected missed table: financial calendar', detail: 'find_tables found a table; the layout model says body text. It may be an aligned list rather than a table.', tag: 'find_tables', ink: '#C2410C', x: 8, y: 30, w: 60, h: 22, lineStyle: 'dashed',
+          cells: grid(9, 31, 2, 6, 58, 20, '1px dashed #E8B48F'), primary: ['Reclassify as table', 'Mark seen, no change'], resolvedText: 'Marked: kept as body text.' },
+        { page: 15, title: 'Suspected image table', detail: 'The picture classifier says "table" (0.62). The picture has no text layer, so its content needs OCR and cannot be extracted yet.', tag: 'Picture · classifier: table', ink: '#C2410C', x: 8, y: 26, w: 84, h: 34, lineStyle: 'solid',
+          cells: [], primary: ['Mark seen, leave for OCR', 'Exclude'], resolvedText: 'Marked: left for OCR.' }
+      ],
+      low: [
+        { page: 38, title: 'Low confidence: text 0.48', detail: 'Layout confidence is just under the 0.5 threshold. Check the type is right.', tag: 'Text 0.48', ink: '#8A4A00', x: 8, y: 52, w: 84, h: 6, lineStyle: 'solid',
+          cells: [], primary: ['Type is correct', 'Reclassify as heading', 'Exclude'], resolvedText: 'Type confirmed.' }
+      ],
+      chart: [
+        { page: 0, title: 'Chart description to check (1 of 9)', detail: 'Bar chart · subtype from the picture classifier. The description was generated by the LLM; check it matches the chart.', tag: 'Chart · bar', ink: '#B4237A', x: 12, y: 30, w: 76, h: 34, lineStyle: 'solid',
+          cells: [], hasLlm: true, llm: '[MiniMax-M3 description: chart type, title, axes and units, main trend; with chart-to-table on, an estimated data table is attached]', primary: ['Description is fine', 'Description is wrong (add gap)', 'Reclassify as picture'], resolvedText: 'Checked.' }
+      ],
+      continued: [
+        { page: 217, title: 'Continuation hint (weak): p217 → p216', detail: 'Same column count and same first-row text (same_first_row). This is only a hint; intake does not merge, the downstream decides.', tag: 't0217_01 → t0216_01', ink: '#2457D6', x: 8, y: 12, w: 84, h: 70, lineStyle: 'solid',
+          cells: grid(9, 13, 9, 12, 82, 68, 'none'), primary: ['Hint is right', 'Hint is wrong (remove)'], resolvedText: 'Hint confirmed.' }
+      ]
+    };
+    const gdefs = [['suspected', 'Suspected missed tables', '#C2410C', 3], ['low', 'Low confidence', '#8A4A00', 15], ['unassigned', 'Unassigned values in tables', '#C2410C', 9], ['continued', 'Continuation hints (weak)', '#2457D6', 16], ['chart', 'Chart descriptions to check', '#B4237A', 9], ['notext', 'No text layer', '#8A8A84', 5]];
+    const total = gdefs.reduce((a, g) => a + g[3], 0);
+    const done = Object.keys(st.done).length;
+    const btn = (on) => 'display: flex; width: 100%; justify-content: space-between; align-items: center; gap: 8px; min-height: 36px; padding: 6px 8px; border: 0; border-radius: 6px; cursor: pointer; font-size: 13px; text-align: left; ' + (on ? 'background: #1C1C1A; color: #FFFFFF;' : 'background: transparent; color: #1C1C1A;');
+    const groups = gdefs.map(([k, label, dot, n]) => ({ label, dot, count: n, style: btn(st.g === k), pick: () => this.setState({ g: k, i: 0 }) }));
+    const list = items[st.g] || items.suspected;
+    const i = Math.min(st.i, list.length - 1);
+    const it = list[i];
+    const key = st.g + ':' + i;
+    const resolved = !!st.done[key];
+    const actStyle = (first) => 'min-height: 44px; padding: 8px 12px; border-radius: 6px; font-size: 14px; cursor: pointer; text-align: left; ' + (first ? 'border: 0; background: #1C1C1A; color: #FFFFFF; font-weight: 600;' : 'border: 1px solid #CFCFC8; background: #FFFFFF; color: #1C1C1A;');
+    const actions = it.primary.map((label, n) => ({ label, style: actStyle(n === 0 && !resolved),
+      run: () => this.setState({ done: { ...st.done, [key]: true } }) }));
+    const cdefs = [
+      ['hdr', 'Header "Notes to the Financial Statements"', 59, 'Same text · same spot at the page top · same font', 'Exclude all', '59 excluded (the workflow already discards headers)'],
+      ['icon', 'Icons (same shape)', 11, 'Classifier: icon · similar size', 'Exclude all', '11 excluded'],
+      ['gb', 'Tables headed "GROUP | BANK"', 24, 'Same first-row text · same column count', 'Open this group', 'Opened in the list']
+    ];
+    const clusters = cdefs.map(([k, label, n, basis, action, result]) => ({ label, n, basis, action,
+      open: !st.clusterDone[k], result: st.clusterDone[k] ? result : '',
+      act: () => this.setState({ clusterDone: { ...st.clusterDone, [k]: true } }) }));
+    const gl = gdefs.find((g) => g[0] === st.g);
+    return {
+      groups, clusters, done, total, pct: Math.round(done / total * 100), left: total - done,
+      groupLabel: gl[1], pos: i + 1, groupCount: gl[3],
+      prev: () => this.setState({ i: (i - 1 + list.length) % list.length }),
+      next: () => this.setState({ i: (i + 1) % list.length }),
+      item: { ...it, page: it.page || '—', wash: resolved ? 'rgba(30,91,54,0.08)' : 'rgba(194,65,12,0.06)',
+        labelY: Math.max(1, it.y - 3), hasLlm: !!it.hasLlm, llm: it.llm || '', resolved, actions,
+        cells: it.cells.map((c) => ({ ...c, outline: resolved && st.g === 'suspected' ? '1px solid #1E5B36' : c.outline })) }
+    };
+  }
+}
+</script>
+</body>
+</html>

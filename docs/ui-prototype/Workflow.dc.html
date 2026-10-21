@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Workflow and approval</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#F6F6F3}
+a{color:#2457D6}a:hover{color:#1A3FA0}
+button{font-family:inherit}
+input{font-family:inherit}
+</style>
+</helmet>
+<div style="min-height: 940px; box-sizing: border-box; font-family: 'IBM Plex Sans', system-ui, sans-serif; color: #1C1C1A; background: #F6F6F3; display: flex; flex-direction: column">
+
+  <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 12px 24px; background: #FFFFFF; border-bottom: 1px solid #E2E2DC">
+    <div style="font-weight: 600; font-size: 15px">kb-intake</div>
+    <div style="display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid #E2E2DC; border-radius: 6px; font-size: 13px; background: #FAFAF8">
+      <span style="font-family: 'IBM Plex Mono', monospace">ocbc-group_ar_2025_en.pdf</span>
+      <span style="color: #5F5F58">276 pages · en</span>
+    </div>
+  </header>
+
+  <nav aria-label="Flow" style="display: flex; flex-wrap: wrap; gap: 4px; padding: 12px 24px; background: #FFFFFF; border-bottom: 1px solid #E2E2DC; font-size: 13px">
+    <span style="padding: 6px 10px; border-radius: 999px; background: #E7EFE9; color: #1E5B36">✓ Upload</span>
+    <span style="padding: 6px 10px; border-radius: 999px; background: #E7EFE9; color: #1E5B36">✓ Label</span>
+    <a href="Main.dc.html" style="padding: 6px 10px; border-radius: 999px; background: #E7EFE9; color: #1E5B36; text-decoration: none">✓ Stats &amp; inventory</a>
+    <span style="{{stepWf}}">{{stepWfLabel}}</span>
+    <span style="{{stepApprove}}">{{stepApproveLabel}}</span>
+    <span style="{{stepExtract}}">{{stepExtractLabel}}</span>
+    <a href="Review.dc.html" style="padding: 6px 10px; border-radius: 999px; color: #5F5F58; text-decoration: none">Review</a>
+    <span style="padding: 6px 10px; border-radius: 999px; color: #5F5F58">Confirm</span>
+    <span style="padding: 6px 10px; border-radius: 999px; color: #5F5F58">Deliver</span>
+  </nav>
+
+  <section style="display: flex; flex-wrap: wrap; gap: 16px; padding: 16px 24px 24px; flex: 1">
+
+    <main style="flex: 999 1 640px; min-width: 0; background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 8px; display: flex; flex-direction: column">
+      <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #E2E2DC">
+        <h1 style="margin: 0; font-size: 16px; font-weight: 600">How to handle each region type</h1>
+        <div style="font-size: 13px; color: #5F5F58">Template default v1 · suggested from this file's stats, editable per row</div>
+      </div>
+      <div style="overflow-x: auto">
+        <div style="min-width: 640px">
+          <div style="display: grid; grid-template-columns: 200px 80px minmax(0, 1fr); gap: 12px; padding: 10px 16px; font-size: 12px; color: #5F5F58; border-bottom: 1px solid #F0F0EB">
+            <div>Region type</div><div style="text-align: right">Count</div><div>Handler</div>
+          </div>
+          <sc-for list="{{rows}}" as="r" hint-placeholder-count="9">
+            <div style="display: grid; grid-template-columns: 200px 80px minmax(0, 1fr); gap: 12px; align-items: center; padding: 10px 16px; border-bottom: 1px solid #F0F0EB; font-size: 14px">
+              <div style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; background: {{r.color}}"></span>{{r.label}}</div>
+              <div style="text-align: right; font-family: 'IBM Plex Mono', monospace; font-size: 13px">{{r.count}}</div>
+              <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center">
+                <sc-for list="{{r.opts}}" as="o" hint-placeholder-count="3">
+                  <button onClick="{{o.pick}}" aria-pressed="{{o.on}}" style="{{o.style}}">{{o.label}}</button>
+                </sc-for>
+                <span style="font-size: 12px; color: #5F5F58">{{r.note}}</span>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 14px 16px; font-size: 13px">
+        <span style="color: #5F5F58">Excluded pages</span>
+        <span style="padding: 6px 10px; border: 1px dashed #CFCFC8; border-radius: 6px; color: #5F5F58">None (e.g. 1–4, 270–276)</span>
+      </div>
+    </main>
+
+    <aside style="flex: 1 1 340px; max-width: 420px; display: flex; flex-direction: column; gap: 16px">
+      <div style="background: #FFF8EC; border: 1px solid #F1D9AE; border-radius: 8px; padding: 14px 16px; font-size: 13px; line-height: 1.55; color: #5A3A06">
+        <div style="font-weight: 600; margin-bottom: 4px">Suggestion</div>
+        Pictures on 23 mixed pages have no text layer and OCR is not implemented yet: those regions will be marked "unhandled" and listed in the gaps.
+      </div>
+
+      <div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+          <div style="font-weight: 600; font-size: 14px">LLM</div>
+          <span style="font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #F1ECFA; color: #5B2E9C">MiniMax-M3 · remote</span>
+        </div>
+        <div style="font-size: 12px; color: #8A4A00; background: #FFF4E5; border-radius: 6px; padding: 8px 10px">When on, region images and text are sent to api.minimax.io. Results are kept separately in llm.jsonl and marked low weight.</div>
+        <sc-for list="{{toggles}}" as="t" hint-placeholder-count="3">
+          <button onClick="{{t.flip}}" aria-pressed="{{t.on}}" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid #E2E2DC; border-radius: 6px; background: #FFFFFF; cursor: pointer; text-align: left; font-size: 13px; color: #1C1C1A">
+            <span style="display: flex; flex-direction: column; gap: 2px"><span>{{t.label}}</span><span style="font-size: 12px; color: #5F5F58">{{t.hint}}</span></span>
+            <span style="{{t.pill}}">{{t.state}}</span>
+          </button>
+        </sc-for>
+      </div>
+
+      <div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; font-size: 13px">
+        <div style="font-weight: 600; font-size: 14px">This run will process</div>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px">
+          <div style="color: #5F5F58">Table structure</div><div>{{sumTables}} tables</div>
+          <div style="color: #5F5F58">Text by box</div><div>{{sumText}} regions</div>
+          <div style="color: #5F5F58">LLM description</div><div>{{sumDescribe}} regions</div>
+          <div style="color: #5F5F58">Chart to table</div><div>{{sumChartTable}}</div>
+          <div style="color: #5F5F58">Discard / record only</div><div>{{sumDiscard}}</div>
+        </div>
+      </div>
+
+      <sc-if value="{{notApproved}}" hint-placeholder-val="{{ true }}">
+        <div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px">
+          <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px">Approved by
+            <input value="Peter" style="min-height: 40px; padding: 0 10px; border: 1px solid #CFCFC8; border-radius: 6px; font-size: 14px">
+          </label>
+          <button onClick="{{approve}}" style="min-height: 44px; border: 0; border-radius: 6px; background: #1C1C1A; color: #FFFFFF; font-size: 14px; font-weight: 600; cursor: pointer">Approve and start extraction</button>
+        </div>
+      </sc-if>
+      <sc-if value="{{approved}}" hint-placeholder-val="{{ false }}">
+        <div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; font-size: 13px">
+          <div style="font-weight: 600">Approved (Peter · workflow v2) · extracting</div>
+          <div style="height: 8px; background: #ECECE6; border-radius: 999px; overflow: hidden"><div style="width: 62%; height: 100%; background: #2457D6"></div></div>
+          <div style="color: #5F5F58">Docling table structure · page 171 / 276 · LLM descriptions 0 / {{sumDescribe}}</div>
+          <a href="Review.dc.html" style="align-self: flex-start; padding: 10px 14px; border-radius: 6px; background: #E8EEFC; text-decoration: none; font-weight: 500">Go to Review when done →</a>
+        </div>
+      </sc-if>
+    </aside>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":940}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      approved: false,
+      h: { table: 'table_structure', chart: 'describe', diagram: 'describe', picture: 'discard', icon: 'discard', logo: 'discard', signature: 'record', textual: 'text', furniture: 'discard', unknown: 'unhandled' },
+      tg: { summary: true, describe: true, chartTable: false }
+    };
+  }
+  renderVals() {
+    const st = this.state;
+    const names = { table_structure: 'Table structure', text: 'Text by box', describe: 'LLM describe', discard: 'Discard', record: 'Record position', unhandled: 'Leave unhandled' };
+    const defs = [
+      ['table', 'Tables', 201, '#2457D6', ['table_structure', 'text', 'unhandled'], 'TableFormer grid, text from the text layer'],
+      ['chart', 'Charts', 9, '#B4237A', ['describe', 'text', 'discard'], 'Text inside the chart is always kept'],
+      ['diagram', 'Diagrams', 1, '#7C3AED', ['describe', 'text', 'discard'], ''],
+      ['picture', 'Pictures', 58, '#8A8A84', ['discard', 'describe', 'record'], ''],
+      ['icon', 'Icons', 11, '#8A8A84', ['discard', 'record'], ''],
+      ['logo', 'Logos', 8, '#8A8A84', ['discard', 'record'], ''],
+      ['signature', 'Signatures', 5, '#8A8A84', ['record', 'discard'], 'Position only, no content'],
+      ['textual', 'Text (body, headings, lists, footnotes…)', 3866, '#64748B', ['text'], ''],
+      ['furniture', 'Page headers and footers', 0, '#B5B5AE', ['discard', 'text'], 'Counted under Text'],
+      ['unknown', 'Unknown', 0, '#B5B5AE', ['unhandled', 'text'], '']
+    ];
+    const pill = (on) => 'min-height: 32px; padding: 4px 10px; border-radius: 999px; font-size: 12px; cursor: pointer; border: 1px solid ' + (on ? '#1C1C1A; background: #1C1C1A; color: #FFFFFF;' : '#CFCFC8; background: #FFFFFF; color: #1C1C1A;');
+    const rows = defs.map(([k, label, count, color, opts, note]) => ({
+      label, color, note, count: count ? count.toLocaleString('en-US') : '—',
+      opts: opts.map((o) => ({ label: names[o], on: st.h[k] === o, style: pill(st.h[k] === o),
+        pick: () => this.setState({ h: { ...st.h, [k]: o } }) }))
+    }));
+    const tdef = [
+      ['summary', 'Document summary', 'Generated after labeling, to help choose the workflow'],
+      ['describe', 'Chart and picture descriptions', 'Runs on regions set to "LLM describe" above'],
+      ['chartTable', 'Chart to table (experimental)', 'The model estimates values; low weight, check by hand']
+    ];
+    const toggles = tdef.map(([k, label, hint]) => {
+      const on = st.tg[k];
+      return { label, hint, on, state: on ? 'On' : 'Off',
+        pill: 'padding: 4px 10px; border-radius: 999px; font-size: 12px; ' + (on ? 'background: #1E5B36; color: #FFFFFF;' : 'background: #ECECE6; color: #4A4A45;'),
+        flip: () => this.setState({ tg: { ...st.tg, [k]: !on } }) };
+    });
+    const cnt = { chart: 9, diagram: 1, picture: 58, icon: 11, logo: 8, signature: 5, table: 201, textual: 3866 };
+    const sumBy = (fn) => Object.keys(cnt).filter(fn).reduce((a, k) => a + cnt[k], 0);
+    const describe = st.tg.describe ? sumBy((k) => st.h[k] === 'describe') : 0;
+    const chartTable = st.tg.chartTable && st.h.chart === 'describe' ? '9 charts (experimental)' : 'Off';
+    const step = (kind) => 'padding: 6px 10px; border-radius: 999px; ' + (kind === 'now' ? 'background: #1C1C1A; color: #FFFFFF;' : kind === 'done' ? 'background: #E7EFE9; color: #1E5B36;' : kind === 'run' ? 'background: #E8EEFC; color: #1A3FA0;' : 'color: #5F5F58;');
+    const a = st.approved;
+    return {
+      rows, toggles,
+      sumTables: st.h.table === 'table_structure' ? 201 : 0,
+      sumText: sumBy((k) => st.h[k] === 'text').toLocaleString('en-US'),
+      sumDescribe: describe,
+      sumChartTable: chartTable,
+      sumDiscard: sumBy((k) => st.h[k] === 'discard') + ' / ' + sumBy((k) => st.h[k] === 'record'),
+      notApproved: !a, approved: a,
+      approve: () => this.setState({ approved: true }),
+      stepWf: step(a ? 'done' : 'now'), stepWfLabel: a ? '✓ Workflow' : '● Workflow',
+      stepApprove: step(a ? 'done' : 'todo'), stepApproveLabel: a ? '✓ Approve' : 'Approve',
+      stepExtract: step(a ? 'run' : 'todo'), stepExtractLabel: a ? '◐ Extracting' : 'Extract'
+    };
+  }
+}
+</script>
+</body>
+</html>

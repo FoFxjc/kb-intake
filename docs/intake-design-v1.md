@@ -73,6 +73,8 @@ kb 只读入件包，不再碰原件，也不再 import 任何格式解析代码
 
 UI 只调这套 API。和使用方之间仍然只交接文件（包），不调用使用方。
 
+安全默认：`serve` 只监听 127.0.0.1，监听其他地址须显式 `--host`（并提示无鉴权）。配置项 `scan_roots`（允许扫描的根目录列表）默认为空，此时只能上传；目录浏览与按目录提交只接受根目录以内的路径（解析符号链接与 `..` 之后判断），目录内指向根目录以外的文件逐个拒绝。
+
 ```
 kb-intake models download --to ~/.kb-intake/models          # 一次性：按锁定的 revision 下载 Docling 权重（内网可拷贝此目录）
 kb-intake scan <file|dir> --decl decl.yaml --out ./packages  # 扫描原文件并出包；目录时逐个处理，已出包的跳过
@@ -145,6 +147,7 @@ UI 里有同样的配置页，可以测试连通性。
                    layout_model, layout_version
   tables.jsonl     表格：table_id, region_ids[], pages[], bboxes[], cells[{r,c,rs,cs,text,value,nil,bbox,is_header}],
                    header_rows, markdown, extract_method(docling|find_tables|merged), continued_from, checks
+  tables_secondary.jsonl  副抽取器（find_tables）的候选表，字段同 tables.jsonl，只供交叉检查与核对；tables.jsonl 只放正式表（可选文件，旧包没有）
   headings.jsonl   标题候选：region_id, page_no, bbox, text, level, numbering, sources[font_rule|numbering|docling], furniture
   docling.json     无损 DoclingDocument（流程 A 时有；固定版本）
   gaps.jsonl       ocr_text, image_region_unread, lang_mismatch, decl_mismatch,
@@ -233,7 +236,7 @@ UI 里有同样的配置页，可以测试连通性。
    - 跨页续表：相邻页列名相同，且后表位于页首或标题带 "(continued)" → 合并为一张表，`extract_method=merged`，保留各段页码和 bbox
    - 坐标统一为 TOPLEFT（Docling 元素是 BOTTOMLEFT，单元格是 TOPLEFT）
 6. 三重检查（从强到弱）：
-   1. **文字守恒**（主检查，最便宜、最确定）：表格 bbox 内文字层的每个数字词，必须在 Docling 的单元格里恰好出现一次；单元格里的每个数字也必须能在文字层找到。缺的记 `table_text_unaccounted`（带页码、词坐标），多的记 `table_cells_dropped` 或 `table_cross_mismatch`。Docling 日志里“丢弃单元格”的警告靠这一步定位。
+   1. **文字守恒**（主检查，最便宜、最确定）：表格 bbox 内文字层的每个数字词，必须在 Docling 的单元格里恰好出现一次，**带正负号比较**（`-`、`−`、`–` 都算负号，`(x)` 算 `-x`；紧跟在文字后的连字符算标签的一部分，不算负号），括号或负号丢失要报 gap；单元格里的每个数字也必须能在文字层找到。缺的记 `table_text_unaccounted`（带页码、词坐标），多的记 `table_cells_dropped` 或 `table_cross_mismatch`。Docling 日志里“丢弃单元格”的警告靠这一步定位。
    2. **主副比对**：按 bbox 重叠匹配两边的表（IoU ≥ 0.5，或一边被另一边包含），比较数字多重集合；不一致记 `table_cross_mismatch`，两边结果都留在包里。
    3. **漏表兜底**：find_tables 有、Docling 没有时，看 Docling 把这块判成了什么：
       - 判成 `chart` / `diagram` / `picture` → 按模型，find_tables 结果记为误识别（图表上的坐标轴数字常被 find_tables 误当成表）
@@ -306,3 +309,5 @@ UI 里有同样的配置页，可以测试连通性。
   - 稳定性：单文件子进程硬超时；失败页取逐页状态；只缓存完整成功；缓存损坏按未命中；后处理异常退回 find_tables
   - 测试样本：UOB 集团 2025 年报（本地，不入库），取代此前提议的 arXiv 论文
 - 2026-10-21 C 步 review 后修正：语言不符的 gap 保留 v1 既有代码 `lang_mismatch`，不改名为 `decl_mismatch`（契约只增不改）；单元格增加 `bbox_source`，标明框的来源
+- 2026-10-21 D 步安全默认：只监听 127.0.0.1；`scan_roots` 限定可扫描目录，默认只允许上传
+- 2026-10-21 C 步代码审查后：副候选移到 `tables_secondary.jsonl`（`tables.jsonl` 只放正式表，避免阶段 A 的使用方重复计数）；文字守恒改为带正负号比较；§9.2 第 6 步“两边都没找到的表”暂未实现
