@@ -213,7 +213,7 @@ def test_scan_a_directory_with_defaults_overrides_and_skips(tmp_path, monkeypatc
     assert results["c.pdf"] == {"file": "c.pdf", "status": "skipped_no_declaration", "missing": ["period_end"]}
     b = out / results["b.pdf"]["package"]
     gaps = read_jsonl(b / "gaps.jsonl")
-    assert {"code": "decl_mismatch", "field": "lang", "declared": "fr", "detected": "en"} in gaps
+    assert {"code": "lang_mismatch", "declared": "fr", "detected": "en"} in gaps
     m = json.loads((out / results["Annual Report 2025.pdf"]["package"] / "manifest.json").read_text())
     assert m["declaration"]["lang"] == "en" and m["declaration_filled"] == ["lang"]
     again = list(scan.scan(d, raw, out, cfg))

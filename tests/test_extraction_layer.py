@@ -217,15 +217,16 @@ def test_cell_bbox_is_the_text_box_and_empty_cells_have_none():
                        (1, 0, "orphan", None)])
     (out,), gaps = post.tables([t], {1: [w[:5] for w in words]}, lambda p: words)
     by = {(c["r"], c["c"]): c for c in out["cells"]}
-    assert by[(0, 0)]["bbox"] is None and by[(1, 1)]["bbox"] == [205, 133, 225, 141]
+    assert by[(0, 0)]["bbox"] is None and by[(0, 0)]["bbox_source"] is None
+    assert by[(1, 1)]["bbox"] == [205, 133, 225, 141] and by[(1, 1)]["bbox_source"] == "text"
     assert (1, 0) not in by and gaps[-1]["code"] == "table_cells_dropped"
 
 
 def test_text_box_is_clipped_to_the_cell_and_falls_back():
     from kb_intake.textlayer import text_box
-    assert text_box([[95, 10, 130, 20, "wide"]], [100, 0, 120, 30]) == [100, 10, 120, 20]     # clipped
-    assert text_box([[90, 10, 104, 20, "edge"]], [100, 0, 120, 30]) == [100, 10, 104, 20]     # overlap only
-    assert text_box([], [100, 0, 120, 30]) == [100, 0, 120, 30]                               # no word: the cell
+    assert text_box([[95, 10, 130, 20, "wide"]], [100, 0, 120, 30]) == ([100, 10, 120, 20], "text")    # clipped
+    assert text_box([[90, 10, 104, 20, "edge"]], [100, 0, 120, 30]) == ([100, 10, 104, 20], "words")   # overlap
+    assert text_box([], [100, 0, 120, 30]) == ([100, 0, 120, 30], "cell")                              # no word
 
 
 def test_context_above_takes_the_unit_lines_right_above_the_table():

@@ -98,7 +98,7 @@
       },
       "minItems": 4,
       "maxItems": 4,
-      "description": "box of the text inside the cell (TOPLEFT, PDF points, full precision); null for an empty cell"
+      "description": "box of the text inside the cell, clipped to the cell (TOPLEFT, PDF points, full precision); null for an empty cell"
      },
      "is_header": {
       "type": "boolean"
@@ -116,6 +116,15 @@
       "minItems": 4,
       "maxItems": 4,
       "description": "optional: the cell's grid box as the extractor drew it (find_tables)"
+     },
+     "bbox_source": {
+      "enum": [
+       "text",
+       "words",
+       "cell",
+       null
+      ],
+      "description": "how bbox was found: text = words centred in the cell, clipped to it; words = no centred word, words overlapping the cell, clipped; cell = no word touches the cell, the cell's own box; null for an empty cell"
      }
     },
     "description": "One cell. rs/cs are row and column spans. extract_method=find_tables has no span information: every cell has rs = cs = 1 and grid positions covered by a merged neighbour have no cell (the owner's bbox spans them)."

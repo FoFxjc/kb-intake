@@ -46,17 +46,22 @@ def layout_record(page: pymupdf.Page, page_no: int) -> dict:
             "words": [[w[0], w[1], w[2], w[3], w[4], "native", None] for w in page.get_text("words")]}
 
 
-def text_box(words: list, region) -> list[float] | None:
-    """The contract's cell bbox: the box of the text in the cell, clipped to the cell's own box `region` (the grid
-    box of find_tables, the engine's cell box). Words are those whose centre lies in the region, else those that
-    overlap it; when none does, the region itself. Callers give None for an empty cell."""
+def text_box(words: list, region) -> tuple[list[float], str]:
+    """The contract's cell bbox and bbox_source, for a cell with text whose own box is `region` (the grid box of
+    find_tables, the engine's cell box):
+    - "text":  the box of the words whose centre lies in the region, clipped to the region;
+    - "words": no word is centred there; the box of the words that overlap the region, clipped to it;
+    - "cell":  no word touches the region; the region itself.
+    Empty cells get bbox null and bbox_source null from the callers."""
     def centred(w):
         return region[0] <= (w[0] + w[2]) / 2 <= region[2] and region[1] <= (w[1] + w[3]) / 2 <= region[3]
 
     def overlaps(w):
         return w[0] < region[2] and w[2] > region[0] and w[1] < region[3] and w[3] > region[1]
-    inside = [w for w in words if centred(w)] or [w for w in words if overlaps(w)]
+    inside, source = [w for w in words if centred(w)], "text"
     if not inside:
-        return list(region)
+        inside, source = [w for w in words if overlaps(w)], "words"
+    if not inside:
+        return list(region), "cell"
     return [max(region[0], min(w[0] for w in inside)), max(region[1], min(w[1] for w in inside)),
-            min(region[2], max(w[2] for w in inside)), min(region[3], max(w[3] for w in inside))]
+            min(region[2], max(w[2] for w in inside)), min(region[3], max(w[3] for w in inside))], source

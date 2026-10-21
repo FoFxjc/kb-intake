@@ -3,8 +3,8 @@
 It cross-checks the layout engine's tables, fills in tables the engine missed, and is the whole table layer when the
 engine is not available (full degradation). Every candidate is kept in detection order, so table ids are stable.
 
-Cells: `bbox` is the box of the text inside the cell, clipped to the grid box, null for an empty cell (contract §4);
-find_tables' own grid box is `grid_bbox`.
+Cells: `bbox` is the box of the text inside the cell, clipped to the grid box, with `bbox_source`; null for an empty
+cell (contract §4); find_tables' own grid box is `grid_bbox`.
 find_tables has no spans: every cell is rs = cs = 1, and grid positions covered by a merged neighbour have no cell.
 """
 
@@ -47,9 +47,9 @@ def _table(t, doc_id: str, page_no: int, i: int, words: list) -> dict:
             if box is None:
                 continue
             value, nil = parse_value(raw[r][c])
+            bbox, source = text_box(words, box) if (raw[r][c] or "").strip() else (None, None)
             cells.append({"r": r, "c": c, "rs": 1, "cs": 1, "text": raw[r][c], "value": value, "nil": nil,
-                          "bbox": text_box(words, box) if (raw[r][c] or "").strip() else None,
-                          "grid_bbox": list(box), "is_header": False,
+                          "bbox": bbox, "bbox_source": source, "grid_bbox": list(box), "is_header": False,
                           "page_no": page_no})
     return {"table_id": f"{doc_id}:t{page_no:04d}_{i + 1:02d}", "region_ids": [], "pages": [page_no],
             "bboxes": [list(t.bbox)], "n_rows": len(t.rows), "n_cols": t.col_count, "cells": cells,

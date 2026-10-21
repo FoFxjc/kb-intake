@@ -2,22 +2,300 @@
  "$schema": "https://json-schema.org/draft/2020-12/schema",
  "$id": "https://github.com/FoFxjc/kb-intake/contract/v1/gap.schema.json",
  "title": "gaps.jsonl row",
+ "description": "Known codes: no_text_layer: the PDF has no text layer (flow B not implemented); lang_mismatch: the declared language differs from the detected one; decl_mismatch: another declaration field differs from what the file shows; extractor_degraded: an extractor could not be used; a fallback was taken; table_missed: a find_tables candidate no engine table matches; table_header_suspect: a header cell's text differs between the engine and the text layer; table_cross_mismatch: numbers differ between the engine table and find_tables or the text layer; table_cells_dropped: engine cells without a box were dropped; table_text_unaccounted: a number word of the text layer inside a table is not in its cells; ocr_text: reserved for flow B (OCR); image_region_unread: reserved for flow B (image regions not read). Fields not listed here may be added within v1; listed codes and fields are never renamed or removed.",
  "type": "object",
  "properties": {
   "code": {
    "type": "string",
-   "pattern": "^[a-z][a-z0-9_]*$"
+   "pattern": "^[a-z][a-z0-9_]*$",
+   "description": "gap code; the known codes are listed below. Contract v1 only adds codes and fields, it never renames or removes them"
   },
   "page_no": {
    "type": "integer",
-   "minimum": 1
+   "minimum": 1,
+   "description": "page the gap is on (absent for document-level gaps)"
   },
   "detail": {
-   "type": "string"
+   "type": "string",
+   "description": "human-readable explanation"
+  },
+  "table_id": {
+   "type": "string",
+   "description": "the table the gap is about (tables.jsonl)"
+  },
+  "ref": {
+   "type": "string",
+   "description": "the layout engine's own id of the item (e.g. a DoclingDocument self_ref)"
+  },
+  "extractor": {
+   "type": "string",
+   "description": "extractor_degraded: which extractor degraded (the layout engine name, find_tables, page_kinds, headings)"
+  },
+  "status": {
+   "type": "string",
+   "description": "extractor_degraded: the layout engine's status (timeout, crashed, error, not_ready, disabled, partial_success, ...)"
+  },
+  "pages": {
+   "description": "extractor_degraded (document level): \"all\", or the pages that fell back to find_tables",
+   "oneOf": [
+    {
+     "const": "all"
+    },
+    {
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     }
+    }
+   ]
+  },
+  "table_index": {
+   "type": "integer",
+   "minimum": 1,
+   "description": "extractor_degraded (find_tables): 1-based index of the candidate on its page"
+  },
+  "declared": {
+   "type": "string",
+   "description": "lang_mismatch / decl_mismatch: the declared value"
+  },
+  "detected": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "description": "lang_mismatch / decl_mismatch: the detected value"
+  },
+  "field": {
+   "type": "string",
+   "description": "decl_mismatch: the declaration field"
+  },
+  "find_tables_id": {
+   "type": "string",
+   "description": "table_missed / table_cross_mismatch: id of the find_tables candidate"
+  },
+  "resolution": {
+   "enum": [
+    "find_tables",
+    "not_entered",
+    "text_layer",
+    "kept_engine"
+   ],
+   "description": "table_missed: find_tables (candidate entered) or not_entered; table_header_suspect: text_layer (text layer won) or kept_engine"
+  },
+  "engine_region": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "description": "table_missed: the region the layout engine has at the candidate's place"
+  },
+  "r": {
+   "type": "integer",
+   "minimum": 0
+  },
+  "c": {
+   "type": "integer",
+   "minimum": 0
+  },
+  "engine": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "description": "table_header_suspect: the header text as the layout engine read it"
+  },
+  "text_layer": {
+   "type": "string",
+   "description": "table_header_suspect: the header text re-read from the text layer"
+  },
+  "source": {
+   "enum": [
+    "find_tables",
+    "text_layer"
+   ],
+   "description": "table_cross_mismatch: what the engine table was compared with"
+  },
+  "only_engine": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   },
+   "description": "table_cross_mismatch (find_tables): numbers only in the engine table (at most 20)"
+  },
+  "only_find_tables": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   },
+   "description": "table_cross_mismatch (find_tables): numbers only in the find_tables candidate (at most 20)"
+  },
+  "text": {
+   "type": "string",
+   "description": "table_text_unaccounted: the text-layer word not found in the cells"
+  },
+  "bbox": {
+   "type": "array",
+   "items": {
+    "type": "number"
+   },
+   "minItems": 4,
+   "maxItems": 4,
+   "description": "table_text_unaccounted: the word's box"
   }
  },
  "required": [
   "code"
  ],
- "additionalProperties": true
+ "additionalProperties": true,
+ "allOf": [
+  {
+   "if": {
+    "properties": {
+     "code": {
+      "const": "lang_mismatch"
+     }
+    },
+    "required": [
+     "code"
+    ]
+   },
+   "then": {
+    "required": [
+     "declared",
+     "detected"
+    ]
+   }
+  },
+  {
+   "if": {
+    "properties": {
+     "code": {
+      "const": "decl_mismatch"
+     }
+    },
+    "required": [
+     "code"
+    ]
+   },
+   "then": {
+    "required": [
+     "field",
+     "declared"
+    ]
+   }
+  },
+  {
+   "if": {
+    "properties": {
+     "code": {
+      "const": "extractor_degraded"
+     }
+    },
+    "required": [
+     "code"
+    ]
+   },
+   "then": {
+    "required": [
+     "extractor"
+    ]
+   }
+  },
+  {
+   "if": {
+    "properties": {
+     "code": {
+      "const": "table_missed"
+     }
+    },
+    "required": [
+     "code"
+    ]
+   },
+   "then": {
+    "required": [
+     "page_no",
+     "find_tables_id",
+     "resolution"
+    ]
+   }
+  },
+  {
+   "if": {
+    "properties": {
+     "code": {
+      "const": "table_header_suspect"
+     }
+    },
+    "required": [
+     "code"
+    ]
+   },
+   "then": {
+    "required": [
+     "page_no",
+     "r",
+     "c",
+     "resolution"
+    ]
+   }
+  },
+  {
+   "if": {
+    "properties": {
+     "code": {
+      "const": "table_cross_mismatch"
+     }
+    },
+    "required": [
+     "code"
+    ]
+   },
+   "then": {
+    "required": [
+     "page_no",
+     "source"
+    ]
+   }
+  },
+  {
+   "if": {
+    "properties": {
+     "code": {
+      "const": "table_cells_dropped"
+     }
+    },
+    "required": [
+     "code"
+    ]
+   },
+   "then": {
+    "required": [
+     "page_no",
+     "detail"
+    ]
+   }
+  },
+  {
+   "if": {
+    "properties": {
+     "code": {
+      "const": "table_text_unaccounted"
+     }
+    },
+    "required": [
+     "code"
+    ]
+   },
+   "then": {
+    "required": [
+     "page_no",
+     "table_id",
+     "text",
+     "bbox"
+    ]
+   }
+  }
+ ]
 }

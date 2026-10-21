@@ -8,7 +8,8 @@ Tables
 - Control characters \\x07 and \\x03 are removed from cell text; a cell holding only a dash is nil (textlayer.parse_value).
 - Header cells are re-read from the text layer inside the engine's cell box; when the text layer holds everything the
   engine read it wins, otherwise the engine's text is kept. Either way the cell is reported (`table_header_suspect`).
-- The cell `bbox` is the box of the text in the cell (contract §4); an empty cell has bbox null.
+- The cell `bbox` is the box of the text in the cell, with `bbox_source` (text | words | cell, see
+  textlayer.text_box); an empty cell has bbox null (contract §4).
 - A table that continues on the next page (same column headers; the second part opens its page, after nothing but an
   absent or "(continued)" heading) is merged: extract_method "merged", all pages and boxes kept.
 - `context_above`: the short lines right above a table, in its columns (unit lines like "$ million", notes), which the
@@ -166,7 +167,7 @@ def tables(engine_tables: list[dict], words_by_page: dict[int, list], page_words
                     dropped.append(text)
                 continue
             cell = {"r": c["r"], "c": c["c"], "rs": c["rs"], "cs": c["cs"], "text": text, "value": None, "nil": False,
-                    "bbox": None, "is_header": c["is_header"], "page_no": c["page_no"]}
+                    "bbox": None, "bbox_source": None, "is_header": c["is_header"], "page_no": c["page_no"]}
             if cell["is_header"]:
                 inside = [w for w in page_words(page_no) if _inter(w, ebox) >= 0.5 * max(1e-9, _area(w))]
                 layer = clean(_reading_order(inside)) if inside else None
@@ -181,7 +182,7 @@ def tables(engine_tables: list[dict], words_by_page: dict[int, list], page_words
                         cell["text"] = layer
             cell["value"], cell["nil"] = parse_value(cell["text"])
             if cell["text"]:
-                cell["bbox"] = text_box(words_by_page.get(page_no, []), ebox)
+                cell["bbox"], cell["bbox_source"] = text_box(words_by_page.get(page_no, []), ebox)
             cells.append(cell)
         if dropped:
             gaps.append({"code": "table_cells_dropped", "page_no": page_no, "ref": t["engine_ref"],

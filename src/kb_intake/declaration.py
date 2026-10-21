@@ -6,7 +6,7 @@ the package and refuses a mismatch.
 - `doc_id` must be file-name safe (it names the package directory). A directory scan defaults it to the slug of the
   file name.
 - `lang` is an ISO 639-1 code and may be omitted; the detected language is used then. A declared language that
-  differs from the detected one is recorded as a `decl_mismatch` gap, not refused.
+  differs from the detected one is recorded as a `lang_mismatch` gap, not refused.
 
 A directory scan reads one declaration file with defaults and per-file overrides:
 

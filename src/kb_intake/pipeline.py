@@ -58,8 +58,7 @@ def process(file: Path, decl: dict, out: Path, config: Config | None = None, rep
     if not detection["has_text_layer"]:
         gaps.append({"code": "no_text_layer", "detail": "the PDF has no text layer; flow B (OCR) is not implemented"})
     if detection["lang_matches"] is False:
-        gaps.append({"code": "decl_mismatch", "field": "lang", "declared": decl["lang"],
-                     "detected": detection["detected_lang"]})
+        gaps.append({"code": "lang_mismatch", "declared": decl["lang"], "detected": detection["detected_lang"]})
     if "page_kinds_error" in detection:
         gaps.append({"code": "extractor_degraded", "extractor": "page_kinds", "detail": detection["page_kinds_error"]})
 

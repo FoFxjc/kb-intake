@@ -1,8 +1,8 @@
 """Full degradation (intake-design §9.4): packages built with the layout engine off (`scan --no-layout`) must equal
 the stage-A packages (find_tables only, before the engine existed), with the field mapping decided for step C:
 
-- tables.jsonl: the stage-A cell `bbox` (find_tables grid box) is now `grid_bbox`; `bbox` is the text box (checked
-  separately: inside the grid box, or null for an empty cell). New fields `role` and `context_above` are dropped
+- tables.jsonl: the stage-A cell `bbox` (find_tables grid box) is now `grid_bbox`; `bbox` is the text box and `bbox_source`
+  its origin (checked separately: inside the grid box with a source, or both null for an empty cell). New fields `role` and `context_above` are dropped
   before comparing (context_above is checked to be present). Everything else byte for byte, in order.
 - pages.jsonl, layout.jsonl, regions.jsonl: byte for byte.
 - headings.jsonl: not compared (stage A had none; heading candidates do not depend on the engine).
@@ -41,7 +41,8 @@ def compare(new: Path, old: Path) -> dict:
                 text_boxes_ok &= not (c["text"] or "").strip()
             else:
                 text_boxes_ok &= g[0] - 1e-6 <= b[0] <= b[2] <= g[2] + 1e-6 and g[1] - 1e-6 <= b[1] <= b[3] <= g[3] + 1e-6
-            c = {k: v for k, v in c.items() if k != "grid_bbox"}
+            text_boxes_ok &= c.get("bbox_source") in (("text", "words", "cell") if b is not None else (None,))
+            c = {k: v for k, v in c.items() if k not in ("grid_bbox", "bbox_source")}
             c["bbox"] = g
             cells.append(c)
         mapped.append({**t, "cells": cells})

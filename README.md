@@ -92,7 +92,7 @@ files:
 ```
 
 kb-intake only checks the format. A declared `lang` that differs from the detected one is recorded as a
-`decl_mismatch` gap; a consumer with its own naming rules re-checks `doc_id` when it imports a package.
+`lang_mismatch` gap; a consumer with its own naming rules re-checks `doc_id` when it imports a package.
 Language detection only recognises Chinese and English; for other languages declare `lang`.
 
 ### Configuration
@@ -112,17 +112,20 @@ Optional `intake.yaml` (`--config` or `$INTAKE_CONFIG`); every key has a default
   pages.jsonl     page_no, page_label, kind (native|scanned|mixed|blank), text, size, image regions
   layout.jsonl    words per page: [x0, y0, x1, y1, text, source, conf]
   regions.jsonl   layout regions: bbox, type (layout-design §2), type_source (model|native|fused), reading order
-  tables.jsonl    tables: pages, bboxes, cells {r, c, rs, cs, text, value, nil, bbox, grid_bbox?, is_header},
+  tables.jsonl    tables: pages, bboxes, cells {r, c, rs, cs, text, value, nil, bbox, bbox_source, grid_bbox?,
+                  is_header},
                   header_rows, markdown, extract_method (docling|find_tables|merged), role, checks, context_above
   headings.jsonl  heading candidates: text, level, numbering, sources, furniture (running headers, "(continued)")
   docling.json    the lossless DoclingDocument
   gaps.jsonl      what could not be read or did not match (table_text_unaccounted, table_cross_mismatch,
-                  table_missed, table_header_suspect, extractor_degraded, decl_mismatch, ...)
+                  table_missed, table_header_suspect, extractor_degraded, lang_mismatch, ...; codes and their
+                  fields are listed in contract/v1/gap.schema.json)
   checks.json     the package's own contract check
 ```
 
-Coordinates are PDF points with a TOPLEFT origin, at full precision. A cell's `bbox` is the box of its text (null
-for an empty cell). Schemas: [contract/v1/](contract/v1/).
+Coordinates are PDF points with a TOPLEFT origin, at full precision. A cell's `bbox` is the box of its text, clipped
+to the cell; `bbox_source` says how it was found (`text`: the words centred in the cell, `words`: words overlapping
+the cell, `cell`: no text found, the cell's box). An empty cell has `bbox` null. Schemas: [contract/v1/](contract/v1/).
 
 When Docling cannot be used (weights missing, timeout, crash, a post-processing error) the file still gets a
 package: the tables come from `find_tables` alone and the document has one `extractor_degraded` gap. Pages Docling
