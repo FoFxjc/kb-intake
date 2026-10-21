@@ -1,9 +1,9 @@
-"""A real Docling run with the network blocked (intake-design §7, §9.3.2). Skipped unless the pinned weights are
+"""A real Docling run with the network blocked (intake-design-v2 §7, v1 §9.3.2). Skipped unless the pinned weights are
 installed ($INTAKE_MODELS_DIR, else ~/.kb-intake/models).
 
-`kb-intake scan` runs in a subprocess whose interpreter (and the conversion child it spawns) loads a sitecustomize
-that makes every IP connection fail and records the attempt. The package must come out with Docling's status
-"success", and no connection may have been attempted.
+Every CLI step (label, approve, extract, confirm) runs in a subprocess whose interpreter (and the conversion child
+it spawns) loads a sitecustomize that makes every IP connection fail and records the attempt. The package must come out with Docling's status
+"success" in both stages, and no connection may have been attempted.
 """
 
 import json
@@ -45,7 +45,7 @@ def _ready() -> bool:
 
 
 @pytest.mark.skipif(not _ready(), reason="pinned weights not installed")
-def test_scan_runs_docling_with_the_network_blocked(tmp_path):
+def test_the_whole_flow_runs_docling_with_the_network_blocked(tmp_path):
     pdf = tmp_path / "t.pdf"
     doc = pymupdf.open()
     p = doc.new_page(width=595, height=842)
@@ -72,14 +72,25 @@ def test_scan_runs_docling_with_the_network_blocked(tmp_path):
     assert "network blocked by test" in probe.stderr and attempts.exists()        # the block works
     attempts.unlink()
     loaded.unlink()
-    r = subprocess.run([sys.executable, "-m", "kb_intake.cli", "scan", str(pdf), "--decl", str(decl),
-                        "--out", str(tmp_path / "out")], env=env, capture_output=True, text=True, timeout=900)
-    assert r.returncode == 0, r.stderr[-2000:]
-    result = json.loads(r.stdout.splitlines()[-1])
-    m = json.loads((tmp_path / "out" / result["package"] / "manifest.json").read_text())
-    layout = next(s for s in m["steps"] if s["step"] == "layout")
-    assert layout["status"] == "success" and m["degraded"] is False, layout
+    work, delivery = tmp_path / "work", tmp_path / "delivery"
+    env.update(INTAKE_WORK_DIR=str(work), INTAKE_DELIVERY_DIR=str(delivery))
+
+    def cli(*argv) -> dict:
+        r = subprocess.run([sys.executable, "-m", "kb_intake.cli", *argv], env=env, capture_output=True, text=True,
+                           timeout=900)
+        assert r.returncode == 0, r.stderr[-2000:]
+        return json.loads(r.stdout.splitlines()[-1])
+
+    job_id = cli("label", str(pdf), "--decl", str(decl))["job_id"]
+    cli("approve", job_id, "--by", "offline-test")
+    cli("extract", job_id)
+    out = cli("confirm", job_id, "--by", "offline-test")
+    assert out["check"]["ok"], out["check"]
+    pkg = Path(out["path"])
+    m = json.loads((pkg / "manifest.json").read_text())
+    assert {s: v["status"] for s, v in m["engines"]["stages"].items()} == {"label": "success", "extract": "success"}
     assert not attempts.exists(), attempts.read_text()
     assert len(set(loaded.read_text().split())) >= 2          # the CLI and the conversion child both had the block
-    tables = [json.loads(line) for line in (tmp_path / "out" / result["package"] / "tables.jsonl").open()]
-    assert [t["extract_method"] for t in tables if t["role"] == "primary"] == ["docling"]
+    tables = [json.loads(line) for line in (pkg / "tables.jsonl").open()]
+    assert [t["extract_method"] for t in tables] == ["docling"]
+    assert [c["text"] for c in tables[0]["cells"]][:3] == ["Item", "2025", "2024"]      # from the text layer

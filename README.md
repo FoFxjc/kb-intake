@@ -1,18 +1,21 @@
 # kb-intake
 
-Scans files, labels their structure with [Docling](https://github.com/docling-project/docling) and writes
-**intake packages**: versioned directories (contract v1) holding the text layer, word coordinates, page kinds,
-layout regions with types, tables with cells, and heading candidates. Any consumer that reads the contract can use
-the packages; kb-intake never calls a consumer.
+The scan layer in front of a knowledge base. It reads a PDF, labels every region with
+[Docling](https://github.com/docling-project/docling) (what it is, where it is), counts what it found, proposes a
+**workflow** for extracting it, and — after a person approves the workflow, reviews the result and confirms it —
+writes the original file plus JSONL to a delivery folder. Consumers read the delivery folder; kb-intake never calls
+or notifies them.
 
-- Docling is the core: regions, table structure and region types come from Docling (pinned version, pinned weights,
-  run offline). PyMuPDF `find_tables` is a secondary extractor for cross-checks, and the fallback when Docling fails.
-- No generative model is called. Every rule after Docling is deterministic, and the same file with the same
-  configuration gives byte-identical packages (outside `manifest.json` → `run`).
-- Runs natively on macOS arm64 and Linux x86_64. No Docker, no database, no external service.
+- **Describes, does not interpret:** what is on a page, where, and the original text. Number parsing, units,
+  continued-table merging, heading levels and table business types belong to consumers.
+- **Text from the text layer:** Docling gives structure only (region types, boxes, table rows and columns); every
+  text is read from the PDF's own text layer by box.
+- **Two human gates:** approve the workflow, confirm the result. Nothing unconfirmed reaches the delivery folder.
+- **Local and reproducible:** `uv tool install`, no Docker, no database server (state is one SQLite file); pinned
+  versions and model weights, run offline; the same file, workflow and review operations give the same package.
 
-Design: [docs/intake-design-v1.md](docs/intake-design-v1.md), [docs/layout-design-v1.md](docs/layout-design-v1.md),
-[docs/docling-eval-v1.md](docs/docling-eval-v1.md).
+Design: [docs/intake-design-v2.md](docs/intake-design-v2.md) (authoritative), [docs/layout-design-v1.md](docs/layout-design-v1.md) §2
+(region types), [docs/intake-design-v1.md](docs/intake-design-v1.md) §2 and §9.3 (boundaries, stability rules).
 
 ## Install
 
@@ -32,7 +35,8 @@ uv tool install --python 3.12 --constraints constraints.txt git+https://github.c
 uv tool install --python 3.12 --constraints constraints.txt --torch-backend cpu git+https://github.com/FoFxjc/kb-intake
 ```
 
-Then download the model weights once (about 510 MB, the Hugging Face revisions pinned in
+Then download the model weights once (about 520 MB: Docling's layout model, TableFormer and the picture
+classifier, the Hugging Face revisions pinned in
 `src/kb_intake/models.lock.json`, every file checked against its sha256):
 
 ```bash
@@ -47,129 +51,102 @@ After this, nothing goes to the network: Hugging Face is switched to offline mod
 `models download`, the weights are read from the local directory only, and files that do not match the lock are
 refused.
 
-## Scan files
+## Use
 
-```bash
-kb-intake scan report.pdf --decl report.yaml --out ./packages       # one file
-kb-intake scan ./inbox   --decl inbox.yaml  --out ./packages       # every PDF in a directory
-kb-intake check ./packages/<doc_id>@<sha12>                         # contract check of a package (dir or zip)
+```
+uploaded -> labeled -> planned -> approved -> extracted -> in_review -> confirmed -> delivered
+            label + stats       (gate 1)      extract       review      (gate 2)     package written
 ```
 
-- One JSON line per file on stdout: `ok`, `skipped_same_sha` (already packaged, under any doc_id),
-  `skipped_no_declaration` (its declaration lacks fields; listed with the missing fields) or `failed`. A failing
-  file does not stop the scan; the exit code is 1 when any file failed.
-- Files are recognised by content (`%PDF-`), not by extension; hidden files are ignored; `--recursive` also scans
-  subdirectories; `--replace` rebuilds packages that already exist.
-- `--out` defaults to `$INTAKE_PACKAGES_DIR`, else `./packages`.
+### Command line
+
+```bash
+kb-intake label   report.pdf --decl report.yaml       # label, count, suggest a workflow; prints the job id
+kb-intake approve <job> --by NAME [--workflow wf.yaml] # gate 1: approve the suggested (or an edited) workflow
+kb-intake extract <job>                               # extract every region by the workflow
+kb-intake review  <job> --apply ops.yaml --by NAME    # reclassify or exclude regions
+kb-intake confirm <job> --by NAME                     # gate 2: write <delivery_dir>/<doc_id>@<sha12>/
+kb-intake check   <delivery_dir>/<doc_id>@<sha12>     # contract v2 check of a package (dir or zip)
+kb-intake jobs | status <job>
+```
+
+A declaration (`--decl`) gives `doc_id`, `issuer_id`, `doc_type`, `period_end`, `source_url`, `completeness`
+(required) and optionally `lang`, `translation_of`, `publisher`, `published_at`. Review operations are a YAML list:
+
+```yaml
+- {action: reclassify, region_id: "ocbc-group_ar_2025_en:p0106:r010", to: table, note: NPAs by Period Overdue}
+- {action: exclude, region_id: "ocbc-group_ar_2025_en:p0005:r004"}
+```
+
+Extracted text cannot be edited: content comes from the file; a problem with it is a gap for the consumer.
+
+stdout carries one JSON object per line; errors and progress go to stderr as JSON. Exit codes: 0 ok, 1 a step
+failed, 2 bad input (unknown job, wrong state, invalid declaration, workflow or ops).
 
 ### Web UI and HTTP API
 
 ```bash
-kb-intake serve --data ./intake-data --port 8700        # http://127.0.0.1:8700/
+kb-intake serve                    # http://127.0.0.1:8700/
 ```
 
-One process: the API of intake-design §3.2 and a static web UI (no build step). Submit uploaded PDFs or a directory
-on the same machine with a declaration; follow every step of every file (detection, text layer, find_tables,
-Docling with cache hits and engine time, post-processing and checks, package); review page by page (the page image
-with Docling's region boxes and types, table cell boxes coloured by `bbox_source`, find_tables grid and secondary
-candidates, words and heading candidates, and the page's gaps); list, check and download packages as zip; edit the
-configuration (validated before it is saved) and test the engine.
+Six views: upload, labels and statistics (with the page viewer), workflow (gate 1), extraction progress, review
+(page image with region and cell boxes, reclassify / exclude, gate 2), delivery (packages and their contract
+check). The HTTP API under `/v1/` does the same (see `kb_intake/service/app.py`). The server listens on 127.0.0.1
+only unless `--host` says otherwise, and reads server-side files only under `scan_roots`.
 
-Jobs run one at a time in a background thread of the server (no queue: a second submission while one runs gets
-409). State lives in the data directory: `intake.db` (SQLite: jobs, step events, results), `packages/`, `uploads/`,
-`intake.yaml`, and `cache/` unless the configuration sets `cache_dir`.
+### Workflow
 
-- The server listens on 127.0.0.1; another address needs `--host` (there is no authentication, and the server says
-  so when it starts on a non-loopback address).
-- Directories on the server machine can only be listed and scanned inside `scan_roots` (configuration; empty by
-  default, which leaves uploads only). Paths are resolved (symlinks, `..`) before the check; a path outside every
-  root is refused, and a file of an allowed directory that links outside the roots is refused on its own.
-
-### Declarations
-
-For one file, a plain mapping:
-
-```yaml
-doc_id: acme_ar_2025_en          # file-name safe: ^[a-z0-9][a-z0-9._-]*$ (names the package)
-issuer_id: acme
-doc_type: annual_report          # [a-z][a-z0-9_]*
-period_end: 2025-12-31
-lang: en                         # ISO 639-1, optional: detected when omitted
-source_url: https://example.com/ar2025.pdf
-completeness: {full: true, sections: null}
-# optional: translation_of, publisher, published_at
-```
-
-For a directory, defaults plus per-file overrides (keyed by the path relative to the directory). A field of an
-override replaces the default as a whole; `doc_id` defaults to the slug of the file name.
-
-```yaml
-defaults:
-  issuer_id: acme
-  doc_type: annual_report
-  source_url: https://example.com/reports
-  completeness: {full: true, sections: null}
-files:
-  AR 2025.pdf:    {period_end: 2025-12-31}                    # doc_id "ar-2025", lang detected
-  AR 2025 FR.pdf: {doc_id: acme_ar_2025_fr, period_end: 2025-12-31, lang: fr}
-```
-
-kb-intake only checks the format. A declared `lang` that differs from the detected one is recorded as a
-`lang_mismatch` gap; a consumer with its own naming rules re-checks `doc_id` when it imports a package.
-Language detection only recognises Chinese and English; for other languages declare `lang`.
+A YAML mapping of every region type to a handler (`text`, `table_structure`, `record`, `discard`, `unhandled`,
+`ocr`), plus `exclude_pages`. The shipped template is
+[src/kb_intake/workflows/default.yaml](src/kb_intake/workflows/default.yaml); the label step suggests it with notes
+(scanned pages, suspected tables, low-confidence regions).
 
 ### Configuration
 
-Optional `intake.yaml` (`--config` or `$INTAKE_CONFIG`); every key has a default, unknown keys are refused, and
-`INTAKE_MODELS_DIR` / `INTAKE_CACHE_DIR` override the file. See [intake.example.yaml](intake.example.yaml).
+Optional `intake.yaml` (`--config` or `$INTAKE_CONFIG`): directories (`models_dir`, `cache_dir`, `work_dir`,
+`delivery_dir`), `low_confidence`, Docling parameters, `scan_roots`. Every key has a default and unknown keys are
+refused; `INTAKE_*_DIR` variables override the directories. See [intake.example.yaml](intake.example.yaml).
 
-## The package (contract v1)
+## The package (contract v2)
 
 ```
 {doc_id}@{sha256[:12]}/
-  manifest.json   contract version, declaration, detection, flow; every step with tool, version and parameters
-                  (Docling version, model revisions, device, dependency versions, cache key); `run` holds the only
-                  values that vary between runs (timestamps, host, durations, cache hit)
-  source.pdf      the original file
-  working.pdf     the PDF with a text layer (for a native PDF, the original)
-  pages.jsonl     page_no, page_label, kind (native|scanned|mixed|blank), text, size, image regions
-  layout.jsonl    words per page: [x0, y0, x1, y1, text, source, conf]
-  regions.jsonl   layout regions: bbox, type (layout-design §2), type_source (model|native|fused), reading order
-  tables.jsonl    the tables entered for use: pages, bboxes, cells {r, c, rs, cs, text, value, nil, bbox,
-                  bbox_source, grid_bbox?, is_header},
-                  header_rows, markdown, extract_method (docling|find_tables|merged), role, checks, context_above
-  tables_secondary.jsonl  find_tables candidates kept for the cross-check (same fields; not for use)
-  headings.jsonl  heading candidates: text, level, numbering, sources, furniture (running headers, "(continued)")
-  docling.json    the lossless DoclingDocument
-  gaps.jsonl      what could not be read or did not match (table_text_unaccounted, table_cross_mismatch,
-                  table_missed, table_header_suspect, extractor_degraded, lang_mismatch, ...; codes and their
-                  fields are listed in contract/v1/gap.schema.json)
-  checks.json     the package's own contract check
+  source.pdf          the original, byte for byte
+  manifest.json       declaration and detection, statistics, engines (Docling and model revisions, PyMuPDF, device,
+                      parameters per stage), the approved workflow, who confirmed and when, every file's sha256;
+                      `run` holds timings, cache hits and host
+  pages.jsonl         one page per line: page_no, page_label (printed), size, kind, text, excluded
+  regions.jsonl       one region per line: region_id, page_no, bbox, type, subtype, score, label_source
+                      (model/user/native), layer, reading_order, text, font, status, handler, table_id
+  tables.jsonl        one table per line: cells {r, c, rs, cs, text, bbox, bbox_source, is_header}, markdown,
+                      extract_method (docling/find_tables), continued_hint {table_id, reason}, checks
+  layout.jsonl        words per page: [x0, y0, x1, y1, text]
+  gaps.jsonl          what could not be read or looks wrong (table_suspected, low_confidence, table_unmatched,
+                      table_words_unassigned, unhandled, no_text_layer, lang_mismatch, extractor_degraded)
+  workflow.json       the approved workflow, who approved it and when
+  review.jsonl        every review operation and the confirmation
+  raw/docling.json, raw/docling.extract.json   Docling's own output of both stages (audit only)
 ```
 
-Coordinates are PDF points with a TOPLEFT origin, at full precision. A cell's `bbox` is the box of its text, clipped
-to the cell; `bbox_source` says how it was found (`text`: the words centred in the cell, `words`: words overlapping
-the cell, `cell`: no text found, the cell's box). An empty cell has `bbox` null. Schemas: [contract/v1/](contract/v1/).
+Coordinates are PDF points with a TOPLEFT origin, at full precision. A package appears in the delivery folder
+complete or not at all (built under `.tmp-…` and renamed). Two deliveries of the same file, workflow and review
+operations are byte-identical except `manifest.run` and the times of the human actions. Schemas:
+[contract/v2/](contract/v2/).
 
-When Docling cannot be used (weights missing, timeout, crash, a post-processing error) the file still gets a
-package: the tables come from `find_tables` alone and the document has one `extractor_degraded` gap. Pages Docling
-could not convert fall back the same way, page by page.
-
-Heading levels: without a font profile they are inferred from the document (font x size distribution and
-numbering). A profile maps fonts to levels for one document series (see
-[tests/regression/profiles/](tests/regression/profiles/) for an example); list profile directories under
-`headings.font_profiles`.
+When Docling cannot be used (timeout, crash, failed pages) the job still goes on: regions come from the text layer
+and `find_tables`, and the stage records one `extractor_degraded` gap.
 
 ## Development
 
 ```bash
 uv sync
-uv run pytest -q                          # unit and pipeline tests (fake engine; no weights needed)
+uv run pytest -q                          # unit and end-to-end tests (fake engine; no weights needed)
 uv run lint-imports
 uv export --no-dev --no-hashes --no-emit-project --format requirements-txt -o constraints.txt   # after uv lock
 ```
 
 CI checks that `constraints.txt` matches `uv.lock`. Upgrading Docling, PyMuPDF or any inference dependency goes
-through the regression gate in [tests/regression/](tests/regression/) (24 reference tables, determinism).
+through the regression gate in [tests/regression/](tests/regression/) (24 reference tables, determinism,
+offline run).
 
 Rules for contributors and agents: [AGENTS.md](AGENTS.md).
