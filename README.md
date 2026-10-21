@@ -19,7 +19,8 @@ Design: [docs/intake-design-v2.md](docs/intake-design-v2.md) (authoritative), [d
 
 ## Install
 
-Requirements, measured resource use, offline installation, configuration and operations:
+Recommended dependencies, installation in a company network (mirror, proxy, CA, Linux CPU torch), a self-check,
+configuration, operations and measured resource use:
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 Requirements: Python 3.12 and [uv](https://docs.astral.sh/uv/) **0.10.2 or newer** (the version this is tested with;
