@@ -189,7 +189,7 @@ UI 里有同样的配置页，可以测试连通性。
 | 步 | 内容 | 验收 |
 |---|---|---|
 | C | 组件化：把 detect / native / 3b 代码整理成 §3.1 的流程；Docling 为必需依赖；`models download` 命令；`scan` 支持目录与按 sha256 跳过；OCBC 字体规则移进 profile；去掉所有 kb / OCBC 专属的东西（`KB_*` 环境变量改为 `INTAKE_*`） | 对一个目录 `scan` 出 6 个包，全部通过 `check`；再跑一次全部跳过；24 张基准表与确定性测试仍然通过；代码里搜不到 OCBC、kb 专属逻辑 |
-| D | 服务与 UI：§3.2 的 API + 4 个视图（上传或选目录、运行进度、逐页核对、入件包）+ 配置页 | 浏览器里提交一个 PDF 或一个目录 → 看到逐步进度 → 逐页核对看到 Docling 的区域框和类型、表格单元格、gaps → 下载的包通过契约校验。样本：OCBC 年报、Docling Technical Report（arXiv 2408.09869，CC BY 4.0，可入库做测试样本）、ResNet（arXiv 1512.03385，双栏，只在本地测试、不入库） |
+| D | 服务与 UI：§3.2 的 API + 4 个视图（上传或选目录、运行进度、逐页核对、入件包）+ 配置页 | 浏览器里提交一个 PDF 或一个目录 → 看到逐步进度 → 逐页核对看到 Docling 的区域框和类型、表格单元格、gaps → 下载的包通过契约校验。样本：OCBC 年报、UOB 集团 2025 年报（另一家银行、另一套版式与字体，无 profile，走自动推断；只在本地测试、不入库） |
 | E | 本机独立运行：在干净的 Mac 和 Linux 上，只按 README 用 `uv tool install` 安装，下载模型，跑 `scan` 和 `serve` | 没有 kb 仓库、没有 Docker；`models download` 之后断网可以运行；README 的步骤照做一次成功 |
 | E' | 可选：Dockerfile（带权重）| `docker run` 一条命令起 UI；不作为主要交付 |
 | F | 流程 B（扫描 PDF）：OCR 引擎 | 合成扫描集出包；数字串一致率达标；分歧都有证人记录或缺口 |
@@ -302,4 +302,4 @@ UI 里有同样的配置页，可以测试连通性。
   - 依赖：发布由 uv.lock 生成的 constraints.txt，启动时校验已安装版本；缓存键用依赖闭包版本清单
   - 契约：`cells[].bbox` 固定为文字外接框，新增可选 `grid_bbox` 与表级 `context_above`
   - 稳定性：单文件子进程硬超时；失败页取逐页状态；只缓存完整成功；缓存损坏按未命中；后处理异常退回 find_tables
-  - 测试样本：Docling Technical Report（入库）+ ResNet（本地）
+  - 测试样本：UOB 集团 2025 年报（本地，不入库），取代此前提议的 arXiv 论文
