@@ -237,7 +237,7 @@ def table_from_cells(region: dict, grid: dict, words: list[list], method: str) -
             continue
         # the end of a line that sticks out of its cell's box stays with the word next to it on its line
         # ("(Note" / "39)"); otherwise a wrapped line just outside its cell's box joins the adjacent cell of its column
-        i = _neighbour_cell(w, by_key, cell_of)
+        i = _neighbour_cell(w, by_key, cell_of, raw)
         if i is None:
             i = _adjacent_cell(w, raw)
         if i is not None:
@@ -298,16 +298,39 @@ NEIGHBOUR_GAP = 2.0       # how far (in the word's own height) a word may sit fr
                           # line to be read with it; table columns are further apart
 
 
-def _neighbour_cell(w: list, by_key: dict, cell_of: dict) -> int | None:
+def _neighbour_cell(w: list, by_key: dict, cell_of: dict, raw: list) -> int | None:
     """The cell of the word just after (else just before) `w` on its text-layer line, when that word is in a cell
     and closer than NEIGHBOUR_GAP x the word's height; None otherwise. The word after goes first: a line that
-    starts outside a cell's box ("Whether at any time", "(Note 39)") is read with the rest of the line."""
+    starts outside a cell's box ("(Note 39)") is read with the rest of the line. A neighbour in another column does
+    not count when `w` is partly inside a cell's box, within its width: OCBC p74, "(b) | Whether at any time", where
+    the question cell's box starts just below the middle of its first line."""
     h = w[3] - w[1]
+    own = _partly_inside(w, raw)
     for k, gap in ((w[7] + 1, lambda o: o[0] - w[2]), (w[7] - 1, lambda o: w[0] - o[2])):
         key = (w[5], w[6], k)
         if key in cell_of and gap(by_key[key]) < NEIGHBOUR_GAP * h:
+            if own is not None and not _same_column(raw[own], raw[cell_of[key]]):
+                continue
             return cell_of[key]
     return None
+
+
+PARTLY_INSIDE = 0.25      # how much of a word's height must lie inside a cell's box for the word to be partly in it
+
+
+def _partly_inside(w: list, raw: list) -> int | None:
+    """The first cell whose width holds the whole word and whose box holds more than PARTLY_INSIDE of its height."""
+    h = w[3] - w[1]
+    for i, (*_, box, _h) in enumerate(raw):
+        if box is not None and box[0] <= w[0] and w[2] <= box[2] and \
+                min(w[3], box[3]) - max(w[1], box[1]) > PARTLY_INSIDE * h:
+            return i
+    return None
+
+
+def _same_column(a, b) -> bool:
+    """Whether two cells (r, c, rs, cs, ...) share a column."""
+    return a[1] < b[1] + b[3] and b[1] < a[1] + a[3]
 
 
 ADJACENT_LINES = 1.2      # how far (in the word's own height) a word may sit above or below a cell to join it

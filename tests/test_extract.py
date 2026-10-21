@@ -648,3 +648,19 @@ def test_describe_extracts_like_text_and_keeps_its_handler(tmp_path):
     assert table is None and gaps == text_gaps
     assert row == {**text_row, "handler": "describe"}
     assert contract.schema_errors("region", row, "row") == []
+
+
+def test_a_first_line_above_its_cell_box_is_read_into_that_cell_not_the_column_before():
+    """OCBC p74: the box of the question cell starts below the middle of its first line, so no word of that line is
+    centred in a cell. 'Whether' lies right after '(b)' (the item cell), but wholly inside the question column, just
+    above the question cell: it is read there with the rest of its line."""
+    w = lambda x0, y0, x1, text, line, n: [x0, y0, x1, y0 + 12, text, 0, line, n]  # noqa: E731
+    words = [w(40, 287, 50, "(b)", 0, 0), w(54, 287, 86, "Whether", 0, 1), w(88, 287, 96, "at", 0, 2),
+             w(99, 287, 120, "any", 0, 3), w(54, 299, 200, "application or a petition", 1, 0),
+             w(262, 288, 275, "No", 2, 0)]
+    grid = {"bbox": [36, 285, 280, 320], "n_rows": 1, "n_cols": 3, "cells": [
+        {"r": 0, "c": 0, "rs": 1, "cs": 1, "bbox": [36, 288, 50, 300], "is_header": False},
+        {"r": 0, "c": 1, "rs": 1, "cs": 1, "bbox": [53, 294, 253, 318], "is_header": False},
+        {"r": 0, "c": 2, "rs": 1, "cs": 1, "bbox": [261, 289, 276, 299], "is_header": False}]}
+    table, _ = extract.table_from_cells(region(1, 3, grid["bbox"], "table", 2, "table"), grid, words, "docling")
+    assert [c["text"] for c in table["cells"]] == ["(b)", "Whether at any\napplication or a petition", "No"]
