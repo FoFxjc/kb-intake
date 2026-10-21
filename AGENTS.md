@@ -23,17 +23,20 @@ executable checks as stronger evidence than agent claims.
 ### Language
 
 Everything in this repository is written in English: code, comments, docstrings, UI text, tests, commit
-messages, README and reports. The design documents under `docs/*-v1.md` are kept as their author wrote them.
+messages, README and reports. The design documents under `docs/*-design-v*.md` are kept as their author wrote
+them.
 
 ### Boundaries
 
-- kb-intake is a standalone component (intake-design §1). Consumers only read packages; kb-intake never imports or
-  calls a consumer (kb is one of them; the import ban is enforced with `uv run lint-imports`).
-- `contract/v1/` is the single source of the package schemas. Contract v1 only gains fields; a changed field
-  means v2.
+- kb-intake is the scan layer (intake-design-v2 §1): it describes what is on a page, where, and the original text;
+  it does not interpret (number parsing, units, continued-table merging, heading levels, table business types
+  belong to consumers). It only writes the delivery folder; it never imports, calls or notifies a consumer (kb is
+  one of them; the import ban is enforced with `uv run lint-imports`).
+- Text always comes from the source's text layer, read by box; Docling only gives structure.
+- `contract/v2/` is the single source of the package schemas. Contract v2 only gains fields; a changed field
+  means v3.
 - What needs only the file belongs here; what needs a consumer's type configuration or domain knowledge does not.
-- No sample-specific logic in `src/`: rules for one document series live in font profiles, and the profiles used
-  by the regression tests live under `tests/regression/`.
+- No sample-specific logic in `src/`.
 
 ### Delegation: subagents and workflows
 
@@ -56,7 +59,7 @@ messages, README and reports. The design documents under `docs/*-v1.md` are kept
 ### Stability
 
 - Pinned versions (`uv.lock`, and `constraints.txt` generated from it) are part of the output contract: Docling
-  packages, PyMuPDF and the inference libraries are pinned as a set (intake-design §9.3). An upgrade goes through
+  packages, PyMuPDF and the inference libraries are pinned as a set (intake-design-v1 §9.3). An upgrade goes through
   the regression gate (`tests/regression/`), never silently.
 - No generative model is called while building a package. Model artefacts are read from local files only.
 - Secrets (API keys) live in environment variables only, never in files.
