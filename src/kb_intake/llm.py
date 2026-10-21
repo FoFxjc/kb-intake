@@ -52,6 +52,8 @@ MAX_TOKENS = {"summary": 4096, "describe": 4096, "chart_table": 8192}
 SUMMARY_PAGE_CHARS = 300                     # at most, per page; less on long documents so every page fits
 SUMMARY_MIN_PAGE_CHARS = 60
 SUMMARY_MAX_CHARS = 24_000
+# charts read into a table (Peter, 2026-10-21): flow diagrams and maps gave text tables or invented values
+TABLE_CHARTS = ("bar", "line", "pie")
 CROP_DPI = 144
 CROP_MAX_SIDE = 2000
 PARALLEL = 4
@@ -215,7 +217,7 @@ class Runner:
         png = crop_png(page, region["bbox"])
         text = "Text inside the region (from the PDF text layer):\n" + (region.get("text") or "(none)")
         out = [("describe", region["page_no"], region["region_id"], text, png)]
-        if region["type"] == "chart" and self.enabled("chart_table", wf):
+        if region["type"] == "chart" and region.get("subtype") in TABLE_CHARTS and self.enabled("chart_table", wf):
             out.append(("chart_table", region["page_no"], region["region_id"], "", png))
         return out
 

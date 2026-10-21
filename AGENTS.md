@@ -61,6 +61,8 @@ them.
 - Pinned versions (`uv.lock`, and `constraints.txt` generated from it) are part of the output contract: Docling
   packages, PyMuPDF and the inference libraries are pinned as a set (intake-design-v1 §9.3). An upgrade goes through
   the regression gate (`tests/regression/`), never silently.
-- No generative model is called while building a package. Model artefacts are read from local files only.
+- No generative model is called while building a package unless the user enables the optional LLM
+  (intake-ui-llm-design-v1 §4); its outputs stay in `llm.jsonl`, low weight. Model artefacts are read from local
+  files only.
 - Secrets (API keys) live in environment variables or in a gitignored `.env` (template `.env.example`, read by
   kb-intake for INTAKE_* names only), never in tracked files, logs or package output.

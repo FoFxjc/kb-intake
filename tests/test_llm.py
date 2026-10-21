@@ -65,7 +65,7 @@ def page():
     doc.close()
 
 
-REGION = {"region_id": "d:p0001:r003", "page_no": 1, "bbox": [60, 100, 300, 260], "type": "chart",
+REGION = {"region_id": "d:p0001:r003", "page_no": 1, "bbox": [60, 100, 300, 260], "type": "chart", "subtype": "bar",
           "text": "Revenue 2025"}
 
 
@@ -244,3 +244,12 @@ def test_manifest_entry_names_the_model_that_answered_and_that_it_was_remote(tmp
     later = dc.replace(cfg, llm=dc.replace(cfg.llm, model="other-model", remote=False, enabled=False))
     entry, run = llm.manifest_entry(job, later)
     assert entry["model"] == "MiniMax-M3" and entry["remote"] is True and run["calls"] == 1
+
+
+def test_chart_table_only_for_bar_line_and_pie_charts(tmp_path, page):
+    """Peter, 2026-10-21: flow diagrams and maps gave text tables or invented values (OCBC p16, p85)."""
+    r = llm.Runner(enabled_cfg(tmp_path, chart_table=True), chat=Chat(), cache=DictCache(), env=ENV)
+    for subtype, want in (("bar", True), ("line", True), ("pie", True), ("flow", False), ("map", False),
+                          ("other", False), (None, False)):
+        kinds = [c[0] for c in r.describe_inputs({**REGION, "subtype": subtype}, page, None)]
+        assert ("chart_table" in kinds) is want, subtype
