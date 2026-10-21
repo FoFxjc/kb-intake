@@ -63,6 +63,23 @@ test('groups, counts and the first open item on its page', async ({ page, reques
   await shot(page, 'review');
 });
 
+test('a suspected table from the picture classifier (no find_tables box) is framed on its region', async ({ page, request }) => {
+  // OCBC p15: the classifier's table_suspected gap has no bbox of its own; neither box was drawn
+  const job = await freshJob(request, { extract: true });
+  await page.route(`**/v1/jobs/${job.jobId}/pages/2`, async (route) => {
+    const r = await route.fetch();
+    const view = await r.json();
+    view.gaps = view.gaps.map((g: Record<string, unknown>) =>
+      g.code === 'table_suspected' ? { ...g, bbox: undefined, source: 'classifier' } : g);
+    await route.fulfill({ response: r, json: view });
+  });
+  await page.goto(`./#/job/${job.jobId}/review`);
+  await expect(page.getByTestId('issue-title')).toHaveText('Suspected missed table · p2');
+  await rendered(page, 2);
+  await expect(page.getByTestId('ov-find')).toHaveCount(0);
+  await expect(page.getByTestId('ov-focus')).toHaveCount(1);
+});
+
 test('reclassify the suspected table to table: one op, the absorbed region shown, counts update', async ({ page, request }) => {
   const job = await freshJob(request, { extract: true });
   const sent = posts(page);

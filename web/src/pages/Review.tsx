@@ -275,7 +275,13 @@ export function ReviewPage({ detail }: { detail: JobDetail }) {
   const table = region?.table_id ? (shown?.tables.find((t) => t.table_id === region.table_id) ?? null) : null;
   const absorbed = table ? (shown?.regions.filter((r) => r.absorbed_into === table.table_id) ?? []) : [];
   const box = asBox(item?.bbox ?? region?.bbox);
-  const findItem = item?.code === 'table_suspected';
+  // the Overlay draws the find_tables box of a table_suspected gap that has one; a gap from the picture classifier
+  // has none (OCBC p15), so that item is framed on its region like any other
+  const findItem =
+    item?.code === 'table_suspected' &&
+    (shown?.gaps ?? []).some(
+      (g) => g.code === 'table_suspected' && g.region_id === item.region_id && asBox((g as Record<string, unknown>).bbox) !== null,
+    );
   const focusColor = item?.group === 'llm_check' ? 'var(--type-chart)' : item?.kind === 'hint' ? 'var(--type-table)' : item?.code === 'low_confidence' ? 'var(--call-ink)' : 'var(--warn-ink)';
   const tag = region ? `${typeStyle(region.type).label}${region.subtype ? ` · ${region.subtype}` : ''}${region.score !== null ? ` ${region.score.toFixed(2)}` : ''}` : '';
 
