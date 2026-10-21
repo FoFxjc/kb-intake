@@ -1,4 +1,4 @@
-"""Gap and table statistics over a directory of packages (for the 3b report).
+"""Gap, table and cell-box statistics over a directory of packages (for the reports).
 
 usage: python scripts/gap_stats.py <packages dir>
 """
@@ -7,6 +7,21 @@ import json
 import sys
 from collections import Counter
 from pathlib import Path
+
+
+def _cell_heavy(tables: list[dict], share: float = 0.10, minimum: int = 3) -> list[dict]:
+    """Primary tables where bbox_source "cell" (no text found for the cell) is at least `share` of the non-empty
+    cells and at least `minimum` cells: the cell box stands in for the text box there."""
+    out = []
+    for t in tables:
+        if t.get("role", "primary") != "primary":
+            continue
+        filled = [c for c in t["cells"] if c.get("bbox") is not None]
+        n = sum(c.get("bbox_source") == "cell" for c in filled)
+        if filled and n >= minimum and n / len(filled) >= share:
+            out.append({"table_id": t["table_id"], "extract_method": t["extract_method"], "cell": n,
+                        "filled": len(filled), "share": round(n / len(filled), 3)})
+    return sorted(out, key=lambda r: -r["share"])
 
 
 def main() -> None:
@@ -27,6 +42,9 @@ def main() -> None:
             "gaps_detail": dict(sorted(detail.items())),
             "tables_primary": dict(Counter(t["extract_method"] for t in tables if t.get("role", "primary") == "primary")),
             "tables_secondary": sum(t.get("role") == "secondary" for t in tables),
+            "bbox_source": dict(sorted(Counter(c.get("bbox_source") or "empty" for t in tables
+                                               if t.get("role", "primary") == "primary" for c in t["cells"]).items())),
+            "tables_with_many_cell_boxes": _cell_heavy(tables),
             "headings": {"profile": hs.get("profile"), "source": hs.get("source"), "by_level": hs.get("by_level"),
                          "furniture": sum(h["furniture"] for h in heads)},
             "regions": dict(sorted(regions.items())),
