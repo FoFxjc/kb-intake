@@ -28,13 +28,15 @@ interface Props {
   cluster: Cluster;
   result?: string;
   busy: boolean;
+  /** Exclude all is shown but cannot be used (no reviewer name yet, or a request in flight) */
+  excludeBlocked: boolean;
   open: boolean;
   onExcludeAll: () => void;
   onOpen: () => void;
 }
 
 /** A similar group with its bulk actions (prototype Review, "Similar groups · bulk actions"). */
-export function ClusterCard({ cluster, result, busy, open, onExcludeAll, onOpen }: Props) {
+export function ClusterCard({ cluster, result, busy, excludeBlocked, open, onExcludeAll, onOpen }: Props) {
   return (
     <div className={`cluster${open ? ' on' : ''}`} data-testid="cluster" data-cluster={cluster.cluster_id}>
       <div className="cluster-top">
@@ -49,7 +51,7 @@ export function ClusterCard({ cluster, result, busy, open, onExcludeAll, onOpen 
       </div>
       <div className="cluster-acts">
         {!result && canExcludeAll(cluster) && (
-          <button type="button" className="btn btn-sm" disabled={busy} onClick={onExcludeAll}>
+          <button type="button" className="btn btn-sm" disabled={busy || excludeBlocked} onClick={onExcludeAll}>
             Exclude all
           </button>
         )}
