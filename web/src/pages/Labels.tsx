@@ -48,12 +48,15 @@ export function LabelsPage({ detail }: { detail: JobDetail }) {
   const [loading, setLoading] = useState(false);
   const [facets, setFacets] = useState<Facets | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
+  // a failed next page: no more automatic loading until the user retries (no request storm)
+  const [moreError, setMoreError] = useState<ApiError | null>(null);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
     if (!labelled) return;
     setLoading(true);
     setError(null);
+    setMoreError(null);
     const q = JSON.parse(queryKey) as RegionQuery;
     listSeq.current
       .run(
@@ -85,6 +88,7 @@ export function LabelsPage({ detail }: { detail: JobDetail }) {
     if (!cursor || loading) return;
     const t = listSeq.current.follow();
     setLoading(true);
+    setMoreError(null);
     const q = JSON.parse(queryKey) as RegionQuery;
     api.regions(jobId, { ...q, limit: PAGE_SIZE, cursor }, t.signal).then(
       (page) => {
@@ -96,7 +100,7 @@ export function LabelsPage({ detail }: { detail: JobDetail }) {
       (e: unknown) => {
         if (!t.isLatest() || isAbort(e)) return;
         setLoading(false);
-        setError(asApiError(e));
+        setMoreError(asApiError(e));
       },
     );
   }, [cursor, loading, jobId, queryKey]);
@@ -192,7 +196,15 @@ export function LabelsPage({ detail }: { detail: JobDetail }) {
           {!labelled && <div className="inv-empty">The regions appear when labelling is done.</div>}
           {labelled && total === 0 && !loading && <div className="inv-empty">No matching regions</div>}
           {labelled && (
-            <RegionList rows={rows} hasMore={cursor !== null} loading={loading} selected={selId} onPick={pick} onMore={more} />
+            <RegionList
+              rows={rows}
+              hasMore={cursor !== null}
+              loading={loading}
+              moreError={moreError}
+              selected={selId}
+              onPick={pick}
+              onMore={more}
+            />
           )}
         </main>
 
