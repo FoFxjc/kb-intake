@@ -1,0 +1,409 @@
+"""Review (kb_intake.review, intake-design-v2 §2 step 7, §4): reclassify and exclude regions of an extracted job,
+all or nothing per call, re-extracting with the workflow handler of the new type; and the page view for the UI.
+
+Jobs come from the real label and extract steps with the fake Docling engine (tests/jobflow.py)."""
+
+import pytest
+from jobflow import P106_TABLE, TABLE_BOX, build_pdf, config, engine, in_review, rid
+
+from kb_intake import contract, label, review
+from kb_intake.jobs import Jobs, WrongState
+from kb_intake.package import read_jsonl, write_jsonl
+
+
+def files(job):
+    d = job.dir
+    return {"regions": read_jsonl(d / "extract" / "regions.jsonl"),
+            "tables": read_jsonl(d / "extract" / "tables.jsonl"),
+            "extract_gaps": read_jsonl(d / "extract" / "gaps.jsonl"),
+            "review_gaps": read_jsonl(d / "review" / "gaps.jsonl") if (d / "review" / "gaps.jsonl").is_file() else []}
+
+
+def region_of(job, region_id):
+    return next(r for r in files(job)["regions"] if r["region_id"] == region_id)
+
+
+def assert_valid(job):
+    f = files(job)
+    for kind, rows in (("region", f["regions"]), ("table", f["tables"]), ("gap", f["extract_gaps"]),
+                       ("gap", f["review_gaps"])):
+        for r in rows:
+            assert contract.schema_errors(kind, r, kind) == []
+
+
+# ---------- reclassify ----------
+
+def test_reclassify_text_to_table_uses_find_tables_and_is_recorded(tmp_path):
+    f = in_review(tmp_path)
+    p106 = rid(2, 3)
+    assert region_of(f.job, p106)["type"] == "text"
+    applied = review.apply(f.jobs, f.job.id, [{"action": "reclassify", "region_id": p106, "to": "table",
+                                               "note": "missed table"}], "peter", f.cfg)
+    reg = region_of(f.job, p106)
+    assert (reg["type"], reg["subtype"], reg["label_source"], reg["score"]) == ("table", None, "user", None)
+    assert reg["status"] == "extracted" and reg["handler"] == "table_structure"
+    tables = files(f.job)["tables"]
+    assert [t["table_id"] for t in tables] == ["demo-ar-2025-en:t0001_01", "demo-ar-2025-en:t0002_01"]
+    t = tables[1]
+    assert t["region_id"] == p106 and reg["table_id"] == t["table_id"] and t["extract_method"] == "find_tables"
+    assert t["bbox"] == list(P106_TABLE)
+    assert [c["text"] for c in t["cells"]] == ["Overdue", "2025", "90 days", "5,678"]
+    [op] = f.jobs.ops(f.job.id)
+    assert op == applied[0]
+    assert {k: op[k] for k in ("action", "region_id", "from", "to", "by", "note")} == {
+        "action": "reclassify", "region_id": p106, "from": "text", "to": "table", "by": "peter",
+        "note": "missed table"}
+    assert op["at"] and contract.schema_errors("review", op, "op") == []
+    assert_valid(f.job)
+
+
+def test_reclassify_to_table_reuses_the_docling_grid_of_a_label_table(tmp_path):
+    f = in_review(tmp_path)
+    table = rid(1, 3)
+    review.apply(f.jobs, f.job.id, [{"action": "reclassify", "region_id": table, "to": "text"}], "peter", f.cfg)
+    reg = region_of(f.job, table)
+    assert reg["type"] == "text" and reg["table_id"] is None and reg["text"] == "Item\n2025\nLoans\n1,234"
+    assert files(f.job)["tables"] == []
+    review.apply(f.jobs, f.job.id, [{"action": "reclassify", "region_id": table, "to": "table"}], "peter", f.cfg)
+    [t] = files(f.job)["tables"]
+    assert t["extract_method"] == "docling" and t["bbox"] == list(TABLE_BOX) and t["cells"][0]["is_header"]
+    assert region_of(f.job, table)["table_id"] == t["table_id"] == "demo-ar-2025-en:t0001_01"
+    assert [(o["from"], o["to"]) for o in f.jobs.ops(f.job.id)] == [("table", "text"), ("text", "table")]
+
+
+def test_reclassify_to_table_of_a_non_table_with_a_docling_grid_uses_find_tables(tmp_path):
+    f = in_review(tmp_path)
+    table = rid(1, 3)
+    review.apply(f.jobs, f.job.id, [{"action": "reclassify", "region_id": table, "to": "text"}], "peter", f.cfg)
+    path = f.job.dir / "label" / "regions.jsonl"                        # as if label had typed it a toc that
+    rows = read_jsonl(path)                                              # Docling labelled document_index
+    for r in rows:
+        if r["region_id"] == table:
+            r.update(type="toc", docling_label="document_index")
+    write_jsonl(path, rows)
+    review.apply(f.jobs, f.job.id, [{"action": "reclassify", "region_id": table, "to": "table"}], "peter", f.cfg)
+    [t] = files(f.job)["tables"]
+    assert t["region_id"] == table and t["extract_method"] == "find_tables"
+
+
+def test_reclassify_to_table_where_find_tables_finds_nothing_is_unhandled(tmp_path):
+    f = in_review(tmp_path)
+    body = rid(2, 2)                                  # plain body text, no ruling
+    review.apply(f.jobs, f.job.id, [{"action": "reclassify", "region_id": body, "to": "table"}], "peter", f.cfg)
+    reg = region_of(f.job, body)
+    assert reg["status"] == "unhandled" and reg["table_id"] is None and reg["text"] is None
+    [gap] = [g for g in files(f.job)["review_gaps"] if g["region_id"] == body]
+    assert gap["code"] == "unhandled" and gap["detail"] == "find_tables found no table in the region"
+    assert_valid(f.job)
+
+
+def test_reclassify_uses_the_handler_of_the_new_type(tmp_path):
+    f = in_review(tmp_path)
+    review.apply(f.jobs, f.job.id, [{"action": "reclassify", "region_id": rid(1, 2), "to": "picture"},
+                                    {"action": "reclassify", "region_id": rid(1, 1), "to": "signature"}],
+                 "peter", f.cfg)
+    assert (region_of(f.job, rid(1, 2))["status"], region_of(f.job, rid(1, 2))["text"]) == ("discarded", None)
+    assert region_of(f.job, rid(1, 1))["status"] == "recorded" and region_of(f.job, rid(1, 1))["handler"] == "record"
+
+
+def test_reextraction_replaces_the_extract_gaps_of_the_region(tmp_path):
+    f = in_review(tmp_path)
+    body = rid(2, 2)
+    review.apply(f.jobs, f.job.id, [{"action": "reclassify", "region_id": body, "to": "unknown"}], "peter", f.cfg)
+    assert [g["code"] for g in files(f.job)["review_gaps"] if g["region_id"] == body] == ["unhandled"]
+    review.apply(f.jobs, f.job.id, [{"action": "reclassify", "region_id": body, "to": "text"}], "peter", f.cfg)
+    assert [g for g in files(f.job)["review_gaps"] if g["region_id"] == body] == []
+    assert region_of(f.job, body)["status"] == "extracted"
+
+
+def test_label_gaps_stay(tmp_path):
+    f = in_review(tmp_path)
+    before = read_jsonl(f.job.dir / "label" / "gaps.jsonl")
+    review.apply(f.jobs, f.job.id, [{"action": "exclude", "region_id": rid(2, 3)}], "peter", f.cfg)
+    assert read_jsonl(f.job.dir / "label" / "gaps.jsonl") == before
+    assert any(g["code"] == "table_suspected" for g in before)
+
+
+# ---------- exclude ----------
+
+def test_exclude_removes_content_and_table(tmp_path):
+    f = in_review(tmp_path)
+    table = rid(1, 3)
+    review.apply(f.jobs, f.job.id, [{"action": "exclude", "region_id": table, "note": "not needed"}], "peter", f.cfg)
+    reg = region_of(f.job, table)
+    assert reg["status"] == "excluded" and reg["text"] is None and reg["text_source"] is None
+    assert reg["table_id"] is None and reg["type"] == "table"
+    assert files(f.job)["tables"] == []
+    [op] = f.jobs.ops(f.job.id)
+    assert (op["action"], op["from"], op["to"], op["note"]) == ("exclude", "extracted", "excluded", "not needed")
+    assert_valid(f.job)
+
+
+# ---------- refusals ----------
+
+BAD = {
+    "unknown region": {"action": "reclassify", "region_id": "demo-ar-2025-en:p0009:r001", "to": "table"},
+    "unknown type": {"action": "reclassify", "region_id": rid(1, 2), "to": "spreadsheet"},
+    "same type": {"action": "reclassify", "region_id": rid(1, 2), "to": "text"},
+    "unknown action": {"action": "edit_text", "region_id": rid(1, 2)},
+    "unknown key": {"action": "exclude", "region_id": rid(1, 2), "text": "new text"},
+    "missing to": {"action": "reclassify", "region_id": rid(1, 2)},
+    "not a mapping": "exclude",
+}
+
+
+@pytest.mark.parametrize("bad", list(BAD))
+def test_ops_are_all_or_nothing(tmp_path, bad):
+    f = in_review(tmp_path)
+    before = files(f.job)
+    with pytest.raises(review.ReviewError):
+        review.apply(f.jobs, f.job.id, [{"action": "reclassify", "region_id": rid(2, 3), "to": "table"},
+                                        BAD[bad]], "peter", f.cfg)
+    assert files(f.job) == before and f.jobs.ops(f.job.id) == []
+
+
+def test_the_same_region_twice_in_one_call_is_refused(tmp_path):
+    f = in_review(tmp_path)
+    with pytest.raises(review.ReviewError, match="more than once"):
+        review.apply(f.jobs, f.job.id, [{"action": "reclassify", "region_id": rid(2, 3), "to": "table"},
+                                        {"action": "reclassify", "region_id": rid(2, 3), "to": "list"}],
+                     "peter", f.cfg)
+    assert f.jobs.ops(f.job.id) == []
+
+
+def test_an_excluded_region_cannot_be_excluded_or_reclassified(tmp_path):
+    f = in_review(tmp_path)
+    review.apply(f.jobs, f.job.id, [{"action": "exclude", "region_id": rid(2, 3)}], "peter", f.cfg)
+    before = files(f.job)
+    for op in ({"action": "exclude", "region_id": rid(2, 3)},
+               {"action": "reclassify", "region_id": rid(2, 3), "to": "table"}):
+        with pytest.raises(review.ReviewError, match="excluded"):
+            review.apply(f.jobs, f.job.id, [op], "peter", f.cfg)
+    assert files(f.job) == before and len(f.jobs.ops(f.job.id)) == 1
+
+
+def test_a_region_on_an_excluded_page_cannot_be_reclassified(tmp_path):
+    from kb_intake import workflow
+    wf = workflow.load_template()
+    wf["exclude_pages"] = [2]
+    f = in_review(tmp_path, workflow_text=workflow.dump(wf))
+    assert region_of(f.job, rid(2, 3))["status"] == "excluded"
+    with pytest.raises(review.ReviewError, match="excluded"):
+        review.apply(f.jobs, f.job.id, [{"action": "reclassify", "region_id": rid(2, 3), "to": "table"}],
+                     "peter", f.cfg)
+
+
+def test_review_needs_a_name_ops_and_a_job_in_review(tmp_path):
+    f = in_review(tmp_path)
+    op = {"action": "exclude", "region_id": rid(1, 2)}
+    with pytest.raises(review.ReviewError):
+        review.apply(f.jobs, f.job.id, [op], "  ", f.cfg)
+    with pytest.raises(review.ReviewError):
+        review.apply(f.jobs, f.job.id, [], "peter", f.cfg)
+    f.jobs.confirm(f.job.id, "peter")
+    with pytest.raises(WrongState):
+        review.apply(f.jobs, f.job.id, [op], "peter", f.cfg)
+    assert f.jobs.ops(f.job.id) == []
+
+
+# ---------- page view ----------
+
+def test_page_view_before_and_after_extraction(tmp_path):
+    cfg = config(tmp_path)
+    jobs = Jobs(cfg.work_dir)
+    job, _ = jobs.create(build_pdf(tmp_path / "demo.pdf"), {"doc_id": "demo-ar-2025-en", "lang": "en"})
+    label.run(jobs, job.id, cfg, engine=engine(tmp_path, "label"))
+    view = review.page_view(jobs, job.id, 2)
+    assert (view["page_no"], view["width"], view["height"], view["kind"], view["excluded"]) == (2, 595.0, 842.0,
+                                                                                               "native", False)
+    assert "page_label" in view
+    assert [r["region_id"] for r in view["regions"]] == [rid(2, 1), rid(2, 2), rid(2, 3)]
+    assert "status" not in view["regions"][0] and view["tables"] == []
+    assert [g["code"] for g in view["gaps"]] == ["table_suspected"]
+
+    jobs.approve(job.id, "peter")
+    from kb_intake import extract
+    extract.run(jobs, job.id, cfg, engine=engine(tmp_path, "extract"))
+    view = review.page_view(jobs, job.id, 1)
+    assert [r["status"] for r in view["regions"]] == ["extracted"] * 3
+    assert [t["table_id"] for t in view["tables"]] == ["demo-ar-2025-en:t0001_01"]
+    assert view["gaps"] == []
+    review.apply(jobs, job.id, [{"action": "reclassify", "region_id": rid(2, 2), "to": "table"}], "peter", cfg)
+    view = review.page_view(jobs, job.id, 2)
+    assert [g["code"] for g in view["gaps"]] == ["table_suspected", "unhandled"]
+    with pytest.raises(KeyError):
+        review.page_view(jobs, job.id, 3)
+
+
+def test_review_is_a_step_of_the_job_store(tmp_path):
+    """One review, confirmation or delivery of a job at a time, across processes (jobs.running)."""
+    from kb_intake import deliver
+    from kb_intake.jobs import Busy
+    j = in_review(tmp_path)
+    with j.jobs.running(j.job.id, "review"):              # another process is applying ops
+        with pytest.raises(Busy):
+            deliver.confirm(j.jobs, j.job.id, "peter", j.cfg)
+        with pytest.raises(Busy):
+            review.apply(j.jobs, j.job.id, [{"action": "exclude", "region_id": rid(1, 2)}], "peter", j.cfg)
+    assert j.jobs.get(j.job.id).status == "in_review" and j.jobs.ops(j.job.id) == []
+    review.apply(j.jobs, j.job.id, [{"action": "exclude", "region_id": rid(1, 2)}], "peter", j.cfg)
+    assert j.jobs.get(j.job.id).running_op is None and len(j.jobs.ops(j.job.id)) == 1
+
+
+# ---------- a suspected table split over several regions (OCBC p106, intake-design-v2 b543c5a) ----------
+
+def _p106(tmp_path):
+    j = in_review(tmp_path, p106_split=True)
+    regions = [r for r in files(j.job)["regions"] if r["page_no"] == 2 and r["type"] == "text"]
+    gaps = read_jsonl(j.job.dir / "label" / "gaps.jsonl")
+    [suspect] = [g for g in gaps if g["code"] == "table_suspected"]
+    return j, suspect, regions
+
+
+def test_reclassify_a_suspected_table_takes_the_find_tables_box_and_absorbs_the_rest(tmp_path):
+    j, suspect, before = _p106(tmp_path)
+    rows = [r for r in before if r["bbox"][1] >= 380]
+    assert len(rows) == 2 and suspect["region_id"] == rows[0]["region_id"]
+    review.apply(j.jobs, j.job.id, [{"action": "reclassify", "region_id": suspect["region_id"], "to": "table"}],
+                 "peter", j.cfg)
+    f = files(j.job)
+    [t] = [t for t in f["tables"] if t["page_no"] == 2]
+    assert (t["n_rows"], t["n_cols"], t["extract_method"]) == (2, 2, "find_tables")
+    assert [c["text"] for c in t["cells"]] == ["Overdue", "2025", "90 days", "5,678"]     # the whole table
+    table_region = region_of(j.job, suspect["region_id"])
+    assert table_region["bbox"] == review.union(rows[0]["bbox"], suspect["bbox"])
+    other = region_of(j.job, rows[1]["region_id"])
+    assert other["status"] == "absorbed" and other["absorbed_into"] == t["table_id"] and other["text"] is None
+    body = " ".join(r["text"] or "" for r in f["regions"] if r["page_no"] == 2 and r["type"] != "table")
+    assert "5,678" not in body                                         # not both in the table and in the text
+    gaps = review.all_gaps(j.job.dir)
+    [g] = [g for g in gaps if g["code"] == "table_suspected"]
+    assert g["resolved"] == {"action": "reclassify", "review_seq": 1}
+    assert_valid(j.job)
+
+
+def test_an_absorbed_region_cannot_be_reviewed_and_undoing_the_table_restores_it(tmp_path):
+    j, suspect, before = _p106(tmp_path)
+    second = [r for r in before if r["bbox"][1] >= 380][1]
+    review.apply(j.jobs, j.job.id, [{"action": "reclassify", "region_id": suspect["region_id"], "to": "table"}],
+                 "peter", j.cfg)
+    with pytest.raises(review.ReviewError, match="part of table"):
+        review.apply(j.jobs, j.job.id, [{"action": "exclude", "region_id": second["region_id"]}], "peter", j.cfg)
+    review.apply(j.jobs, j.job.id, [{"action": "reclassify", "region_id": suspect["region_id"], "to": "text"}],
+                 "peter", j.cfg)
+    restored = region_of(j.job, second["region_id"])
+    assert restored["status"] == "extracted" and restored["absorbed_into"] is None and "5,678" in restored["text"]
+    assert not [t for t in files(j.job)["tables"] if t["page_no"] == 2]
+    assert (j.job.dir / "review" / "absorbed.json").read_text().strip() == "{}"
+    assert_valid(j.job)
+
+
+def test_exclude_resolves_the_label_gaps_of_the_region(tmp_path):
+    j, suspect, _ = _p106(tmp_path)
+    review.apply(j.jobs, j.job.id, [{"action": "exclude", "region_id": suspect["region_id"]}], "peter", j.cfg)
+    [g] = [g for g in review.all_gaps(j.job.dir) if g["code"] == "table_suspected"]
+    assert g["resolved"] == {"action": "exclude", "review_seq": 1}
+    view = review.page_view(j.jobs, j.job.id, 2)
+    assert [g.get("resolved") for g in view["gaps"] if g["code"] == "table_suspected"] == [g["resolved"]]
+
+
+def test_reclassify_to_or_from_a_page_header_moves_the_layer(tmp_path):
+    j = in_review(tmp_path)
+    review.apply(j.jobs, j.job.id, [{"action": "reclassify", "region_id": rid(1, 2), "to": "page_header"}],
+                 "peter", j.cfg)
+    assert region_of(j.job, rid(1, 2))["layer"] == "furniture"
+    review.apply(j.jobs, j.job.id, [{"action": "reclassify", "region_id": rid(1, 2), "to": "text"}], "peter", j.cfg)
+    assert region_of(j.job, rid(1, 2))["layer"] == "body"
+
+
+# ---------- ack (intake-ui-llm-design-v1 §3.4) ----------
+
+SUSPECTED = f"gap:table_suspected:2:{rid(2, 3)}"
+
+
+def work_digest(job):
+    import hashlib
+    return {p.relative_to(job.dir).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted(job.dir.rglob("*.json*")) if p.parts[-2] in ("extract", "label")}
+
+
+def test_ack_resolves_gap_and_records_target(tmp_path):
+    f = in_review(tmp_path, p106_split=True)
+    before = work_digest(f.job)
+    [row] = review.apply(f.jobs, f.job.id, [{"action": "ack", "item_id": SUSPECTED, "note": "kept as text"}], "peter",
+                         f.cfg)
+    assert {k: row[k] for k in ("action", "region_id", "from", "to", "by", "note", "verdict")} == \
+        {"action": "ack", "region_id": rid(2, 3), "from": None, "to": None, "by": "peter", "note": "kept as text",
+         "verdict": "ok"}
+    assert row["target"] == {"kind": "gap", "code": "table_suspected", "page_no": 2, "region_id": rid(2, 3),
+                             "table_id": None}
+    assert contract.schema_errors("review", row, "row") == []
+    gap = next(g for g in review.all_gaps(f.job.dir) if g["code"] == "table_suspected")
+    assert gap["resolved"] == {"action": "ack", "review_seq": 1}
+    assert contract.schema_errors("gap", gap, "gap") == []
+    assert work_digest(f.job) == before                     # only review/resolved.jsonl changed
+
+
+def test_ack_wrong_verdict_on_hint_changes_no_file(tmp_path):
+    from kb_intake import queue
+    f = in_review(tmp_path, p106_split=True)
+    p = f.job.dir / "extract" / "tables.jsonl"
+    tables = read_jsonl(p)
+    tables[0]["continued_hint"] = {"table_id": "demo-ar-2025-en:t0000_01", "reason": "same_first_row"}
+    write_jsonl(p, tables)
+    hint = f"hint:{tables[0]['region_id']}"
+    before = work_digest(f.job)
+    [row] = review.apply(f.jobs, f.job.id, [{"action": "ack", "item_id": hint, "verdict": "wrong"}], "peter", f.cfg)
+    assert row["verdict"] == "wrong" and row["target"]["kind"] == "hint"
+    assert work_digest(f.job) == before
+    assert read_jsonl(p)[0]["continued_hint"]["reason"] == "same_first_row"      # the hint stays; review records
+    item = next(i for i in queue.items(f.jobs, f.job.id) if i["item_id"] == hint)
+    assert item["status"] == "resolved" and item["resolution"] == {"action": "ack", "review_seq": 1}
+
+
+@pytest.mark.parametrize("ops", [
+    [{"action": "ack", "item_id": "gap:nope:1:-"}],
+    [{"action": "ack", "item_id": SUSPECTED}, {"action": "ack", "item_id": SUSPECTED}],
+    [{"action": "ack", "item_id": SUSPECTED}, {"action": "exclude", "region_id": rid(2, 3)}],
+    [{"action": "exclude", "region_id": rid(2, 3)}, {"action": "ack", "item_id": SUSPECTED}],
+    [{"action": "ack", "item_id": SUSPECTED, "verdict": "maybe"}],
+    [{"action": "ack", "item_id": SUSPECTED, "region_id": rid(2, 3)}],
+    [{"action": "ack"}],
+])
+def test_ack_refusals_apply_nothing(tmp_path, ops):
+    f = in_review(tmp_path, p106_split=True)
+    before = work_digest(f.job)
+    with pytest.raises(review.ReviewError):
+        review.apply(f.jobs, f.job.id, ops, "peter", f.cfg)
+    assert f.jobs.ops(f.job.id) == [] and work_digest(f.job) == before
+
+
+def test_ack_of_a_resolved_item_is_refused(tmp_path):
+    f = in_review(tmp_path, p106_split=True)
+    review.apply(f.jobs, f.job.id, [{"action": "ack", "item_id": SUSPECTED}], "peter", f.cfg)
+    with pytest.raises(review.ReviewError, match="resolved"):
+        review.apply(f.jobs, f.job.id, [{"action": "ack", "item_id": SUSPECTED}], "peter", f.cfg)
+    assert len(f.jobs.ops(f.job.id)) == 1
+
+
+def add_extract_gaps(f, *gaps):
+    p = f.job.dir / "extract" / "gaps.jsonl"
+    write_jsonl(p, read_jsonl(p) + list(gaps))
+
+
+def test_ack_resolves_only_the_gap_it_names(tmp_path):
+    """Independent review of stage S: the resolution key was (code, page, region) and resolved look-alike gaps."""
+    from kb_intake import queue
+    f = in_review(tmp_path, p106_split=True)
+    add_extract_gaps(f, {"code": "table_unmatched", "page_no": 1, "side": "extract", "bbox": [0, 0, 10, 10],
+                         "detail": "A"},
+                     {"code": "table_unmatched", "page_no": 1, "side": "extract", "bbox": [50, 50, 90, 90],
+                      "detail": "B"},
+                     {"code": "low_confidence", "page_no": 1, "region_id": rid(1, 2), "detail": "layout 0.4"},
+                     {"code": "low_confidence", "page_no": 1, "region_id": rid(1, 2), "detail": "classifier 0.3"})
+    items = [i for i in queue.items(f.jobs, f.job.id) if i["code"] in ("table_unmatched", "low_confidence")]
+    assert len(items) == 4
+    review.apply(f.jobs, f.job.id, [{"action": "ack", "item_id": items[0]["item_id"]},
+                                    {"action": "ack", "item_id": items[2]["item_id"]}], "peter", f.cfg)
+    after = {i["item_id"]: i["status"] for i in queue.items(f.jobs, f.job.id)}
+    assert [after[i["item_id"]] for i in items] == ["resolved", "open", "resolved", "open"]

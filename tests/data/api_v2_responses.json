@@ -1,0 +1,1215 @@
+{
+  "GET /": {
+    "content_type": "",
+    "location": "/ui/",
+    "status": 307
+  },
+  "GET /v1/directories": {
+    "body": {
+      "roots": [
+        "<tmp>/roots"
+      ]
+    },
+    "status": 200
+  },
+  "GET /v1/directories?path": {
+    "body": {
+      "entries": [
+        {
+          "kind": "pdf",
+          "name": "a.pdf",
+          "path": "<tmp>/roots/inbox/a.pdf"
+        }
+      ],
+      "path": "<tmp>/roots/inbox",
+      "roots": [
+        "<tmp>/roots"
+      ]
+    },
+    "status": 200
+  },
+  "GET /v1/engines": {
+    "body": {
+      "layout_enabled": true,
+      "llm": {
+        "base_url": "https://api.minimax.io/v1",
+        "configured": false,
+        "enabled": false,
+        "features": {
+          "chart_table": false,
+          "describe": true,
+          "summary": true
+        },
+        "key_present": false,
+        "model": "MiniMax-M3",
+        "provider": "openai_compatible",
+        "remote": true
+      },
+      "models_dir": "<masked>",
+      "pymupdf": "<masked>",
+      "ready": true,
+      "stages": {
+        "extract": {
+          "models": [
+            {
+              "repo_id": "fake/layout",
+              "revision": "0000000000000000000000000000000000000000",
+              "role": "layout"
+            }
+          ],
+          "name": "docling",
+          "params": {
+            "behaviour": "ok",
+            "stage": "extract"
+          },
+          "problems": [],
+          "ready": true,
+          "version": "<masked>"
+        },
+        "label": {
+          "models": [
+            {
+              "repo_id": "fake/layout",
+              "revision": "0000000000000000000000000000000000000000",
+              "role": "layout"
+            }
+          ],
+          "name": "docling",
+          "params": {
+            "behaviour": "ok",
+            "stage": "label"
+          },
+          "problems": [],
+          "ready": true,
+          "version": "<masked>"
+        }
+      }
+    },
+    "status": 200
+  },
+  "GET /v1/health": {
+    "body": {
+      "busy": "<masked>",
+      "contract_version": "2",
+      "last": "<masked>",
+      "llm": {
+        "base_url": "https://api.minimax.io/v1",
+        "configured": false,
+        "enabled": false,
+        "features": {
+          "chart_table": false,
+          "describe": true,
+          "summary": true
+        },
+        "key_present": false,
+        "model": "MiniMax-M3",
+        "provider": "openai_compatible",
+        "remote": true
+      },
+      "ok": true,
+      "version": "<masked>"
+    },
+    "status": 200
+  },
+  "GET /v1/jobs": {
+    "body": {
+      "jobs": [
+        {
+          "created_at": "<masked>",
+          "doc_id": "demo-ar-2025-en",
+          "job_id": "<masked>",
+          "last_error": null,
+          "package": "<masked>",
+          "running_op": null,
+          "source_name": "report.pdf",
+          "status": "planned",
+          "updated_at": "<masked>"
+        }
+      ]
+    },
+    "status": 200
+  },
+  "GET /v1/jobs/nope": {
+    "body": {
+      "detail": "no job nope"
+    },
+    "status": 404
+  },
+  "GET /v1/jobs/{id} (delivered)": {
+    "body": {
+      "busy": "<masked>",
+      "events": [
+        {
+          "at": "<masked>",
+          "info": {},
+          "seq": 1,
+          "status": "started",
+          "step": "detect"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "page_kinds": {
+              "blank": 0,
+              "mixed": 0,
+              "native": 2,
+              "scanned": 0
+            },
+            "pages": 2
+          },
+          "seq": 2,
+          "status": "done",
+          "step": "detect"
+        },
+        {
+          "at": "<masked>",
+          "info": {},
+          "seq": 3,
+          "status": "started",
+          "step": "docling"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "cached": false,
+            "seconds": "<masked>",
+            "status": "success"
+          },
+          "seq": 4,
+          "status": "done",
+          "step": "docling"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "gaps": 0,
+            "regions": 5
+          },
+          "seq": 5,
+          "status": "done",
+          "step": "regions"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "gaps": 0,
+            "regions": 5,
+            "seconds": "<masked>"
+          },
+          "seq": 6,
+          "status": "done",
+          "step": "label"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "stage": "extract"
+          },
+          "seq": 7,
+          "status": "started",
+          "step": "docling"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "cached": false,
+            "seconds": "<masked>",
+            "status": "success"
+          },
+          "seq": 8,
+          "status": "done",
+          "step": "docling"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "regions": 5
+          },
+          "seq": 9,
+          "status": "started",
+          "step": "regions"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "gaps": 0,
+            "regions": 5,
+            "tables": 1
+          },
+          "seq": 10,
+          "status": "done",
+          "step": "regions"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "seconds": "<masked>"
+          },
+          "seq": 11,
+          "status": "done",
+          "step": "extract"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "by": "bob",
+            "ops": 2
+          },
+          "seq": 12,
+          "status": "applied",
+          "step": "review"
+        },
+        {
+          "at": "<masked>",
+          "info": {},
+          "seq": 13,
+          "status": "started",
+          "step": "deliver"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "package": "<masked>",
+            "seconds": "<masked>"
+          },
+          "seq": 14,
+          "status": "done",
+          "step": "deliver"
+        }
+      ],
+      "extract": {
+        "cpu_seconds": "<masked>",
+        "engine": {
+          "cache_key": "<masked>",
+          "cached": false,
+          "dropped_table_cells": null,
+          "errors": [],
+          "failed_pages": [],
+          "seconds": "<masked>",
+          "status": "success",
+          "unscored": null
+        },
+        "packages": {
+          "docling": "<masked>",
+          "docling-core": "2.103.0",
+          "docling-ibm-models": "4.0.3",
+          "docling-parse": "7.22.3",
+          "pymupdf": "<masked>"
+        },
+        "params": {
+          "extract": {
+            "behaviour": "ok",
+            "stage": "extract"
+          }
+        },
+        "seconds": "<masked>",
+        "unmatched_extract_tables": 0
+      },
+      "job": {
+        "approved_at": "<masked>",
+        "approved_by": "alice",
+        "confirmed_at": "<masked>",
+        "confirmed_by": "carol",
+        "created_at": "<masked>",
+        "declaration": {
+          "completeness": {
+            "full": true
+          },
+          "doc_id": "demo-ar-2025-en",
+          "doc_type": "annual_report",
+          "issuer_id": "demo",
+          "lang": "en",
+          "period_end": "2025-12-31",
+          "source_url": "https://example.com/demo.pdf"
+        },
+        "dir": "<masked>",
+        "doc_id": "demo-ar-2025-en",
+        "id": "<masked>",
+        "last_error": null,
+        "package": "<masked>",
+        "running_op": null,
+        "sha256": "<masked>",
+        "source_name": "report.pdf",
+        "status": "delivered",
+        "updated_at": "<masked>",
+        "workflow_version": 1
+      },
+      "stats": {
+        "estimated_extract_seconds": "<masked>",
+        "label_seconds": "<masked>",
+        "low_confidence": 0,
+        "pages": 2,
+        "pages_by_kind": {
+          "blank": 0,
+          "mixed": 0,
+          "native": 2,
+          "scanned": 0
+        },
+        "regions": 5,
+        "regions_by_type": {
+          "heading": 2,
+          "table": 1,
+          "text": 2
+        },
+        "table_suspected": 0,
+        "workflow_notes": []
+      }
+    },
+    "status": 200
+  },
+  "GET /v1/jobs/{id} (in_review)": {
+    "body": {
+      "busy": "<masked>",
+      "events": [
+        {
+          "at": "<masked>",
+          "info": {},
+          "seq": 1,
+          "status": "started",
+          "step": "detect"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "page_kinds": {
+              "blank": 0,
+              "mixed": 0,
+              "native": 2,
+              "scanned": 0
+            },
+            "pages": 2
+          },
+          "seq": 2,
+          "status": "done",
+          "step": "detect"
+        },
+        {
+          "at": "<masked>",
+          "info": {},
+          "seq": 3,
+          "status": "started",
+          "step": "docling"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "cached": false,
+            "seconds": "<masked>",
+            "status": "success"
+          },
+          "seq": 4,
+          "status": "done",
+          "step": "docling"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "gaps": 0,
+            "regions": 5
+          },
+          "seq": 5,
+          "status": "done",
+          "step": "regions"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "gaps": 0,
+            "regions": 5,
+            "seconds": "<masked>"
+          },
+          "seq": 6,
+          "status": "done",
+          "step": "label"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "stage": "extract"
+          },
+          "seq": 7,
+          "status": "started",
+          "step": "docling"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "cached": false,
+            "seconds": "<masked>",
+            "status": "success"
+          },
+          "seq": 8,
+          "status": "done",
+          "step": "docling"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "regions": 5
+          },
+          "seq": 9,
+          "status": "started",
+          "step": "regions"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "gaps": 0,
+            "regions": 5,
+            "tables": 1
+          },
+          "seq": 10,
+          "status": "done",
+          "step": "regions"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "seconds": "<masked>"
+          },
+          "seq": 11,
+          "status": "done",
+          "step": "extract"
+        }
+      ],
+      "extract": {
+        "cpu_seconds": "<masked>",
+        "engine": {
+          "cache_key": "<masked>",
+          "cached": false,
+          "dropped_table_cells": null,
+          "errors": [],
+          "failed_pages": [],
+          "seconds": "<masked>",
+          "status": "success",
+          "unscored": null
+        },
+        "packages": {
+          "docling": "<masked>",
+          "docling-core": "2.103.0",
+          "docling-ibm-models": "4.0.3",
+          "docling-parse": "7.22.3",
+          "pymupdf": "<masked>"
+        },
+        "params": {
+          "extract": {
+            "behaviour": "ok",
+            "stage": "extract"
+          }
+        },
+        "seconds": "<masked>",
+        "unmatched_extract_tables": 0
+      },
+      "job": {
+        "approved_at": "<masked>",
+        "approved_by": "alice",
+        "confirmed_at": "<masked>",
+        "confirmed_by": null,
+        "created_at": "<masked>",
+        "declaration": {
+          "completeness": {
+            "full": true
+          },
+          "doc_id": "demo-ar-2025-en",
+          "doc_type": "annual_report",
+          "issuer_id": "demo",
+          "lang": "en",
+          "period_end": "2025-12-31",
+          "source_url": "https://example.com/demo.pdf"
+        },
+        "dir": "<masked>",
+        "doc_id": "demo-ar-2025-en",
+        "id": "<masked>",
+        "last_error": null,
+        "package": "<masked>",
+        "running_op": null,
+        "sha256": "<masked>",
+        "source_name": "report.pdf",
+        "status": "in_review",
+        "updated_at": "<masked>",
+        "workflow_version": 1
+      },
+      "stats": {
+        "estimated_extract_seconds": "<masked>",
+        "label_seconds": "<masked>",
+        "low_confidence": 0,
+        "pages": 2,
+        "pages_by_kind": {
+          "blank": 0,
+          "mixed": 0,
+          "native": 2,
+          "scanned": 0
+        },
+        "regions": 5,
+        "regions_by_type": {
+          "heading": 2,
+          "table": 1,
+          "text": 2
+        },
+        "table_suspected": 0,
+        "workflow_notes": []
+      }
+    },
+    "status": 200
+  },
+  "GET /v1/jobs/{id} (planned)": {
+    "body": {
+      "busy": "<masked>",
+      "events": [
+        {
+          "at": "<masked>",
+          "info": {},
+          "seq": 1,
+          "status": "started",
+          "step": "detect"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "page_kinds": {
+              "blank": 0,
+              "mixed": 0,
+              "native": 2,
+              "scanned": 0
+            },
+            "pages": 2
+          },
+          "seq": 2,
+          "status": "done",
+          "step": "detect"
+        },
+        {
+          "at": "<masked>",
+          "info": {},
+          "seq": 3,
+          "status": "started",
+          "step": "docling"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "cached": false,
+            "seconds": "<masked>",
+            "status": "success"
+          },
+          "seq": 4,
+          "status": "done",
+          "step": "docling"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "gaps": 0,
+            "regions": 5
+          },
+          "seq": 5,
+          "status": "done",
+          "step": "regions"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "gaps": 0,
+            "regions": 5,
+            "seconds": "<masked>"
+          },
+          "seq": 6,
+          "status": "done",
+          "step": "label"
+        }
+      ],
+      "extract": null,
+      "job": {
+        "approved_at": "<masked>",
+        "approved_by": null,
+        "confirmed_at": "<masked>",
+        "confirmed_by": null,
+        "created_at": "<masked>",
+        "declaration": {
+          "completeness": {
+            "full": true
+          },
+          "doc_id": "demo-ar-2025-en",
+          "doc_type": "annual_report",
+          "issuer_id": "demo",
+          "lang": "en",
+          "period_end": "2025-12-31",
+          "source_url": "https://example.com/demo.pdf"
+        },
+        "dir": "<masked>",
+        "doc_id": "demo-ar-2025-en",
+        "id": "<masked>",
+        "last_error": null,
+        "package": "<masked>",
+        "running_op": null,
+        "sha256": "<masked>",
+        "source_name": "report.pdf",
+        "status": "planned",
+        "updated_at": "<masked>",
+        "workflow_version": null
+      },
+      "stats": {
+        "estimated_extract_seconds": "<masked>",
+        "label_seconds": "<masked>",
+        "low_confidence": 0,
+        "pages": 2,
+        "pages_by_kind": {
+          "blank": 0,
+          "mixed": 0,
+          "native": 2,
+          "scanned": 0
+        },
+        "regions": 5,
+        "regions_by_type": {
+          "heading": 2,
+          "table": 1,
+          "text": 2
+        },
+        "table_suspected": 0,
+        "workflow_notes": []
+      }
+    },
+    "status": 200
+  },
+  "GET /v1/jobs/{id}/events": {
+    "body": {
+      "events": [
+        {
+          "at": "<masked>",
+          "info": {},
+          "seq": 1,
+          "status": "started",
+          "step": "detect"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "page_kinds": {
+              "blank": 0,
+              "mixed": 0,
+              "native": 2,
+              "scanned": 0
+            },
+            "pages": 2
+          },
+          "seq": 2,
+          "status": "done",
+          "step": "detect"
+        },
+        {
+          "at": "<masked>",
+          "info": {},
+          "seq": 3,
+          "status": "started",
+          "step": "docling"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "cached": false,
+            "seconds": "<masked>",
+            "status": "success"
+          },
+          "seq": 4,
+          "status": "done",
+          "step": "docling"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "gaps": 0,
+            "regions": 5
+          },
+          "seq": 5,
+          "status": "done",
+          "step": "regions"
+        },
+        {
+          "at": "<masked>",
+          "info": {
+            "gaps": 0,
+            "regions": 5,
+            "seconds": "<masked>"
+          },
+          "seq": 6,
+          "status": "done",
+          "step": "label"
+        }
+      ]
+    },
+    "status": 200
+  },
+  "GET /v1/jobs/{id}/gaps (in_review)": {
+    "body": {
+      "gaps": []
+    },
+    "status": 200
+  },
+  "GET /v1/jobs/{id}/gaps (planned)": {
+    "body": {
+      "gaps": []
+    },
+    "status": 200
+  },
+  "GET /v1/jobs/{id}/pages/1 (in_review)": {
+    "body": {
+      "excluded": false,
+      "gaps": [],
+      "height": 842.0,
+      "kind": "native",
+      "page_label": null,
+      "page_no": 1,
+      "regions": [
+        {
+          "absorbed_into": null,
+          "bbox": [
+            72.0,
+            68.0,
+            300.0,
+            84.0
+          ],
+          "font": {
+            "bold": true,
+            "name": "Helvetica-Bold",
+            "size": 12.0
+          },
+          "handler": "text",
+          "label_source": "model",
+          "layer": "body",
+          "page_no": 1,
+          "reading_order": 0,
+          "region_id": "demo-ar-2025-en:p0001:r001",
+          "score": 0.9,
+          "status": "extracted",
+          "subtype": null,
+          "table_id": null,
+          "text": "Section 1",
+          "text_source": "native",
+          "type": "heading"
+        },
+        {
+          "absorbed_into": null,
+          "bbox": [
+            72.0,
+            100.0,
+            500.0,
+            140.0
+          ],
+          "font": {
+            "bold": false,
+            "name": "Helvetica",
+            "size": 9.0
+          },
+          "handler": "text",
+          "label_source": "model",
+          "layer": "body",
+          "page_no": 1,
+          "reading_order": 1,
+          "region_id": "demo-ar-2025-en:p0001:r002",
+          "score": 0.9,
+          "status": "extracted",
+          "subtype": null,
+          "table_id": null,
+          "text": "The Group reported a net profit for the year and the board is pleased with the results of this year. It is the\nview of the board that the bank is in a strong position for the next year.",
+          "text_source": "native",
+          "type": "text"
+        },
+        {
+          "absorbed_into": null,
+          "bbox": [
+            72.0,
+            200.0,
+            400.0,
+            300.0
+          ],
+          "font": {
+            "bold": false,
+            "name": "Helvetica",
+            "size": 10.0
+          },
+          "handler": "table_structure",
+          "label_source": "model",
+          "layer": "body",
+          "page_no": 1,
+          "reading_order": 2,
+          "region_id": "demo-ar-2025-en:p0001:r003",
+          "score": 0.95,
+          "status": "extracted",
+          "subtype": null,
+          "table_id": "demo-ar-2025-en:t0001_01",
+          "text": "cell 00\ncell 01\ncell 10\ncell 11",
+          "text_source": "native",
+          "type": "table"
+        }
+      ],
+      "tables": [
+        {
+          "bbox": [
+            72.0,
+            200.0,
+            400.0,
+            300.0
+          ],
+          "cells": [
+            {
+              "bbox": [
+                77.0,
+                219.25,
+                105.89999389648438,
+                232.99000549316406
+              ],
+              "bbox_source": "text",
+              "c": 0,
+              "cs": 1,
+              "is_header": true,
+              "r": 0,
+              "rs": 1,
+              "text": "cell 00"
+            },
+            {
+              "bbox": [
+                241.0,
+                219.25,
+                269.8999938964844,
+                232.99000549316406
+              ],
+              "bbox_source": "text",
+              "c": 1,
+              "cs": 1,
+              "is_header": true,
+              "r": 0,
+              "rs": 1,
+              "text": "cell 01"
+            },
+            {
+              "bbox": [
+                77.0,
+                269.25,
+                105.89999389648438,
+                282.989990234375
+              ],
+              "bbox_source": "text",
+              "c": 0,
+              "cs": 1,
+              "is_header": false,
+              "r": 1,
+              "rs": 1,
+              "text": "cell 10"
+            },
+            {
+              "bbox": [
+                241.0,
+                269.25,
+                269.8999938964844,
+                282.989990234375
+              ],
+              "bbox_source": "text",
+              "c": 1,
+              "cs": 1,
+              "is_header": false,
+              "r": 1,
+              "rs": 1,
+              "text": "cell 11"
+            }
+          ],
+          "checks": {
+            "unassigned_words": 0
+          },
+          "continued_hint": null,
+          "extract_method": "docling",
+          "markdown": "|cell 00|cell 01|\n|---|---|\n|cell 10|cell 11|",
+          "n_cols": 2,
+          "n_rows": 2,
+          "page_no": 1,
+          "region_id": "demo-ar-2025-en:p0001:r003",
+          "table_id": "demo-ar-2025-en:t0001_01"
+        }
+      ],
+      "width": 595.0
+    },
+    "status": 200
+  },
+  "GET /v1/jobs/{id}/pages/1 (planned)": {
+    "body": {
+      "excluded": false,
+      "gaps": [],
+      "height": 842.0,
+      "kind": "native",
+      "page_label": null,
+      "page_no": 1,
+      "regions": [
+        {
+          "bbox": [
+            72.0,
+            68.0,
+            300.0,
+            84.0
+          ],
+          "classes": null,
+          "docling_label": "section_header",
+          "font": {
+            "bold": true,
+            "name": "Helvetica-Bold",
+            "size": 12.0
+          },
+          "label_source": "model",
+          "layer": "body",
+          "page_no": 1,
+          "reading_order": 0,
+          "region_id": "demo-ar-2025-en:p0001:r001",
+          "score": 0.9,
+          "subtype": null,
+          "type": "heading"
+        },
+        {
+          "bbox": [
+            72.0,
+            100.0,
+            500.0,
+            140.0
+          ],
+          "classes": null,
+          "docling_label": "text",
+          "font": {
+            "bold": false,
+            "name": "Helvetica",
+            "size": 9.0
+          },
+          "label_source": "model",
+          "layer": "body",
+          "page_no": 1,
+          "reading_order": 1,
+          "region_id": "demo-ar-2025-en:p0001:r002",
+          "score": 0.9,
+          "subtype": null,
+          "type": "text"
+        },
+        {
+          "bbox": [
+            72.0,
+            200.0,
+            400.0,
+            300.0
+          ],
+          "classes": null,
+          "docling_label": "table",
+          "font": {
+            "bold": false,
+            "name": "Helvetica",
+            "size": 10.0
+          },
+          "label_source": "model",
+          "layer": "body",
+          "page_no": 1,
+          "reading_order": 2,
+          "region_id": "demo-ar-2025-en:p0001:r003",
+          "score": 0.95,
+          "subtype": null,
+          "type": "table"
+        }
+      ],
+      "tables": [],
+      "width": 595.0
+    },
+    "status": 200
+  },
+  "GET /v1/jobs/{id}/pages/1/image": {
+    "content_type": "image/png",
+    "status": 200
+  },
+  "GET /v1/jobs/{id}/pages/9": {
+    "body": {
+      "detail": "job <job> has no page 9"
+    },
+    "status": 404
+  },
+  "GET /v1/jobs/{id}/workflow": {
+    "body": {
+      "approved_version": null,
+      "created_at": "<masked>",
+      "error": null,
+      "handlers": [
+        "text",
+        "table_structure",
+        "record",
+        "discard",
+        "unhandled",
+        "ocr",
+        "describe"
+      ],
+      "llm": {
+        "base_url": "https://api.minimax.io/v1",
+        "configured": false,
+        "enabled": false,
+        "features": {
+          "chart_table": false,
+          "describe": true,
+          "summary": true
+        },
+        "key_present": false,
+        "model": "MiniMax-M3",
+        "provider": "openai_compatible",
+        "remote": true
+      },
+      "notes": [],
+      "text": "name: default\nversion: 1\nhandlers:\n  title: text\n  heading: text\n  text: text\n  list: text\n  caption: text\n  footnote: text\n  formula: text\n  toc: text\n  table: table_structure\n  chart: text\n  diagram: text\n  picture: discard\n  logo: discard\n  icon: discard\n  signature: record\n  stamp: record\n  page_header: discard\n  page_footer: discard\n  unknown: unhandled\nexclude_pages: []\n",
+      "types": [
+        "title",
+        "heading",
+        "text",
+        "list",
+        "caption",
+        "footnote",
+        "formula",
+        "toc",
+        "table",
+        "chart",
+        "diagram",
+        "picture",
+        "logo",
+        "icon",
+        "signature",
+        "stamp",
+        "page_header",
+        "page_footer",
+        "unknown"
+      ],
+      "version": "<masked>",
+      "workflow": {
+        "exclude_pages": [],
+        "handlers": {
+          "caption": "text",
+          "chart": "text",
+          "diagram": "text",
+          "footnote": "text",
+          "formula": "text",
+          "heading": "text",
+          "icon": "discard",
+          "list": "text",
+          "logo": "discard",
+          "page_footer": "discard",
+          "page_header": "discard",
+          "picture": "discard",
+          "signature": "record",
+          "stamp": "record",
+          "table": "table_structure",
+          "text": "text",
+          "title": "text",
+          "toc": "text",
+          "unknown": "unhandled"
+        },
+        "name": "default",
+        "version": "<masked>"
+      }
+    },
+    "status": 200
+  },
+  "GET /v1/packages": {
+    "body": {
+      "delivery_dir": "<masked>",
+      "packages": [
+        {
+          "check": {
+            "contract_version": "2",
+            "counts": {
+              "gaps.jsonl": 0,
+              "layout.jsonl": 2,
+              "pages.jsonl": 2,
+              "regions.jsonl": 5,
+              "review.jsonl": 3,
+              "tables.jsonl": 1
+            },
+            "errors": [],
+            "ok": true
+          },
+          "job_id": "<masked>",
+          "package": "<masked>"
+        }
+      ]
+    },
+    "status": 200
+  },
+  "POST /v1/jobs (again)": {
+    "body": {
+      "created": false,
+      "existing_job": true,
+      "existing_note": "this file already has a job that is not delivered; the declaration sent now was not used",
+      "job_id": "<masked>",
+      "started": false,
+      "status": "planned"
+    },
+    "status": 202
+  },
+  "POST /v1/jobs (bad)": {
+    "body": {
+      "detail": "x.txt is not a PDF"
+    },
+    "status": 422
+  },
+  "POST /v1/jobs/{id}/approve": {
+    "body": {
+      "job_id": "<masked>",
+      "started": "extract"
+    },
+    "status": 202
+  },
+  "POST /v1/jobs/{id}/confirm": {
+    "body": {
+      "job_id": "<masked>",
+      "started": "deliver"
+    },
+    "status": 202
+  },
+  "POST /v1/jobs/{id}/retry (in_review)": {
+    "body": {
+      "detail": "job <job> is in_review: there is no step to retry",
+      "error": "WrongState"
+    },
+    "status": 409
+  },
+  "POST /v1/jobs/{id}/review": {
+    "body": {
+      "applied": [
+        {
+          "action": "exclude",
+          "at": "<masked>",
+          "by": "bob",
+          "from": "extracted",
+          "note": null,
+          "region_id": "demo-ar-2025-en:p0001:r002",
+          "to": "excluded"
+        },
+        {
+          "action": "reclassify",
+          "at": "<masked>",
+          "by": "bob",
+          "from": "heading",
+          "note": "n",
+          "region_id": "demo-ar-2025-en:p0002:r001",
+          "to": "text"
+        }
+      ],
+      "status": "in_review"
+    },
+    "status": 200
+  },
+  "POST /v1/jobs/{id}/review (bad op)": {
+    "body": {
+      "detail": "op 1: unknown region 'nope'"
+    },
+    "status": 400
+  },
+  "POST /v1/jobs/{id}/review (planned)": {
+    "body": {
+      "detail": "job <job> is planned; this needs in_review",
+      "error": "WrongState"
+    },
+    "status": 409
+  },
+  "PUT /v1/jobs/{id}/workflow (bad)": {
+    "body": {
+      "detail": "workflow is not valid YAML: while parsing a flow node\nexpected the node content, but found '<stream end>'\n  in \"<unicode string>\", line 1, column 8:\n    nope: [\n           ^"
+    },
+    "status": 422
+  }
+}

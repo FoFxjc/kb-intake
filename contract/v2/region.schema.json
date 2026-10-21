@@ -1,0 +1,179 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://github.com/FoFxjc/kb-intake/contract/v2/region.schema.json",
+ "type": "object",
+ "title": "regions.jsonl row (intake-design-v2 §5.4)",
+ "properties": {
+  "region_id": {
+   "type": "string",
+   "pattern": "^[a-z0-9][a-z0-9._-]*:p[0-9]{4}:r[0-9]{3}$"
+  },
+  "page_no": {
+   "type": "integer",
+   "minimum": 1
+  },
+  "bbox": {
+   "type": "array",
+   "items": {
+    "type": "number"
+   },
+   "minItems": 4,
+   "maxItems": 4
+  },
+  "type": {
+   "enum": [
+    "title",
+    "heading",
+    "text",
+    "list",
+    "caption",
+    "footnote",
+    "formula",
+    "toc",
+    "table",
+    "chart",
+    "diagram",
+    "picture",
+    "logo",
+    "icon",
+    "signature",
+    "stamp",
+    "page_header",
+    "page_footer",
+    "unknown"
+   ]
+  },
+  "subtype": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "score": {
+   "type": [
+    "number",
+    "null"
+   ]
+  },
+  "label_source": {
+   "enum": [
+    "model",
+    "user",
+    "native"
+   ]
+  },
+  "layer": {
+   "enum": [
+    "body",
+    "furniture"
+   ]
+  },
+  "reading_order": {
+   "type": "integer",
+   "minimum": 0
+  },
+  "text": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "text_source": {
+   "enum": [
+    "native",
+    null
+   ]
+  },
+  "font": {
+   "oneOf": [
+    {
+     "type": "null"
+    },
+    {
+     "type": "object",
+     "title": "font",
+     "properties": {
+      "name": {
+       "type": "string"
+      },
+      "size": {
+       "type": "number"
+      },
+      "bold": {
+       "type": "boolean"
+      }
+     },
+     "required": [
+      "name",
+      "size",
+      "bold"
+     ],
+     "additionalProperties": false
+    }
+   ]
+  },
+  "status": {
+   "enum": [
+    "extracted",
+    "discarded",
+    "recorded",
+    "excluded",
+    "unhandled",
+    "absorbed"
+   ]
+  },
+  "handler": {
+   "enum": [
+    "text",
+    "table_structure",
+    "record",
+    "discard",
+    "unhandled",
+    "ocr",
+    "describe",
+    null
+   ]
+  },
+  "table_id": {
+   "oneOf": [
+    {
+     "type": "string",
+     "pattern": "^[a-z0-9][a-z0-9._-]*:t[0-9]{4}_[0-9]{2}$"
+    },
+    {
+     "type": "null"
+    }
+   ]
+  },
+  "absorbed_into": {
+   "oneOf": [
+    {
+     "type": "string",
+     "pattern": "^[a-z0-9][a-z0-9._-]*:t[0-9]{4}_[0-9]{2}$"
+    },
+    {
+     "type": "null"
+    }
+   ]
+  }
+ },
+ "required": [
+  "region_id",
+  "page_no",
+  "bbox",
+  "type",
+  "subtype",
+  "score",
+  "label_source",
+  "layer",
+  "reading_order",
+  "text",
+  "text_source",
+  "font",
+  "status",
+  "handler",
+  "table_id",
+  "absorbed_into"
+ ],
+ "additionalProperties": false
+}

@@ -1,0 +1,42 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://github.com/FoFxjc/kb-intake/contract/v2/layout.schema.json",
+ "type": "object",
+ "title": "layout.jsonl row (intake-design-v2 §5.6)",
+ "properties": {
+  "page_no": {
+   "type": "integer",
+   "minimum": 1
+  },
+  "words": {
+   "type": "array",
+   "items": {
+    "type": "array",
+    "minItems": 5,
+    "maxItems": 5,
+    "prefixItems": [
+     {
+      "type": "number"
+     },
+     {
+      "type": "number"
+     },
+     {
+      "type": "number"
+     },
+     {
+      "type": "number"
+     },
+     {
+      "type": "string"
+     }
+    ]
+   }
+  }
+ },
+ "required": [
+  "page_no",
+  "words"
+ ],
+ "additionalProperties": false
+}

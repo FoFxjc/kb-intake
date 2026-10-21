@@ -1,0 +1,70 @@
+/* Colours, type and spacing of the approved prototype (docs/ui-prototype/*.dc.html), as custom properties. */
+:root {
+  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  --ink: #1c1c1a;
+  --ink-2: #3a3a35;
+  --muted: #5f5f58;
+  --bg: #f6f6f3;
+  --surface: #ffffff;
+  --surface-2: #fafaf8;
+  --line: #e2e2dc;
+  --line-strong: #cfcfc8;
+  --line-soft: #f0f0eb;
+  --line-faint: #ecece6;
+  --canvas-bg: #efefea;
+  --selected-row: #f3f6fd;
+
+  --link: #2457d6;
+  --link-hover: #1a3fa0;
+
+  --ok-bg: #e7efe9;
+  --ok-ink: #1e5b36;
+  --ok-line: #cfe3d6;
+  --ok-wash: #f2f8f4;
+  --call-bg: #fff4e5;
+  --call-ink: #8a4a00;
+  --note-bg: #fff8ec;
+  --note-line: #f1d9ae;
+  --note-ink: #5a3a06;
+  --warn-ink: #c2410c;
+  --warn-line: #e8b48f;
+  --error-bg: #fdecea;
+  --error-line: #f3c2bc;
+  --error-ink: #9f1d12;
+  --run-bg: #e8eefc;
+  --run-ink: #1a3fa0;
+
+  --llm-bg: #f1ecfa;
+  --llm-ink: #5b2e9c;
+  --llm-line: #e4d9f5;
+  --llm-wash: #faf7fe;
+
+  /* region types: [box, tint, chip ink] */
+  --type-table: #2457d6;
+  --type-table-tint: #e8eefc;
+  --type-table-ink: #1a3fa0;
+  --type-chart: #b4237a;
+  --type-chart-tint: #fbe8f2;
+  --type-chart-ink: #8a1a5d;
+  --type-diagram: #7c3aed;
+  --type-diagram-tint: #f1ecfa;
+  --type-diagram-ink: #5b2e9c;
+  --type-picture: #8a8a84;
+  --type-picture-tint: #efefec;
+  --type-picture-ink: #4a4a45;
+  --type-heading: #0f766e;
+  --type-heading-tint: #e3f3f1;
+  --type-heading-ink: #0b5953;
+  --type-text: #64748b;
+  --type-text-tint: #eef1f5;
+  --type-text-ink: #3e4a5c;
+
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 8px;
+  --pill: 999px;
+  --pad-page: 24px;
+  --gap: 16px;
+}

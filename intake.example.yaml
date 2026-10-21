@@ -1,0 +1,28 @@
+# kb-intake configuration (--config or $INTAKE_CONFIG). Every key is optional; unknown keys are refused.
+# INTAKE_MODELS_DIR, INTAKE_CACHE_DIR, INTAKE_WORK_DIR and INTAKE_DELIVERY_DIR override the directories.
+models_dir: ~/.kb-intake/models      # pinned weights (kb-intake models download)
+cache_dir: ~/.kb-intake/cache        # Docling output, keyed by source sha256 + versions + model revisions + params
+work_dir: ~/.kb-intake/work          # jobs before confirmation, and state.db (SQLite)
+delivery_dir: ~/.kb-intake/delivery  # confirmed packages only; nothing else is written here
+low_confidence: 0.5                  # layout score or picture-classifier top score below this -> low_confidence gap
+docling:
+  table_mode: accurate               # or fast (extract stage)
+  device: cpu                        # formal packages use cpu; mps only for debugging (recorded in the manifest)
+  num_threads: 4
+  document_timeout: 1800             # Docling's own budget, seconds
+  wall_timeout: 2100                 # hard limit: the conversion process is killed after this many seconds
+scan_roots: []                       # serve only: directories the web UI / API may read files from (symlinks and ..
+                                     # resolved before the check); empty = uploads only
+
+# Optional LLM help (document summary, chart and picture descriptions, chart to table). Off by default. When
+# enabled, the start of every page's text (summary) and the image and text of regions set to describe are sent to
+# the service below (docs/DEPLOYMENT.md §5.2); the key is read from the environment variable named by api_key_env,
+# never from this file. remote: false is accepted only for a localhost base_url.
+llm:
+  enabled: false
+  provider: openai_compatible
+  base_url: https://api.minimax.io/v1
+  model: MiniMax-M3
+  api_key_env: INTAKE_LLM_API_KEY
+  remote: true
+  features: {summary: true, describe: true, chart_table: false}

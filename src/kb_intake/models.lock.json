@@ -1,0 +1,46 @@
+{
+ "comment": "Docling 2.140.0 model weights: Hugging Face revision and sha256 of every file. kb-intake models download fetches exactly these and refuses anything else. The picture classifier's Docling preset points at the floating revision 'main'; it is pinned here and set explicitly by the engine.",
+ "models": [
+  {
+   "repo_id": "docling-project/docling-layout-heron",
+   "revision": "8f39ad3c0b4c58e9c2d2c84a38465abf757272d8",
+   "role": "layout",
+   "files": {
+    ".gitattributes": "11ad7efa24975ee4b0c3c3a38ed18737f0658a5f75a0a96787b576a78a023361",
+    "README.md": "175700839bc7808eac6af1d0c23e4f483606ab2276fe01122f4093e61a1a65b6",
+    "config.json": "fdea30805ce2f5666b147fca941dcdd27ad468e27d6ed21902207d3da056a97d",
+    "docling_heron_400.png": "e7f78610372b32a7938e480d2c7fa1c3037ee170bd82282a5bd026232f6e6f9e",
+    "model.safetensors": "00333a43451945aaf89db8ca9c0a17e75d1537c17db60fdb91aa95f4c7929e0c",
+    "preprocessor_config.json": "cd38cd59999e7a95d68e487fbe5132df3d4e5c32a0836add57e6126ba0c4eaf1"
+   }
+  },
+  {
+   "repo_id": "docling-project/docling-models",
+   "revision": "fc0f2d45e2218ea24bce5045f58a389aed16dc23",
+   "role": "table_structure",
+   "tag": "v2.3.0",
+   "files": {
+    ".gitattributes": "360aba3ff7ce75396f13f0a77925fe9e79997e8d4bac064595ebb00c82700386",
+    ".gitignore": "b44b404189eaff3631c470946e7350c2e88cead304d332a8ad50325e6f56e95d",
+    "README.md": "d17f233378eff1240b623b36da76ee8b40afcca05d505949713bf03f7e00822a",
+    "config.json": "9c34024dc28ff47b75818f415e769809798c29bf9bde6f2ccc63a4acb62396d9",
+    "model_artifacts/tableformer/accurate/tableformer_accurate.safetensors": "2a7d6c924b3cd12fb99a09280ca9c33a89c5d60b93253617d2e088c1a40374d9",
+    "model_artifacts/tableformer/accurate/tm_config.json": "984e122ceb8ccf84d84c9d2882f6f2302a44b4f1e577babd6289892c36f3cffd",
+    "model_artifacts/tableformer/fast/tableformer_fast.safetensors": "3119563aab5a7c96fda4d621119b63fd8806272b86c30936d15507616422f718",
+    "model_artifacts/tableformer/fast/tm_config.json": "dca6762508dddfae6d57d6cb4ef822c6000119dff0f3b6489db7413118c2622a"
+   }
+  },
+  {
+   "repo_id": "docling-project/DocumentFigureClassifier-v2.5",
+   "revision": "f859dfbff5c9916cd996942d4b0db7fa25808220",
+   "role": "picture_classifier",
+   "files": {
+    ".gitattributes": "578ac51c49a4dc3bb76753773665a312894ace5cbbc9db61eb522eba28fc893e",
+    "README.md": "df8d868e8a850ae0edd585a21eaf42d6ec00cd07374465e8e98a3a73df429e43",
+    "config.json": "dbed0349fb8b12fad95d8ff7f43b062c40971e06d9d957b25e90d91dfd3bd77e",
+    "model.safetensors": "6bf1e44d6bce316dcade6eb9929d8f8d23b6e8d9d29062b3b4011cff87c7c3cd",
+    "preprocessor_config.json": "118dc069572036346fbacc3e15586089d3f8a9aaf9036c0c54b4666236a28032"
+   }
+  }
+ ]
+}

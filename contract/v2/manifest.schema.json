@@ -1,0 +1,355 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://github.com/FoFxjc/kb-intake/contract/v2/manifest.schema.json",
+ "type": "object",
+ "title": "manifest.json (intake-design-v2 §5.2)",
+ "properties": {
+  "contract_version": {
+   "const": "2"
+  },
+  "package": {
+   "type": "string"
+  },
+  "doc_id": {
+   "type": "string"
+  },
+  "source": {
+   "type": "object",
+   "title": "source",
+   "properties": {
+    "filename": {
+     "type": "string"
+    },
+    "sha256": {
+     "type": "string",
+     "pattern": "^[0-9a-f]{64}$"
+    },
+    "bytes": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "media_type": {
+     "const": "application/pdf"
+    }
+   },
+   "required": [
+    "filename",
+    "sha256",
+    "bytes",
+    "media_type"
+   ],
+   "additionalProperties": false
+  },
+  "metadata": {
+   "type": "object",
+   "title": "metadata",
+   "properties": {
+    "declaration": {
+     "type": "object"
+    },
+    "declaration_filled": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     }
+    },
+    "page_count": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "lang": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "detected_lang": {
+     "type": [
+      "string",
+      "null"
+     ]
+    },
+    "page_kinds": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "integer",
+      "minimum": 0
+     }
+    },
+    "has_text_layer": {
+     "type": "boolean"
+    },
+    "page_label_method": {
+     "type": "object"
+    }
+   },
+   "required": [
+    "declaration",
+    "declaration_filled",
+    "page_count",
+    "lang",
+    "detected_lang",
+    "page_kinds",
+    "has_text_layer",
+    "page_label_method"
+   ],
+   "additionalProperties": false
+  },
+  "stats": {
+   "type": "object",
+   "title": "stats",
+   "properties": {
+    "labeled_by_type": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "integer",
+      "minimum": 0
+     }
+    },
+    "regions_by_type": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "integer",
+      "minimum": 0
+     }
+    },
+    "regions_by_status": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "integer",
+      "minimum": 0
+     }
+    },
+    "tables": {
+     "type": "integer",
+     "minimum": 0
+    },
+    "gaps_by_code": {
+     "type": "object",
+     "additionalProperties": {
+      "type": "integer",
+      "minimum": 0
+     }
+    }
+   },
+   "required": [
+    "labeled_by_type",
+    "regions_by_type",
+    "regions_by_status",
+    "tables",
+    "gaps_by_code"
+   ],
+   "additionalProperties": false
+  },
+  "engines": {
+   "type": "object",
+   "title": "engines",
+   "properties": {
+    "docling": {
+     "type": "object"
+    },
+    "models": {
+     "type": "array",
+     "items": {
+      "type": "object"
+     }
+    },
+    "pymupdf": {
+     "type": "string"
+    },
+    "device": {
+     "type": "string"
+    },
+    "params": {
+     "type": "object"
+    },
+    "stages": {
+     "type": "object"
+    }
+   },
+   "required": [
+    "docling",
+    "models",
+    "pymupdf",
+    "device",
+    "params",
+    "stages"
+   ],
+   "additionalProperties": false
+  },
+  "workflow": {
+   "type": "object",
+   "title": "workflow",
+   "properties": {
+    "name": {
+     "type": "string"
+    },
+    "version": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "approved_by": {
+     "type": "string"
+    },
+    "approved_at": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "name",
+    "version",
+    "approved_by",
+    "approved_at"
+   ],
+   "additionalProperties": false
+  },
+  "status": {
+   "type": "object",
+   "title": "status",
+   "properties": {
+    "state": {
+     "const": "confirmed"
+    },
+    "confirmed_by": {
+     "type": "string"
+    },
+    "confirmed_at": {
+     "type": "string"
+    }
+   },
+   "required": [
+    "state",
+    "confirmed_by",
+    "confirmed_at"
+   ],
+   "additionalProperties": false
+  },
+  "files": {
+   "type": "object",
+   "additionalProperties": {
+    "type": "object",
+    "title": "file",
+    "properties": {
+     "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+     },
+     "bytes": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "rows": {
+      "type": [
+       "integer",
+       "null"
+      ],
+      "minimum": 0
+     }
+    },
+    "required": [
+     "sha256",
+     "bytes",
+     "rows"
+    ],
+    "additionalProperties": false
+   }
+  },
+  "kb_intake_version": {
+   "type": "string"
+  },
+  "run": {
+   "type": "object"
+  },
+  "llm": {
+   "type": "object",
+   "title": "LLM use of the package (intake-ui-llm-design-v1 §4.4); outputs in llm.jsonl, low weight",
+   "properties": {
+    "used": {
+     "type": "boolean"
+    },
+    "provider": {
+     "type": "string"
+    },
+    "model": {
+     "type": "string"
+    },
+    "remote": {
+     "type": "boolean"
+    },
+    "sent_to": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "title": "the hosts (host:port of base_url) the data was sent to; empty when only localhost was used"
+    },
+    "counts": {
+     "type": "object",
+     "properties": {
+      "summary": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "describe": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "chart_table": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "failed": {
+       "type": "integer",
+       "minimum": 0
+      }
+     },
+     "required": [
+      "summary",
+      "describe",
+      "chart_table",
+      "failed"
+     ],
+     "additionalProperties": false
+    }
+   },
+   "required": [
+    "used"
+   ],
+   "additionalProperties": false,
+   "allOf": [
+    {
+     "if": {
+      "properties": {
+       "used": {
+        "const": true
+       }
+      }
+     },
+     "then": {
+      "required": [
+       "provider",
+       "model",
+       "remote",
+       "counts"
+      ]
+     }
+    }
+   ]
+  }
+ },
+ "required": [
+  "contract_version",
+  "package",
+  "doc_id",
+  "source",
+  "metadata",
+  "stats",
+  "engines",
+  "workflow",
+  "status",
+  "files",
+  "kb_intake_version",
+  "run"
+ ],
+ "additionalProperties": false
+}
