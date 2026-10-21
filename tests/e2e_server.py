@@ -1,6 +1,6 @@
 """The server the browser tests (web/e2e, Playwright) run against: `create_app` on a fresh temporary work directory
 with the fake Docling engines of tests/jobflow.py (two pages, a table on page 1, a p106-like table that Docling
-missed on page 2, a bar chart on page 1). Test-only; never used by kb-intake itself.
+missed on page 2 and split into one text region per row, a bar chart on page 1). Test-only; never used by kb-intake itself.
 
     uv run python tests/e2e_server.py --port 8799 [--llm-url URL | --fake-llm] [--fixtures DIR]
 
@@ -61,10 +61,10 @@ def main(argv=None) -> None:
 
     tmp = Path(tempfile.mkdtemp(prefix="kb-intake-e2e-"))
     try:
-        flow = jobflow.in_review(tmp, chart=True, llm_url=llm_url)
+        flow = jobflow.in_review(tmp, chart=True, p106_split=True, llm_url=llm_url)
         write_fixtures(args.fixtures, flow.src)
-        engines = {"label": jobflow.engine(tmp, "label", chart=True),
-                   "extract": jobflow.engine(tmp, "extract", chart=True)}
+        engines = {"label": jobflow.engine(tmp, "label", chart=True, p106_split=True),
+                   "extract": jobflow.engine(tmp, "extract", chart=True, p106_split=True)}
         app = create_app(flow.cfg, engines=engines)
         print(f"e2e server: job {flow.job.id} in_review; work dir {tmp}; fixtures {args.fixtures}", flush=True)
         uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
