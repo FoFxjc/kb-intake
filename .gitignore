@@ -9,3 +9,9 @@ packages/
 *.egg-info/
 dist/
 .env
+# made by ./setup.sh and kb-intake doctor in the source directory
+/models/
+/data/
+/kb-intake
+/kb-intake-doctor.json
+/setup-pip.log
