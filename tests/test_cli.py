@@ -159,3 +159,15 @@ def test_label_of_a_known_source_reports_the_existing_job(env, capsys):
     code, out, _ = run(capsys, "label", str(tmp / "report.pdf"), "--decl", str(tmp / "decl.yaml"), "--config", cfg)
     assert code == 0 and out[0]["job_id"] == job_id and out[0]["status"] == "planned"
     assert len(Jobs(tmp / "work").recent()) == 1
+
+
+def test_review_checks_the_state_itself(env, capsys, monkeypatch):
+    """review of a job that is not in_review is a WrongState from the CLI, not from review.apply."""
+    import kb_intake
+    tmp, cfg = env
+    calls = []
+    monkeypatch.setattr(kb_intake.review, "apply", lambda *a, **k: calls.append(a) or [])
+    job_id = _labelled(env, capsys)
+    (tmp / "ops.yaml").write_text(yaml.safe_dump({"ops": []}))
+    code, _, err = run(capsys, "review", job_id, "--apply", str(tmp / "ops.yaml"), "--by", "b", "--config", cfg)
+    assert code == 2 and err[0]["error"] == "WrongState" and calls == []

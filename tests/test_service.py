@@ -275,3 +275,17 @@ def test_a_busy_job_is_409_for_the_cli_too(svc):
     jobs.approve(job_id, "cli")
     with jobs.running(job_id, "extract"):
         assert svc.post(f"/v1/jobs/{job_id}/retry").status_code == 409
+
+
+def test_review_checks_the_state_itself(svc, monkeypatch):
+    """409 for a job that is not in_review or is busy comes from the service, not from review.apply."""
+    import kb_intake
+    calls = []
+    monkeypatch.setattr(kb_intake.review, "apply", lambda *a, **k: calls.append(a) or [])
+    job_id = labelled(svc)
+    assert svc.post(f"/v1/jobs/{job_id}/review", json={"by": "b", "ops": []}).status_code == 409   # planned
+    jobs = Jobs(svc.cfg.work_dir)
+    jobs.approve(job_id, "cli")
+    with jobs.running(job_id, "extract"):
+        assert svc.post(f"/v1/jobs/{job_id}/review", json={"by": "b", "ops": []}).status_code == 409
+    assert calls == []

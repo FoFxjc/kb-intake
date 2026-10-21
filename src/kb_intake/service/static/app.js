@@ -305,7 +305,7 @@ function eventInfo(e) {
 async function viewProgress(id) {
   const [d, { events }] = await Promise.all([api(`/v1/jobs/${id}`), api(`/v1/jobs/${id}/events`)]);
   const j = d.job;
-  const retry = !j.running_op && j.last_error && ["uploaded", "approved", "confirmed"].includes(j.status);
+  const retry = !j.running_op && !d.busy && ["uploaded", "approved", "confirmed"].includes(j.status);   // what /retry accepts
   const next = { planned: ["labels/1", "labels & stats, then approve the workflow"], in_review: ["review/1", "review"] }[j.status];
   $view.innerHTML = jobHeader(d, "progress") + `
     <div class="panel"><div class="row">

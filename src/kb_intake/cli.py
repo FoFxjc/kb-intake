@@ -153,8 +153,13 @@ def _extract(args) -> int:
 
 
 def _review(args) -> int:
+    from kb_intake.jobs import Busy, WrongState
     cfg, jobs = _jobs(args)
-    _get(jobs, args.job)
+    job = _get(jobs, args.job)
+    if job.running_op:
+        raise Busy(f"job {job.id} is running {job.running_op}")
+    if job.status != "in_review":
+        raise WrongState(f"job {job.id} is {job.status}; this needs in_review")
     _, raw = _read_yaml(args.apply, "ops")
     ops = raw.get("ops") if isinstance(raw, dict) else raw
     if not isinstance(ops, list) or not all(isinstance(o, dict) for o in ops):

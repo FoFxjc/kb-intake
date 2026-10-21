@@ -22,6 +22,8 @@
 Steps run in one background thread (one step at a time across all jobs; 409 otherwise). A job busy with a step,
 here or in a CLI process sharing the work directory, or in the wrong state for a request, is 409 too. The step
 modules write the progress events; the server writes none. `jobs.recover()` runs when the app is created.
+`recover()` clears running_op on every job without checking that its owner is alive, so do not start `serve`
+while a CLI step runs on the same work_dir: the server could run that step a second time.
 
 Directories on this machine are only reachable inside `scan_roots` (empty by default: uploads only). Paths are
 resolved (symlinks, ..) before the check.
@@ -38,6 +40,7 @@ import yaml
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
 from kb_intake import CONTRACT_VERSION, __version__, config, contract, declaration, detect, vocab
@@ -155,6 +158,29 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None) ->
         except declaration.DeclarationError as e:
             raise HTTPException(422, {"param": e.param, "message": str(e), "allowed": e.allowed}) from None
 
+    def start_label(src: Path, text, upload) -> dict:
+        """Copy an upload, check the file and the declaration, create the job and start label (blocking work: run
+        in the thread pool)."""
+        if upload is not None:
+            with src.open("wb") as out:
+                shutil.copyfileobj(upload, out)
+        need_pdf(src)
+        decl = declared(text, src)
+        result = {}
+
+        def prepare():
+            job, created = jobs.create(src, decl)
+            result.update(job_id=job.id, created=created, status=job.status)
+            if job.status != "uploaded" or job.running_op:
+                raise _NotStarted
+            return job.id, run_label(job.id)
+        try:
+            runner.start("label", prepare)
+            started = True
+        except _NotStarted:
+            started = False
+        return {**result, "started": started}
+
     @app.post("/v1/jobs", status_code=202)
     async def create_job(request: Request):
         tmp = None
@@ -164,7 +190,7 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None) ->
                 src = allowed(str(body.get("path") or ""))
                 if not src.is_file():
                     raise HTTPException(422, f"{body.get('path')} is not a file")
-                text = body.get("declaration")
+                text, upload = body.get("declaration"), None
             else:
                 form = await request.form()
                 up = form.get("file")
@@ -173,25 +199,8 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None) ->
                 tmp = cfg.work_dir / "uploads" / uuid.uuid4().hex
                 tmp.mkdir(parents=True)
                 src = tmp / (Path(up.filename or "").name or "upload.pdf")
-                with src.open("wb") as out:
-                    shutil.copyfileobj(up.file, out)
-                text = form.get("declaration")
-            need_pdf(src)
-            decl = declared(text, src)
-            result = {}
-
-            def prepare():
-                job, created = jobs.create(src, decl)
-                result.update(job_id=job.id, created=created, status=job.status)
-                if job.status != "uploaded" or job.running_op:
-                    raise _NotStarted
-                return job.id, run_label(job.id)
-            try:
-                runner.start("label", prepare)
-                started = True
-            except _NotStarted:
-                started = False
-            return {**result, "started": started}
+                text, upload = form.get("declaration"), up.file
+            return await run_in_threadpool(start_label, src, text, upload)
         finally:
             if tmp is not None:
                 shutil.rmtree(tmp, ignore_errors=True)
@@ -303,9 +312,10 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None) ->
         ops = body.get("ops")
         if not isinstance(ops, list) or not all(isinstance(o, dict) for o in ops):
             raise HTTPException(422, "ops must be a list of objects")
+        idle(get_job(job_id), "in_review")
         review = _step("review")
-        try:
-            applied = review.apply(jobs, job_id, ops, by, cfg)
+        try:                                    # apply re-extracts: keep it off the event loop
+            applied = await run_in_threadpool(review.apply, jobs, job_id, ops, by, cfg)
         except review.ReviewError as e:
             raise HTTPException(400, str(e)) from None
         return {"applied": applied, "status": jobs.get(job_id).status}
