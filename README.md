@@ -112,9 +112,10 @@ Optional `intake.yaml` (`--config` or `$INTAKE_CONFIG`); every key has a default
   pages.jsonl     page_no, page_label, kind (native|scanned|mixed|blank), text, size, image regions
   layout.jsonl    words per page: [x0, y0, x1, y1, text, source, conf]
   regions.jsonl   layout regions: bbox, type (layout-design §2), type_source (model|native|fused), reading order
-  tables.jsonl    tables: pages, bboxes, cells {r, c, rs, cs, text, value, nil, bbox, bbox_source, grid_bbox?,
-                  is_header},
+  tables.jsonl    the tables entered for use: pages, bboxes, cells {r, c, rs, cs, text, value, nil, bbox,
+                  bbox_source, grid_bbox?, is_header},
                   header_rows, markdown, extract_method (docling|find_tables|merged), role, checks, context_above
+  tables_secondary.jsonl  find_tables candidates kept for the cross-check (same fields; not for use)
   headings.jsonl  heading candidates: text, level, numbering, sources, furniture (running headers, "(continued)")
   docling.json    the lossless DoclingDocument
   gaps.jsonl      what could not be read or did not match (table_text_unaccounted, table_cross_mismatch,

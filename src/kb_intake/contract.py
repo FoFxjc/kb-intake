@@ -18,6 +18,8 @@ from kb_intake import CONTRACT_VERSION
 
 ROWS = {"pages.jsonl": "page", "layout.jsonl": "layout", "regions.jsonl": "region", "tables.jsonl": "table",
         "headings.jsonl": "heading", "gaps.jsonl": "gap"}
+# Added within v1: optional, so packages written before it stay valid; checked like the others when present.
+OPTIONAL_ROWS = {"tables_secondary.jsonl": "table"}
 NAME = re.compile(r"(?P<doc_id>[a-z0-9][a-z0-9._-]*)@(?P<sha>[0-9a-f]{12})")
 MAX_ERRORS = 50
 
@@ -108,7 +110,7 @@ def check(pkg: Path, expected_name: str | None = None, require_checks: bool = Fa
         add(["source file sha256 does not match manifest.source"])
 
     page_nos: dict[str, list[int]] = {}
-    for f, kind in ROWS.items():
+    for f, kind in {**ROWS, **{k: v for k, v in OPTIONAL_ROWS.items() if k in files}}.items():
         p = pkg / f
         if not p.is_file():
             continue

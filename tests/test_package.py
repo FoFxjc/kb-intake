@@ -119,6 +119,17 @@ def test_check_catches_tampering(pdf, tmp_path):
     assert any("pages.jsonl:4" in e for e in errors)
 
 
+def test_tables_secondary_is_optional_for_older_packages(pdf, tmp_path):
+    """tables_secondary.jsonl was added within v1: a package written before it (stage A) still passes."""
+    pkg = run(pdf, dict(DECL), tmp_path / "out")
+    m = json.loads((pkg / "manifest.json").read_text())
+    assert "tables_secondary.jsonl" in m["files"]
+    del m["files"]["tables_secondary.jsonl"]
+    (pkg / "tables_secondary.jsonl").unlink()
+    (pkg / "manifest.json").write_text(json.dumps(m))
+    assert contract.check_path(pkg)["ok"]
+
+
 def test_check_reads_a_zip(pdf, tmp_path):
     pkg = run(pdf, dict(DECL), tmp_path / "out")
     z = tmp_path / "pkg.zip"
