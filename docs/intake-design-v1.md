@@ -13,7 +13,7 @@ kb-intake 是一个**可插拔、可独立运行**的组件：**扫描原文件�
 - **独立运行，不需要 Docker**：`uv tool install` 后在 Mac / Linux 本机直接运行（命令行 + Web UI）；模型权重下载到本地目录，运行时离线。Docker 只是可选的打包方式
 - **测试样本**：OCBC 的 6 份年报用来验证功能和 UI，不是设计目标；代码里不出现任何样本专属逻辑
 
-- 输入：一个文件或一个目录（扫描目录下所有支持的文件，按 sha256 跳过已出包的）+ 声明（目录时用一份默认声明 + 可选的逐文件覆盖；声明里显式写 `doc_id`；intake 只校验格式并用它给包命名，kb 导入时按自己的类型配置复算，对不上就拒收）
+- 输入：一个文件或一个目录（扫描目录下所有支持的文件，按 sha256 跳过已出包的）+ 声明（目录时用一份默认声明 + 可选的逐文件覆盖；`doc_id` 只要求文件名安全 `^[a-z0-9][a-z0-9._-]*$`，目录扫描时缺省取文件名的 slug；`lang` 为 ISO 639-1 两字母代码，可省略，省略时用检测结果，声明与检测不符记 `decl_mismatch`；声明里显式写 `doc_id`；intake 只校验格式并用它给包命名，kb 导入时按自己的类型配置复算，对不上就拒收）
 - 输出：一个入件包（目录或 zip），带版本号的契约
 - 自带：Web UI、命令行、大模型 API 配置、本地状态
 - 不做：独立 worker 进程、任务队列、调用 kb、写 Doris、写 kb 的 Postgres
@@ -53,7 +53,7 @@ kb 只读入件包，不再碰原件，也不再 import 任何格式解析代码
 
 - 只在可能换引擎的两处留接口：`LayoutEngine`（版面区域 + 表格结构，现为 Docling；以后可换 PP-StructureV3）和 `OcrEngine`（流程 B，rapidocr / tesseract）。接口是普通的 Python Protocol，配置里按名字选，不做 entry point 注册和第三方插件机制
 - Docling 打出的标签按 layout-design §2 的类型表映射，Docling 自己的类别名不外露到契约里
-- 文档系列相关的规则（如 OCBC 的字体→层级映射）只放在 profile 配置里；没有 profile 时按字体 × 字号分布 + 编号自动推断
+- 文档系列相关的规则只放在 profile 配置里；安装包不带任何 profile，默认按字体 × 字号分布 + 编号自动推断。OCBC 英文版的 profile 放在 `tests/regression/profiles/`，只供回归测试用；中文版 profile 未经核对，删除
 - 新格式（docx、pptx、xlsx、html）以后可直接用 Docling 的对应后端；目前只支持 PDF，不实现
 
 ### 3.2 HTTP API
@@ -78,7 +78,7 @@ kb-intake serve --data ./intake-data --port 8700            # Web UI + HTTP API�
 kb-intake check <package>                                   # 按契约校验一个入件包
 ```
 
-安装：`uv tool install git+https://github.com/FoFxjc/kb-intake`（Python 3.12，Mac arm64 / Linux x86_64）。不需要 Docker、数据库或任何外部服务；本地状态是一个 SQLite 文件。
+安装：`uv tool install --constraints constraints.txt git+https://github.com/FoFxjc/kb-intake`（Linux 加 `--torch-backend cpu`；Python 3.12，Mac arm64 / Linux x86_64）。`constraints.txt` 由 `uv.lock` 生成并随仓库发布（CI 检查两者同步），锁住 torch、transformers、pillow、numpy、torchvision 等推理相关的传递依赖。启动时比对已安装版本与预期清单：不符时 `/v1/engines` 报未就绪、拒绝正式出包；调试运行可以强制继续，manifest 记录。不需要 Docker、数据库或任何外部服务；本地状态是一个 SQLite 文件。
 
 - Web 框架：FastAPI + 静态 HTML（无前端构建步骤）
 - 本地状态：SQLite 文件 `intake-data/intake.db`（登记、运行记录、证人缓存），不依赖外部数据库
@@ -155,7 +155,8 @@ UI 里有同样的配置页，可以测试连通性。
 - JSON Schema 放在 intake 仓库的 `contract/v1/`，kb 引用同一份 schema 做校验
 - 同一原件、同一配置重跑，包的内容逐字节一致（时间戳只放 manifest 的 run 字段）；靠中间产物缓存保证，见 9.3
 - 坐标统一为 TOPLEFT 原点、PDF 点单位。**精度不取整**：`layout.jsonl` 的词坐标、`cells[].bbox` 保持全精度（与 kb #30 的 `structure` 计算所需一致，也保证第 2 步与 kb 现有产物逐字节对得上）；只有给 UI 用的派生字段可以取整
-- 每个单元格都有 `bbox`（第 2 步用 find_tables 的 cell 框，3b 用 Docling 的单元格框）
+- 每个单元格都有 `bbox`，语义固定为**单元格内文字的外接框**（不是表格网格线围成的格子）；find_tables 的格子框另放 `grid_bbox`（可选）。两种抽取器出的表都按这个语义写，使用方不需要知道是谁抽的
+- 每张表带 `context_above`：表格框上方紧邻、同栏的单位行或说明行（如 "$ million"、"GROUP / BANK" 之外的单位提示），只依赖文件本身；Docling 的表格框常常不含这些行
 - `cells[].value`：数字解析结果（去千分位；括号为负；单元格只有 `-`/`–` 时 `value=null`、`nil=true`）；`text` 保留原文
 - 契约只增字段不改字段；改字段时升 v2
 
@@ -188,7 +189,7 @@ UI 里有同样的配置页，可以测试连通性。
 | 步 | 内容 | 验收 |
 |---|---|---|
 | C | 组件化：把 detect / native / 3b 代码整理成 §3.1 的流程；Docling 为必需依赖；`models download` 命令；`scan` 支持目录与按 sha256 跳过；OCBC 字体规则移进 profile；去掉所有 kb / OCBC 专属的东西（`KB_*` 环境变量改为 `INTAKE_*`） | 对一个目录 `scan` 出 6 个包，全部通过 `check`；再跑一次全部跳过；24 张基准表与确定性测试仍然通过；代码里搜不到 OCBC、kb 专属逻辑 |
-| D | 服务与 UI：§3.2 的 API + 4 个视图（上传或选目录、运行进度、逐页核对、入件包）+ 配置页 | 浏览器里提交一个 PDF 或一个目录 → 看到逐步进度 → 逐页核对看到 Docling 的区域框和类型、表格单元格、gaps → 下载的包通过契约校验。OCBC 年报和至少一份非 OCBC 的 PDF 各走一遍 |
+| D | 服务与 UI：§3.2 的 API + 4 个视图（上传或选目录、运行进度、逐页核对、入件包）+ 配置页 | 浏览器里提交一个 PDF 或一个目录 → 看到逐步进度 → 逐页核对看到 Docling 的区域框和类型、表格单元格、gaps → 下载的包通过契约校验。样本：OCBC 年报、Docling Technical Report（arXiv 2408.09869，CC BY 4.0，可入库做测试样本）、ResNet（arXiv 1512.03385，双栏，只在本地测试、不入库） |
 | E | 本机独立运行：在干净的 Mac 和 Linux 上，只按 README 用 `uv tool install` 安装，下载模型，跑 `scan` 和 `serve` | 没有 kb 仓库、没有 Docker；`models download` 之后断网可以运行；README 的步骤照做一次成功 |
 | E' | 可选：Dockerfile（带权重）| `docker run` 一条命令起 UI；不作为主要交付 |
 | F | 流程 B（扫描 PDF）：OCR 引擎 | 合成扫描集出包；数字串一致率达标；分歧都有证人记录或缺口 |
@@ -242,9 +243,10 @@ UI 里有同样的配置页，可以测试连通性。
 
 1. **依赖全部锁死**：docling、docling-core、docling-parse、docling-ibm-models 通过 uv.lock 锁定版本，记入 manifest。Docling 几乎每天发一个版本，任何一个没锁住，输出都可能悄悄变化。
 2. **模型权重固定并离线**：按 Hugging Face revision 下载后放进镜像，运行时通过 `artifacts_path` 只读本地文件，禁止运行中联网下载。
-3. **确定性靠缓存，不靠引擎**（与 ocr-design §1、layout-design §3.5 同一做法）：`docling.json` 等模型产物按“原件 sha256 + 工具版本 + 模型 revision + 参数”缓存；重跑命中缓存直接复用，保证同一原件的包逐字节一致。正式出包用 CPU、固定线程数；用 MPS/GPU 时 manifest 记录设备。
+3. **缓存键**：原件 sha256 + 推理相关依赖闭包的已安装版本清单（与 constraints.txt 同源）+ 模型 revision + 参数；不手工列包名
+3b. **确定性靠缓存，不靠引擎**（与 ocr-design §1、layout-design §3.5 同一做法）：`docling.json` 等模型产物按“原件 sha256 + 工具版本 + 模型 revision + 参数”缓存；重跑命中缓存直接复用，保证同一原件的包逐字节一致。正式出包用 CPU、固定线程数；用 MPS/GPU 时 manifest 记录设备。
 4. **升级必须过回归**：以 docling-eval 核对过的 24 张表和标题树作为基准快照，再加上 6 份报告的包差异审查；有差异就不升级。升级会让缓存键失效，必然重新推理，所以回归是升级的唯一入口。
-5. **超时与失败显式化**：设置 `document_timeout`；转换 status 不是 SUCCESS，或有页面失败时，失败页退回 find_tables，记 `extractor_degraded`，manifest 标明降级。不静默出包，也不让整份失败。
+5. **超时与失败显式化**：每个文件的 Docling 转换在子进程里跑，设硬性的墙钟超时，超时直接结束子进程，整份退回 find_tables 并记 `extractor_degraded`，目录扫描继续下一个（子进程只为隔离故障，不是常驻 worker）；Docling 内部另设 `document_timeout`。失败页从转换结果的逐页状态和 errors 里取（Docling 2.140 会把失败页放回页列表，不能只看 failed_pages）；只缓存完整成功的结果，缓存损坏按未命中处理；后处理出异常时该文件退回 find_tables 结果；转换 status 不是 SUCCESS，或有页面失败时，失败页退回 find_tables，记 `extractor_degraded`，manifest 标明降级。不静默出包，也不让整份失败。
 6. **失败隔离**：Docling 出错不影响文字层产物（`pages.jsonl`、`layout.jsonl`）。
 
 ### 9.4 3b 验收
@@ -254,7 +256,9 @@ UI 里有同样的配置页，可以测试连通性。
 | 基准快照 | docling-eval 的 24 张表：数字与快照一致；p106 以 `table_missed` + find_tables 结果出现；p216→217 合并为一张表 |
 | 文字守恒 | 6 份报告所有表：未解释的数字词全部进入 gaps；gaps 条数写进报告 |
 | 标题候选 | OCBC 2025 英文版：章节 / 附注 / 子附注三层与编号一致；页眉标题全部 `furniture=true` |
-| 确定性 | 同机连续出包两次逐字节一致（第二次命中缓存）；清缓存后 CPU 重跑，`docling.json` 哈希一致 |
+| 确定性 | 三方比较除 `manifest.run` 外逐字节一致：首次运行、命中缓存的重跑、清缓存后 CPU 重跑（`cached`、耗时等运行信息全部放进 `run`） |
+| 完全降级 | 关闭 Docling 跑 6 份年报，包内容与阶段 A 的包一致；只记一条文档级 `extractor_degraded`，不逐表记 |
+| 失败兜底 | 用假转换结果（含失败页、超时、后处理异常、缓存损坏）的测试覆盖每条兜底路径 |
 | 下游 | kb 用新包重建后（`structure` 走同一适配层），31 题评测不低于基线；观测与事实条数变化逐条列出原因 |
 | 耗时 | 记录每份报告的耗时（CPU 与 MPS 各一次） |
 
@@ -292,3 +296,10 @@ UI 里有同样的配置页，可以测试连通性。
   - 可插拔指整个组件可以接入或替换；删掉通用插件框架，只在版面/表格引擎和 OCR 引擎留接口
   - 默认本机安装运行，不需要 Docker；Docker 降为可选
   - 输入支持目录扫描，按 sha256 跳过已出包的文件
+- 2026-10-21 C 步开工前决定（Peter）：
+  - profile：安装包不带 profile，默认自动推断；OCBC 英文版 profile 移到 `tests/regression/profiles/`；中文版删除
+  - 声明：`doc_id` 只要求文件名安全，目录扫描缺省取文件名 slug；`lang` 为 ISO 639-1，可省略。只放宽、不收紧，v1 内兼容
+  - 依赖：发布由 uv.lock 生成的 constraints.txt，启动时校验已安装版本；缓存键用依赖闭包版本清单
+  - 契约：`cells[].bbox` 固定为文字外接框，新增可选 `grid_bbox` 与表级 `context_above`
+  - 稳定性：单文件子进程硬超时；失败页取逐页状态；只缓存完整成功；缓存损坏按未命中；后处理异常退回 find_tables
+  - 测试样本：Docling Technical Report（入库）+ ResNet（本地）
