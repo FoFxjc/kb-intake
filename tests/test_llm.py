@@ -21,14 +21,25 @@ def enabled_cfg(tmp_path, **features) -> config.Config:
 
 
 class Chat:
-    """Records calls; answers from `answers` (a list, one per call; an exception instance is raised)."""
+    """Records calls and answers by the kind of request (calls run in parallel, so not by call order): `answers`
+    maps summary / describe / chart_table to a text or an exception instance to raise; positional answers are
+    taken one per call, for a single call."""
 
-    def __init__(self, *answers):
-        self.answers, self.calls = list(answers), []
+    def __init__(self, *answers, **by_kind):
+        self.answers, self.by_kind, self.calls = list(answers), by_kind, []
+
+    @staticmethod
+    def kind(content) -> str:
+        text = content[-1]["text"]
+        return "chart_table" if "JSON object" in text else "describe" if "PDF document" in text else "summary"
 
     def __call__(self, base_url, model, key, content, max_tokens=2048, timeout=120.0):
         self.calls.append({"base_url": base_url, "model": model, "key": key, "content": content})
-        a = self.answers.pop(0) if self.answers else "A bar chart of revenue by year."
+        k = self.kind(content)
+        if k in self.by_kind:
+            a = self.by_kind[k]
+        else:
+            a = self.answers.pop(0) if self.answers else "A bar chart of revenue by year."
         if isinstance(a, Exception):
             raise a
         return Completion(text=a, usage={"total_tokens": 10}, model=model)
@@ -90,15 +101,16 @@ def test_chart_table_rejects_bad_shape(answer):
 
 
 def test_describe_and_chart_table_rows(tmp_path, page):
-    chat = Chat("A bar chart of revenue.", '{"title": null, "columns": ["Year", "Value"], "rows": [["2025", 3]], '
-                                           '"units": null, "notes": "estimated"}')
+    chat = Chat(describe="A bar chart of revenue.",
+                chart_table='{"title": null, "columns": ["Year", "Value"], "rows": [["2025", 3]], "units": null, '
+                            '"notes": "estimated"}')
     r = llm.Runner(enabled_cfg(tmp_path, chart_table=True), chat=chat, cache=DictCache(), env=ENV)
     rows = r.run_many(r.describe_inputs(REGION, page, wf=None))
     assert [x["kind"] for x in rows] == ["describe", "chart_table"]
     for x in rows:
         assert contract.schema_errors("llm", x, "row") == []
     assert rows[0]["output"] == {"text": "A bar chart of revenue."} and rows[1]["output"]["table"]["rows"] == [["2025", 3]]
-    first = chat.calls[0]
+    first = next(c for c in chat.calls if Chat.kind(c["content"]) == "describe")
     assert first["key"] == KEY and first["model"] == "MiniMax-M3"
     assert first["content"][0]["image_url"]["url"].startswith("data:image/png;base64,")
     assert "Revenue 2025" in first["content"][1]["text"]
@@ -134,8 +146,9 @@ def test_cache_hit_makes_no_call(tmp_path, page):
 
 def test_failures_become_gaps_and_are_not_cached(tmp_path, page):
     cache = DictCache()
-    r = llm.Runner(enabled_cfg(tmp_path, chart_table=True), chat=Chat(LlmError("timeout", "the call timed out"),
-                                                                       "no table here"), cache=cache, env=ENV)
+    r = llm.Runner(enabled_cfg(tmp_path, chart_table=True),
+                   chat=Chat(describe=LlmError("timeout", "the call timed out"), chart_table="no table here"),
+                   cache=cache, env=ENV)
     gaps = r.run_many(r.describe_inputs(REGION, page, None))
     assert [(g["code"], g["kind"], g["reason"]) for g in gaps] == \
         [("llm_failed", "describe", "timeout"), ("llm_failed", "chart_table", "invalid_table")]
@@ -188,3 +201,16 @@ def test_a_failed_summary_gap_validates(tmp_path):
     gap = r.summary(job, {"doc_id": "x"})
     assert gap["code"] == "llm_failed" and "region_id" not in gap
     assert contract.schema_errors("gap", gap, "gap") == []
+
+
+def test_summary_input_covers_every_page_of_a_long_document(tmp_path):
+    """OCBC keyed run 1: 300 characters per page hit the 24,000 cap at page ~80 of 276; every page must appear."""
+    job = tmp_path / "job"
+    (job / "label").mkdir(parents=True)
+    words = [[0, 0, 1, 1, "word%03d" % i] for i in range(200)]
+    (job / "label" / "layout.jsonl").write_text(
+        "".join(__import__("json").dumps({"page_no": n, "words": words}) + "\n" for n in range(1, 277)))
+    text = llm.summary_input(job, {"doc_id": "x"})
+    assert len(text) <= llm.SUMMARY_MAX_CHARS
+    assert all(f"\np{n}: " in text for n in range(1, 277))
+    assert "\np1: word000 word001" in text

@@ -29,7 +29,7 @@ _sleep = time.sleep  # tests replace this so backoff does not wait
 
 class LlmError(Exception):
     """A failed call; `.code` is one of timeout, network, http_<status>, quota, rate_limit, refused, auth,
-    bad_response, empty."""
+    bad_response, empty, truncated (the answer was cut at max_completion_tokens)."""
 
     def __init__(self, code: str, message: str):
         super().__init__(message)
@@ -111,6 +111,8 @@ def _parse(raw: bytes, model: str) -> "Completion | tuple[LlmError, bool]":
     content = message.get("content")
     if content is not None and not isinstance(content, str):
         return LlmError("bad_response", "the answer content is not a string"), False
+    if choices[0].get("finish_reason") == "length":       # cut by max_completion_tokens: incomplete, not an answer
+        return LlmError("truncated", "the answer was cut at the token limit"), False
     text = _THINK.sub("", content or "").strip()
     if not text:
         return LlmError("empty", "the answer is empty"), False

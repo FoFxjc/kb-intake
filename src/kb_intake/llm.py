@@ -44,8 +44,10 @@ PROMPTS = {
         'per column; numbers as numbers, unknown values as null), "units" (string or null), "notes" (string or '
         "null: how certain the reading is, and anything estimated). Use the labels as written in the chart.")),
 }
-MAX_TOKENS = {"summary": 1024, "describe": 1024, "chart_table": 4096}
-SUMMARY_PAGE_CHARS = 300
+# completion budgets include the model's reasoning (MiniMax-M3 reasons before it answers); only use is billed
+MAX_TOKENS = {"summary": 4096, "describe": 4096, "chart_table": 8192}
+SUMMARY_PAGE_CHARS = 300                     # at most, per page; less on long documents so every page fits
+SUMMARY_MIN_PAGE_CHARS = 60
 SUMMARY_MAX_CHARS = 24_000
 CROP_DPI = 144
 CROP_MAX_SIDE = 2000
@@ -69,14 +71,17 @@ def crop_png(page: pymupdf.Page, bbox) -> bytes:
 
 
 def summary_input(job_dir: Path, decl: dict) -> str:
-    """Declared title information, then `p{n}: ` + the first SUMMARY_PAGE_CHARS characters of each page's text
-    layer, cut at SUMMARY_MAX_CHARS."""
+    """Declared title information, then `p{n}: ` + the start of each page's text layer: an equal share of
+    SUMMARY_MAX_CHARS per page with text, between SUMMARY_MIN_PAGE_CHARS and SUMMARY_PAGE_CHARS characters, so the
+    whole document is seen (OCBC, 276 pages: 86 characters each). The result is cut at SUMMARY_MAX_CHARS."""
     head = [f"{k}: {decl[k]}" for k in ("doc_id", "issuer_id", "doc_type", "period_end", "lang") if decl.get(k)]
-    lines = ["\n".join(head), ""]
-    for rec in read_jsonl(job_dir / "label" / "layout.jsonl"):
-        words = " ".join(w[4] for w in rec["words"])
-        if words:
-            lines.append(f"p{rec['page_no']}: {words[:SUMMARY_PAGE_CHARS]}")
+    pages = [(rec["page_no"], " ".join(w[4] for w in rec["words"]))
+             for rec in read_jsonl(job_dir / "label" / "layout.jsonl")]
+    pages = [(n, words) for n, words in pages if words]
+    budget = SUMMARY_MAX_CHARS - len("\n".join(head)) - 2
+    share = (budget // len(pages)) - len("pNNN: \n") if pages else 0
+    share = max(SUMMARY_MIN_PAGE_CHARS, min(SUMMARY_PAGE_CHARS, share))
+    lines = ["\n".join(head), ""] + [f"p{n}: {words[:share]}" for n, words in pages]
     return "\n".join(lines)[:SUMMARY_MAX_CHARS]
 
 

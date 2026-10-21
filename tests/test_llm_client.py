@@ -261,3 +261,13 @@ def test_opener_is_injectable():
         chat("http://example.invalid/v1", "m", KEY, CONTENT, timeout=7.0, retries=1, opener=opener)
     assert e.value.code == "timeout"
     assert calls == [("http://example.invalid/v1/chat/completions", 7.0)] * 2
+
+
+def test_an_answer_cut_at_the_token_limit_is_truncated():
+    """OCBC keyed run 1: a large diagram came back empty; an answer cut by max_completion_tokens must not pass as
+    complete (finish_reason "length"), and is not retried."""
+    cut = (200, {"choices": [{"message": {"content": "A flow chart of the"}, "finish_reason": "length"}]})
+    with Server([cut]) as s:
+        with pytest.raises(LlmError) as e:
+            chat(s.url, "M", KEY, CONTENT)
+    assert e.value.code == "truncated" and len(s.requests) == 1
