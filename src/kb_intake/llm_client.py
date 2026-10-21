@@ -1,8 +1,9 @@
 """One OpenAI-compatible chat completion over urllib (intake-ui-llm-design-v1 §4). Standard library only.
 
 `chat` POSTs `{base_url}/chat/completions` and returns the answer text with every `<think>...</think>` block
-removed. Timeouts, connection errors, HTTP 429/500/502/503/504 and MiniMax `base_resp` 1001/1002 are retried
-(`retries` extra attempts, waiting 1 s then 4 s); every other failure is raised at once. Every failure is an
+removed. A redirect is refused, never followed (the key would go with it). Timeouts, connection errors, HTTP
+429/500/502/503/504 and MiniMax `base_resp` 1001/1002 are retried (`retries` extra attempts, waiting 1 s then 4 s);
+every other failure is raised at once. Every failure is an
 `LlmError` whose `.code` names the kind; its message is built here from the status alone, never from the request,
 its headers or the response body, and it is raised outside any `except` block, so it has no __cause__ or
 __context__ through which the API key could leak.
@@ -28,6 +29,17 @@ _THINK = re.compile(r"<think>.*?</think>", re.DOTALL)
 _sleep = time.sleep  # tests replace this so backoff does not wait
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """urllib would follow a redirect with the same headers, sending the key to the host it names: refuse it (the
+    3xx comes back as an HTTPError, not retried)."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 class LlmError(Exception):
     """A failed call; `.code` is one of timeout, network, http_<status>, quota, rate_limit, refused, auth,
     bad_response, empty, truncated (the answer was cut at max_completion_tokens)."""
@@ -50,7 +62,7 @@ class Completion:
 def chat(base_url: str, model: str, key: str, content: list[dict], *, max_tokens: int = 2048,
          timeout: float = 120.0, retries: int = 2, opener=None) -> Completion:
     """One user message with `content` (OpenAI content parts); raises LlmError. `opener` is for tests."""
-    opener = opener or urllib.request.urlopen
+    opener = opener or _OPENER.open
     url = f"{base_url.rstrip('/')}/chat/completions"
     body = json.dumps({"model": model, "messages": [{"role": "user", "content": content}],
                        "max_completion_tokens": max_tokens}).encode("utf-8")

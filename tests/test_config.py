@@ -60,6 +60,29 @@ def test_llm_config_rejects_unknown_or_bad_values(tmp_path):
             config.load(p, env={})
 
 
+def test_llm_remote_false_needs_a_loopback_endpoint(tmp_path):
+    """`remote` is what the UI and manifest show; it cannot claim local for an endpoint on another host."""
+    p = tmp_path / "c.yaml"
+    for text in ("llm: {enabled: true, remote: false}\n",
+                 "llm: {enabled: true, remote: false, base_url: 'https://llm.example.com/v1'}\n"):
+        p.write_text(text)
+        with pytest.raises(config.ConfigError, match="remote"):
+            config.load(p, env={})
+    for host in ("127.0.0.1:8000", "localhost:8000", "[::1]:8000"):
+        p.write_text(f"llm: {{enabled: true, remote: false, base_url: 'http://{host}/v1'}}\n")
+        assert config.load(p, env={}).llm.remote is False
+
+
+def test_llm_endpoint_on_another_host_needs_https(tmp_path):
+    p = tmp_path / "c.yaml"
+    for url in ("http://llm.example.com/v1", "ftp://llm.example.com/v1", "api.minimax.io/v1"):
+        p.write_text(f"llm: {{base_url: '{url}'}}\n")
+        with pytest.raises(config.ConfigError, match="base_url"):
+            config.load(p, env={})
+    p.write_text("llm: {base_url: 'http://127.0.0.1:9/v1'}\n")
+    assert config.load(p, env={}).llm.base_url == "http://127.0.0.1:9/v1"
+
+
 # ---------- .env (the key's file, gitignored) ----------
 
 def test_dotenv_sets_only_missing_intake_variables(tmp_path):

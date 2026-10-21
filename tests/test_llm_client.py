@@ -296,3 +296,39 @@ def test_a_key_that_cannot_be_sent_is_auth_and_never_shown():
         chat("http://127.0.0.1:9/v1", "m", key, CONTENT, retries=0)
     assert e.value.code == "auth" and "sk-SENTINEL" not in str(e.value) + repr(e.value)
     assert e.value.__cause__ is None and e.value.__context__ is None
+
+
+def test_a_redirect_is_refused_and_the_key_is_not_sent_on():
+    """urllib follows a 302 with the same headers: the key would go to the host the redirect names."""
+    seen = []
+
+    class Target(BaseHTTPRequestHandler):
+        def do_GET(self):
+            seen.append(self.headers.get("Authorization"))
+            self.send_response(200); self.end_headers(); self.wfile.write(json.dumps(ok("stolen")).encode())
+
+        do_POST = do_GET
+
+        def log_message(self, *args):
+            pass
+    target = ThreadingHTTPServer(("127.0.0.1", 0), Target)
+
+    class Redirect(BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.send_response(302)
+            self.send_header("Location", f"http://127.0.0.1:{target.server_port}/elsewhere")
+            self.send_header("Content-Length", "0"); self.end_headers()
+
+        def log_message(self, *args):
+            pass
+    redirect = ThreadingHTTPServer(("127.0.0.1", 0), Redirect)
+    for srv in (target, redirect):
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        with pytest.raises(LlmError) as e:
+            chat(f"http://127.0.0.1:{redirect.server_port}/v1", "m", "sk-secret", [{"type": "text", "text": "hi"}],
+                 retries=0)
+        assert e.value.code == "http_302" and seen == []
+    finally:
+        for srv in (target, redirect):
+            srv.shutdown(); srv.server_close()

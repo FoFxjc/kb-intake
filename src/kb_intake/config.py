@@ -23,12 +23,13 @@ a setting that is not implemented can never look as if it took effect.
       base_url: https://api.minimax.io/v1
       model: MiniMax-M3
       api_key_env: INTAKE_LLM_API_KEY   # the key itself is never read from a file
-      remote: true                      # region images and text leave this machine (UI and manifest say so)
+      remote: true                      # data leaves this machine (UI and manifest say so); false needs a localhost base_url
       features: {summary: true, describe: true, chart_table: false}
 """
 
 import os
 import sys
+import urllib.parse
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -130,6 +131,13 @@ def _llm(raw: dict) -> LlmConfig:
         raise ConfigError(f"unknown llm feature(s) {bad} (known: {list(LLM_FEATURES)})")
     if not all(isinstance(v, bool) for v in features.values()):
         raise ConfigError("llm.features values must be true or false")
+    url = urllib.parse.urlsplit(raw.get("base_url", d.base_url))
+    loopback = url.hostname in ("localhost", "127.0.0.1", "::1")
+    if url.scheme not in ("https", "http") or not url.hostname or (url.scheme == "http" and not loopback):
+        raise ConfigError("llm.base_url must be an https URL (http only for localhost)")
+    if raw.get("remote") is False and not loopback:
+        raise ConfigError(f"llm.remote is false, but llm.base_url is on another host ({url.hostname}); "
+                          "only a localhost endpoint is local")
     return LlmConfig(enabled=raw.get("enabled", d.enabled), provider=raw.get("provider", d.provider),
                      base_url=raw.get("base_url", d.base_url), model=raw.get("model", d.model),
                      api_key_env=raw.get("api_key_env", d.api_key_env), remote=raw.get("remote", d.remote),
