@@ -10,7 +10,8 @@
   job when `signature(job.dir)` (sizes and mtimes of the work files it reads) changed, so a review applied from the
   CLI shows up on the next search.
 - Query text: each whitespace-separated word is a quoted prefix term (`"word"*`), all of them required; FTS5 syntax
-  in the input is matched as text. A word without letters or digits matches nothing.
+  in the input is matched as text. Words without letters or digits are left out; a query of only such words matches
+  nothing.
 - Results: in reading order, paged with a cursor (the reading_order of the last item). Facets count each dimension
   with every filter except its own.
 """
@@ -71,6 +72,7 @@ class Rows:
     stage: str                       # "label" | "current"
     regions: list[dict]
     tables: list[dict]
+    signature: str = ""              # of the work files the rows were read from (the index is keyed by it)
 
 
 # ---------- rows ----------
@@ -111,6 +113,7 @@ def load_rows(jobs: Jobs, job_id: str) -> Rows:
         if key in _ROWS:
             return _ROWS[key]
     rows = _load_rows(job)
+    rows.signature = key[2]
     with _ROWS_LOCK:
         for old in [k for k in _ROWS if k[0] == key[0]]:
             del _ROWS[old]
@@ -221,12 +224,12 @@ def _documents(rows: Rows):
             yield (r["region_id"], "region", json.dumps({"bbox": r["bbox"]}), r["text"])
 
 
-WORD = re.compile(r"\w", re.UNICODE)
+WORD = re.compile(r"[^\W_]")              # a letter or digit: what the unicode61 tokenizer keeps
 
 
 def fts_query(q: str) -> str | None:
-    """An FTS5 expression that matches every word of `q` as a prefix; None when no word has a letter or digit
-    (nothing can match then)."""
+    """An FTS5 expression that matches every word of `q` as a prefix. Words without a letter or digit are left out
+    (the tokenizer would drop them); None when no word is left (nothing matches then)."""
     words = [w for w in q.split() if WORD.search(w)]
     if not words:
         return None
@@ -267,7 +270,7 @@ def _prepare(jobs: Jobs, job_id: str, f: Filters) -> tuple[Rows, dict | None]:
     if not f.q.strip():
         return rows, None
     index = Index(jobs.work_dir / "state.db")
-    index.ensure(job_id, rows, signature(jobs.get(job_id).dir))
+    index.ensure(job_id, rows, rows.signature)
     return rows, index.match(job_id, f.q)
 
 

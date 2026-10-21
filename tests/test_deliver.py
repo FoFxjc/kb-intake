@@ -302,3 +302,16 @@ def test_check_review_ignores_ack_for_the_last_op_and_checks_its_gap():
     assert deliver.check_review(ops[1:], regions, gaps) == []
     assert deliver.check_review(ops[1:], regions, [{**gaps[0], "resolved": None}]) == \
         ["ack 1 of gap low_confidence on a: the gap is not resolved"]
+
+
+def test_ack_of_a_gap_that_a_later_reclassify_removed_does_not_block_delivery(tmp_path):
+    """Independent review of stage S: the extract gap an ack answered disappears when its region is reclassified;
+    delivery must not refuse the package for it."""
+    f = in_review(tmp_path, p106_split=True)
+    p = f.job.dir / "extract" / "gaps.jsonl"
+    write_jsonl(p, read_jsonl(p) + [{"code": "no_text_layer", "page_no": 1, "region_id": rid(1, 2),
+                                     "detail": "no text-layer words in the region"}])
+    review.apply(f.jobs, f.job.id, [{"action": "ack", "item_id": f"gap:no_text_layer:1:{rid(1, 2)}"}], "peter", f.cfg)
+    review.apply(f.jobs, f.job.id, [{"action": "reclassify", "region_id": rid(1, 2), "to": "picture"}], "peter", f.cfg)
+    pkg = deliver.confirm(f.jobs, f.job.id, "anna", f.cfg)
+    assert contract.check(pkg)["ok"]

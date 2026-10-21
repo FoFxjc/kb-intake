@@ -309,14 +309,13 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
     def job_gaps(job_id: str):
         job = get_job(job_id)
         res = job.dir / "review" / "resolved.jsonl"
-        resolved = {(x["code"], x["page_no"], x["region_id"]): x["resolved"] for x in read_jsonl(res)} \
-            if res.is_file() else {}
+        lookup = _step("review").resolution_of(read_jsonl(res) if res.is_file() else [])
         out = []
         for stage, rel in GAP_FILES:
             p = job.dir / rel
             if p.is_file():
                 for g in read_jsonl(p):
-                    r = resolved.get((g["code"], g["page_no"], g.get("region_id")))
+                    r = lookup(g)
                     out.append({**g, "stage": stage, **({"resolved": r} if r else {})})
         return {"gaps": out}
 

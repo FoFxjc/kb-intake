@@ -72,15 +72,25 @@ def current(job_dir: Path) -> dict:
 
 
 def _gap_id(g: dict) -> tuple:
-    return (g["code"], g["page_no"], g.get("region_id"))
+    """What tells one gap from another: two gaps of the same code on the same region (a picture's layout and
+    classifier scores) or two region-less gaps on the same page differ in table or detail."""
+    return (g["code"], g["page_no"], g.get("region_id"), g.get("table_id"), g.get("detail"))
+
+
+def resolution_of(resolved_rows: list[dict]):
+    """A lookup gap -> its `resolved` value (or None) over review/resolved.jsonl rows. Rows written before the gap
+    key held table and detail match on (code, page, region)."""
+    exact = {_gap_id(x): x["resolved"] for x in resolved_rows if "detail" in x}
+    legacy = {(x["code"], x["page_no"], x["region_id"]): x["resolved"] for x in resolved_rows if "detail" not in x}
+    return lambda g: exact.get(_gap_id(g)) or legacy.get((g["code"], g["page_no"], g.get("region_id")))
 
 
 def all_gaps(job_dir: Path, state: dict | None = None) -> list[dict]:
     """Label + extract + review gaps, with `resolved` set on those review dealt with, in delivery order."""
     state = state or current(job_dir)
-    resolved = {(x["code"], x["page_no"], x["region_id"]): x["resolved"] for x in state["resolved"]}
+    lookup = resolution_of(state["resolved"])
     gaps = read_jsonl(job_dir / "label" / "gaps.jsonl") + state["extract_gaps"] + state["review_gaps"]
-    out = [{**g, "resolved": resolved[_gap_id(g)]} if _gap_id(g) in resolved else g for g in gaps]
+    out = [{**g, "resolved": r} if (r := lookup(g)) else g for g in gaps]
     return sorted(out, key=extract.gap_key)
 
 
@@ -187,8 +197,9 @@ def apply(jobs: Jobs, job_id: str, ops: list[dict], by: str, cfg: Config) -> lis
                 if op["action"] == "ack":
                     item = items[op["item_id"]]
                     if item["kind"] == "gap":
-                        resolved.append({"code": item["code"], "page_no": item["page_no"],
-                                         "region_id": item["region_id"], "resolved": {"action": "ack", "review_seq": seq}})
+                        resolved.append(_resolution({"code": item["code"], "page_no": item["page_no"],
+                                                     "region_id": item["region_id"], "table_id": item["table_id"],
+                                                     "detail": item["detail"]}, "ack", seq))
                     records.append({"action": "ack", "region_id": item["region_id"], "from": None, "to": None, "by": by,
                                     "at": now(), "note": op.get("note"), "target": item["target"],
                                     "verdict": op.get("verdict", "ok")})
@@ -293,8 +304,8 @@ def with_absorbed_into(rows: list[dict], absorbed: dict[str, str]) -> list[dict]
 
 
 def _resolution(g: dict, action: str, seq: int, absorbed: bool = False) -> dict:
-    out = {"code": g["code"], "page_no": g["page_no"], "region_id": g.get("region_id"),
-           "resolved": {"action": action, "review_seq": seq}}
+    out = {"code": g["code"], "page_no": g["page_no"], "region_id": g.get("region_id"), "table_id": g.get("table_id"),
+           "detail": g.get("detail"), "resolved": {"action": action, "review_seq": seq}}
     return {**out, "absorbed": True} if absorbed else out
 
 
@@ -302,8 +313,9 @@ def _dedup(resolved: list[dict]) -> list[dict]:
     """One resolution per gap, the latest op winning, in a stable order."""
     last = {}
     for x in resolved:
-        last[(x["code"], x["page_no"], x["region_id"])] = x
-    return sorted(last.values(), key=lambda x: (x["page_no"] or 0, x["code"], x["region_id"] or ""))
+        last[(x["code"], x["page_no"], x["region_id"], x.get("table_id"), x.get("detail"))] = x
+    return sorted(last.values(), key=lambda x: (x["page_no"] or 0, x["code"], x["region_id"] or "",
+                                                x.get("table_id") or "", x.get("detail") or ""))
 
 
 # ---------- the page view (UI) ----------

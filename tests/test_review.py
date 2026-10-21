@@ -384,3 +384,26 @@ def test_ack_of_a_resolved_item_is_refused(tmp_path):
     with pytest.raises(review.ReviewError, match="resolved"):
         review.apply(f.jobs, f.job.id, [{"action": "ack", "item_id": SUSPECTED}], "peter", f.cfg)
     assert len(f.jobs.ops(f.job.id)) == 1
+
+
+def add_extract_gaps(f, *gaps):
+    p = f.job.dir / "extract" / "gaps.jsonl"
+    write_jsonl(p, read_jsonl(p) + list(gaps))
+
+
+def test_ack_resolves_only_the_gap_it_names(tmp_path):
+    """Independent review of stage S: the resolution key was (code, page, region) and resolved look-alike gaps."""
+    from kb_intake import queue
+    f = in_review(tmp_path, p106_split=True)
+    add_extract_gaps(f, {"code": "table_unmatched", "page_no": 1, "side": "extract", "bbox": [0, 0, 10, 10],
+                         "detail": "A"},
+                     {"code": "table_unmatched", "page_no": 1, "side": "extract", "bbox": [50, 50, 90, 90],
+                      "detail": "B"},
+                     {"code": "low_confidence", "page_no": 1, "region_id": rid(1, 2), "detail": "layout 0.4"},
+                     {"code": "low_confidence", "page_no": 1, "region_id": rid(1, 2), "detail": "classifier 0.3"})
+    items = [i for i in queue.items(f.jobs, f.job.id) if i["code"] in ("table_unmatched", "low_confidence")]
+    assert len(items) == 4
+    review.apply(f.jobs, f.job.id, [{"action": "ack", "item_id": items[0]["item_id"]},
+                                    {"action": "ack", "item_id": items[2]["item_id"]}], "peter", f.cfg)
+    after = {i["item_id"]: i["status"] for i in queue.items(f.jobs, f.job.id)}
+    assert [after[i["item_id"]] for i in items] == ["resolved", "open", "resolved", "open"]

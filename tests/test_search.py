@@ -97,9 +97,14 @@ def test_filters_combine(flow):
 
 
 def test_search_treats_query_syntax_as_text(flow):
-    for q in ['"', '*', '-x', '(a', 'AND', 'NEAR(', "'", '数字', 'a"b', '^', ':', 'OR -']:
-        out = find(flow, q=q)
-        assert isinstance(out["items"], list), q
+    loans = [rid(1, 3)]
+    for q in ['"loans', 'loans*', '-loans', '(loans', 'loans)', '^loans', 'loans:', "'loans'"]:
+        assert ids(find(flow, q=q)) == loans, q                 # operators are part of the word, not syntax
+    assert ids(find(flow, q="loans AND")) == []                 # AND is a word every hit must contain
+    assert ids(find(flow, q="loans OR overdue")) == []
+    for q in ['"', '*', '-', '(', "'", '__', '\u6570\u5b57']:
+        assert find(flow, q=q)["items"] == [], q                # nothing searchable, or not in the document
+    assert search.fts_query("__ loans") == '"loans"*'           # a word the tokenizer drops is not searched
 
 
 def test_index_follows_work_files_changed_elsewhere(flow):
