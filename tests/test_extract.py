@@ -609,3 +609,29 @@ def test_a_word_in_two_overlapping_cell_boxes_is_read_once():
         {"r": 1, "c": 1, "rs": 1, "cs": 1, "bbox": [270, 170, 290, 180], "is_header": False}]}
     table, _ = extract.table_from_cells(region(1, 3, grid["bbox"], "table", 2, "table"), grid, words, "docling")
     assert [c["text"] for c in table["cells"]] == ["Total", "Profit for the year", "7,422"]
+
+
+def test_a_line_end_outside_its_label_cell_stays_with_its_line():
+    """OCBC p195: '(Note 39)' ends just past the label cell's box; '39)' must not join the value cell above it."""
+    w = lambda x0, y0, x1, text, line, n: [x0, y0, x1, y0 + 9, text, 0, line, n]  # noqa: E731
+    words = [w(53, 287, 110, "Loss", 0, 0), w(285, 287, 300, "(1)", 1, 0),
+             w(51, 298, 280, "Amortised cost (Note", 2, 0), w(290, 298, 304, "39)", 2, 1)]
+    grid = {"bbox": [50, 280, 310, 310], "n_rows": 2, "n_cols": 2, "cells": [
+        {"r": 0, "c": 0, "rs": 1, "cs": 1, "bbox": [53, 287, 115, 296], "is_header": False},
+        {"r": 0, "c": 1, "rs": 1, "cs": 1, "bbox": [284, 285, 304, 296], "is_header": False},
+        {"r": 1, "c": 0, "rs": 1, "cs": 1, "bbox": [51, 298, 288, 307], "is_header": False}]}
+    table, _ = extract.table_from_cells(region(1, 3, grid["bbox"], "table", 2, "table"), grid, words, "docling")
+    assert [c["text"] for c in table["cells"]] == ["Loss", "(1)", "Amortised cost (Note 39)"]
+
+
+
+def test_a_line_start_outside_a_cell_goes_with_the_word_after_it():
+    """OCBC p196: '(Note' lies in no cell box, between '(1)' (label cell) and '39)' (note cell); it is read with
+    '39)', the rest of its line."""
+    w = lambda x0, y0, x1, text, line, n: [x0, y0, x1, y0 + 9, text, 0, line, n]  # noqa: E731
+    words = [w(51, 298, 240, "FVOCI (1)", 0, 0), w(246, 298, 268, "(Note", 0, 1), w(271, 298, 285, "39)", 0, 2)]
+    grid = {"bbox": [50, 290, 310, 310], "n_rows": 1, "n_cols": 2, "cells": [
+        {"r": 0, "c": 0, "rs": 1, "cs": 1, "bbox": [51, 296, 242, 308], "is_header": False},
+        {"r": 0, "c": 1, "rs": 1, "cs": 1, "bbox": [268, 296, 300, 308], "is_header": False}]}
+    table, _ = extract.table_from_cells(region(1, 3, grid["bbox"], "table", 2, "table"), grid, words, "docling")
+    assert [c["text"] for c in table["cells"]] == ["FVOCI (1)", "(Note 39)"]

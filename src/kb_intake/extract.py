@@ -230,11 +230,18 @@ def table_from_cells(region: dict, grid: dict, words: list[list], method: str) -
         if id(w) in homes:
             own[homes[id(w)]].append(w)
     taken = {id(w) for ws in own.values() for w in ws}
-    for w in textlayer.words_in(words, grid["bbox"]):      # a wrapped line just outside its cell's box
-        if id(w) not in taken:
+    cell_of = {(w[5], w[6], w[7]): i for i, ws in own.items() for w in ws}
+    by_key = {(w[5], w[6], w[7]): w for w in in_table}
+    for w in in_table:
+        if id(w) in taken:
+            continue
+        # the end of a line that sticks out of its cell's box stays with the word next to it on its line
+        # ("(Note" / "39)"); otherwise a wrapped line just outside its cell's box joins the adjacent cell of its column
+        i = _neighbour_cell(w, by_key, cell_of)
+        if i is None:
             i = _adjacent_cell(w, raw)
-            if i is not None:
-                own[i].append(w)
+        if i is not None:
+            own[i].append(w)
     cells, assigned = [], set()
     for i, (r, c, rs, cs, box, is_header) in enumerate(raw):
         ws = sorted(own[i], key=lambda w: (w[5], w[6], w[7]))
@@ -285,6 +292,22 @@ def _homes(words: list, raw: list) -> dict[int, int]:
                                        + (cy - (raw[i][4][1] + raw[i][4][3]) / 2) ** 2, i))
         out.update((id(w), best) for w in ws)
     return out
+
+
+NEIGHBOUR_GAP = 2.0       # how far (in the word's own height) a word may sit from the word before or after it on its
+                          # line to be read with it; table columns are further apart
+
+
+def _neighbour_cell(w: list, by_key: dict, cell_of: dict) -> int | None:
+    """The cell of the word just after (else just before) `w` on its text-layer line, when that word is in a cell
+    and closer than NEIGHBOUR_GAP x the word's height; None otherwise. The word after goes first: a line that
+    starts outside a cell's box ("Whether at any time", "(Note 39)") is read with the rest of the line."""
+    h = w[3] - w[1]
+    for k, gap in ((w[7] + 1, lambda o: o[0] - w[2]), (w[7] - 1, lambda o: w[0] - o[2])):
+        key = (w[5], w[6], k)
+        if key in cell_of and gap(by_key[key]) < NEIGHBOUR_GAP * h:
+            return cell_of[key]
+    return None
 
 
 ADJACENT_LINES = 1.2      # how far (in the word's own height) a word may sit above or below a cell to join it
