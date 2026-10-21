@@ -147,6 +147,31 @@ def test_a_package_renamed_into_place_before_a_crash_completes_the_retry(tmp_pat
     assert f.jobs.get(f.job.id).status == "delivered"
 
 
+def test_a_stale_tmp_is_cleaned_when_the_package_is_already_in_place(tmp_path, monkeypatch):
+    f = reviewed(tmp_path)
+    f.jobs.confirm(f.job.id, "anna")
+    real_advance = f.jobs.advance
+
+    def crash(*a, **kw):
+        raise OSError("power cut")
+    monkeypatch.setattr(f.jobs, "advance", crash)
+    with pytest.raises(OSError, match="power cut"):
+        deliver.deliver(f.jobs, f.job.id, f.cfg)
+    name = f"{DOC}@{f.job.sha256[:12]}"
+    stale = f.cfg.delivery_dir / f".tmp-{name}-deadbeef"         # left by a kill before the tmp was removed
+    stale.mkdir()
+    monkeypatch.setattr(f.jobs, "advance", real_advance)
+    deliver.deliver(f.jobs, f.job.id, f.cfg)
+    assert sorted(p.name for p in f.cfg.delivery_dir.iterdir()) == [name]
+
+    g = in_review(tmp_path, work="work2", delivery="delivery")          # refused: the stale tmp still goes
+    review.apply(g.jobs, g.job.id, OPS, "peter", g.cfg)
+    stale.mkdir()
+    with pytest.raises(deliver.DeliveryError, match="already exists"):
+        deliver.confirm(g.jobs, g.job.id, "anna", g.cfg)
+    assert not stale.exists()
+
+
 def test_confirm_needs_a_job_in_review(tmp_path):
     f = in_review(tmp_path)
     f.jobs.confirm(f.job.id, "anna")

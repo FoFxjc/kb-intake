@@ -8,7 +8,7 @@ from jobflow import P106_TABLE, TABLE_BOX, build_pdf, config, engine, in_review,
 
 from kb_intake import contract, label, review
 from kb_intake.jobs import Jobs, WrongState
-from kb_intake.package import read_jsonl
+from kb_intake.package import read_jsonl, write_jsonl
 
 
 def files(job):
@@ -69,6 +69,21 @@ def test_reclassify_to_table_reuses_the_docling_grid_of_a_label_table(tmp_path):
     assert t["extract_method"] == "docling" and t["bbox"] == list(TABLE_BOX) and t["cells"][0]["is_header"]
     assert region_of(f.job, table)["table_id"] == t["table_id"] == "demo-ar-2025-en:t0001_01"
     assert [(o["from"], o["to"]) for o in f.jobs.ops(f.job.id)] == [("table", "text"), ("text", "table")]
+
+
+def test_reclassify_to_table_of_a_non_table_with_a_docling_grid_uses_find_tables(tmp_path):
+    f = in_review(tmp_path)
+    table = rid(1, 3)
+    review.apply(f.jobs, f.job.id, [{"action": "reclassify", "region_id": table, "to": "text"}], "peter", f.cfg)
+    path = f.job.dir / "label" / "regions.jsonl"                        # as if label had typed it a toc that
+    rows = read_jsonl(path)                                              # Docling labelled document_index
+    for r in rows:
+        if r["region_id"] == table:
+            r.update(type="toc", docling_label="document_index")
+    write_jsonl(path, rows)
+    review.apply(f.jobs, f.job.id, [{"action": "reclassify", "region_id": table, "to": "table"}], "peter", f.cfg)
+    [t] = files(f.job)["tables"]
+    assert t["region_id"] == table and t["extract_method"] == "find_tables"
 
 
 def test_reclassify_to_table_where_find_tables_finds_nothing_is_unhandled(tmp_path):

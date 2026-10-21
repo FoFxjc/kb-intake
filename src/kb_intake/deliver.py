@@ -73,12 +73,12 @@ def _deliver(jobs: Jobs, job: Job, cfg: Config, name: str, t0: float) -> Path:
     root = cfg.delivery_dir
     root.mkdir(parents=True, exist_ok=True)
     final = root / name
+    for stale in root.glob(f".tmp-{name}-*"):         # left by a delivery killed before its cleanup
+        shutil.rmtree(stale, ignore_errors=True)
     if final.exists() or final.is_symlink():
         if _own_package(final, job):
             return final
         raise DeliveryError(f"{final} already exists; a delivered package is never replaced")
-    for stale in root.glob(f".tmp-{name}-*"):
-        shutil.rmtree(stale, ignore_errors=True)
     tmp = root / f".tmp-{name}-{uuid.uuid4().hex}"
     try:
         pkg = tmp / name
@@ -115,6 +115,9 @@ def _counts(rows, key: str) -> dict:
 
 
 def _versions() -> dict:
+    """The installed versions of the Docling packages at delivery time. label/run.json and extract/run.json do not
+    record them, so an upgrade between extract and delivery is not reflected here (engines.docling.version is the
+    one the label stage recorded)."""
     out = {}
     for p in DOCLING_PACKAGES:
         try:

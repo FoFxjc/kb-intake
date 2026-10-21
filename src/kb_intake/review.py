@@ -128,6 +128,8 @@ def apply(jobs: Jobs, job_id: str, ops: list[dict], by: str, cfg: Config) -> lis
                 changed.add(rid)
                 tables.pop(rid, None)
                 if op["action"] == "reclassify":
+                    if label[rid]["type"] != "table":       # reuse the Docling grid only for a label-stage table
+                        ctx.matched.pop(rid, None)
                     src = {**label[rid], "type": op["to"], "subtype": None, "label_source": "user", "score": None}
                     row, table, gaps = extract.extract_region(src, workflow.handler_for(wf, op["to"]), ctx)
                     new_regions[rid] = row
@@ -149,7 +151,10 @@ def apply(jobs: Jobs, job_id: str, ops: list[dict], by: str, cfg: Config) -> lis
         extract_gaps = sorted(extract.tag_table_gaps(extract_gaps, out_tables), key=extract.gap_key)
         review_gaps = sorted(extract.tag_table_gaps(review_gaps, out_tables), key=extract.gap_key)
 
-        jobs.add_ops(job_id, records)            # the point of no return: refuses if the job left in_review
+        # The point of no return: refuses if the job left in_review. Known window: the four writes below are each
+        # atomic but not together, so a crash among them leaves ops recorded whose effects are not (all) in the
+        # work files; nothing replays them.
+        jobs.add_ops(job_id, records)
         write_jsonl(job.dir / "extract" / "regions.jsonl", rows)
         write_jsonl(job.dir / "extract" / "tables.jsonl", out_tables)
         write_jsonl(job.dir / "extract" / "gaps.jsonl", extract_gaps)
