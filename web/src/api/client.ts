@@ -61,6 +61,8 @@ interface CallOptions<P extends keyof paths, M extends Method> {
   json?: unknown;
   body?: BodyInit;
   text?: string;
+  /** the media type of `text` (default text/plain) */
+  textType?: string;
   signal?: AbortSignal;
 }
 
@@ -113,7 +115,7 @@ export async function call<P extends keyof paths, M extends Method>(
     headers['Content-Type'] = 'application/json';
     body = JSON.stringify(opts.json);
   } else if (opts.text !== undefined) {
-    headers['Content-Type'] = 'text/plain; charset=utf-8';
+    headers['Content-Type'] = `${opts.textType ?? 'text/plain'}; charset=utf-8`;
     body = opts.text;
   }
   let res: globalThis.Response;

@@ -204,10 +204,15 @@ test.describe('with the LLM enabled (fake model)', () => {
     await expect(page.getByTestId('queue-done')).toHaveText('Done 0 / 3');
     await group(page, 'llm_check').click();
     await expect(page.getByTestId('issue-title')).toHaveText('Chart description to check · p1');
-    const panel = page.getByTestId('llm-panel');
+    const panel = page.locator('[data-testid="llm-panel"][data-kind="describe"]');
     await expect(panel).toHaveCount(1);
     await expect(panel.getByTestId('llm-chip')).toHaveText('MiniMax-M3 description · low weight');
     await expect(panel).toContainText('A bar chart of revenue by year');
+    // the LLM server of the specs has chart to table on: the bar chart's estimated table is shown beside it
+    const table = page.locator('[data-testid="llm-panel"][data-kind="chart_table"]');
+    await expect(table).toHaveCount(1);
+    await expect(table.getByTestId('llm-chip')).toHaveText('MiniMax-M3 chart table (experimental) · low weight');
+    await expect(table.getByTestId('llm-table')).toContainText('2025');
     await rendered(page, 1);
     await expect(page.getByTestId('ov-focus')).toHaveCount(1);
     await shot(page, 'review-llm');

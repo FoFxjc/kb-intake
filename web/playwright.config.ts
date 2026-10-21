@@ -32,7 +32,7 @@ export default defineConfig({
       stdout: 'pipe',
     },
     {
-      command: `uv run python tests/e2e_server.py --port ${LLM_PORT} --fake-llm --fixtures web/e2e/.fixtures-llm`,
+      command: `uv run python tests/e2e_server.py --port ${LLM_PORT} --fake-llm --chart-table --fixtures web/e2e/.fixtures-llm`,
       cwd: '..',
       url: `http://127.0.0.1:${LLM_PORT}/v1/health`,
       reuseExistingServer: !process.env.CI,

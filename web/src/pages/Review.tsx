@@ -537,7 +537,7 @@ function LlmPanel({ items }: { items: LlmItem[] }) {
         const columns = Array.isArray(table?.columns) ? (table.columns as unknown[]).map(String) : [];
         const rows = Array.isArray(table?.rows) ? (table.rows as unknown[]).filter(Array.isArray).map((r) => (r as unknown[]).map((c) => (c === null ? '' : String(c)))) : [];
         return (
-          <div key={`${x.kind}-${i}`} className="llm-panel" data-testid="llm-panel">
+          <div key={`${x.kind}-${i}`} className="llm-panel" data-testid="llm-panel" data-kind={x.kind}>
             <LlmBadge>{`${x.model} ${x.kind === 'chart_table' ? 'chart table (experimental)' : 'description'} · low weight`}</LlmBadge>
             {typeof out.text === 'string' && <div style={{ fontSize: 13, lineHeight: 1.5 }}>{out.text}</div>}
             {table && (

@@ -2,7 +2,7 @@
 with the fake Docling engines of tests/jobflow.py (two pages, a table on page 1, a p106-like table that Docling
 missed on page 2 and split into one text region per row, a bar chart on page 1). Test-only; never used by kb-intake itself.
 
-    uv run python tests/e2e_server.py --port 8799 [--llm-url URL | --fake-llm] [--fixtures DIR]
+    uv run python tests/e2e_server.py --port 8799 [--llm-url URL | --fake-llm [--chart-table]] [--fixtures DIR]
 
 - One job is seeded in state `in_review` (labelled, approved and extracted with the fake engines), so the page
   viewer and the review pages have data without waiting.
@@ -14,6 +14,7 @@ missed on page 2 and split into one text region per row, a bar chart on page 1).
 """
 
 import argparse
+import dataclasses
 import os
 import shutil
 import sys
@@ -43,6 +44,7 @@ def main(argv=None) -> None:
     ap.add_argument("--port", type=int, default=8799)
     ap.add_argument("--llm-url", default=None)
     ap.add_argument("--fake-llm", action="store_true")
+    ap.add_argument("--chart-table", action="store_true")
     ap.add_argument("--fixtures", type=Path, default=HERE.parent / "web" / "e2e" / ".fixtures")
     args = ap.parse_args(argv)
 
@@ -65,7 +67,11 @@ def main(argv=None) -> None:
         write_fixtures(args.fixtures, flow.src)
         engines = {"label": jobflow.engine(tmp, "label", chart=True, p106_split=True),
                    "extract": jobflow.engine(tmp, "extract", chart=True, p106_split=True)}
-        app = create_app(flow.cfg, engines=engines)
+        cfg = flow.cfg
+        if args.chart_table:
+            cfg = dataclasses.replace(cfg, llm=dataclasses.replace(cfg.llm, features={**cfg.llm.features,
+                                                                                       "chart_table": True}))
+        app = create_app(cfg, engines=engines)
         print(f"e2e server: job {flow.job.id} in_review; work dir {tmp}; fixtures {args.fixtures}", flush=True)
         uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
     finally:
