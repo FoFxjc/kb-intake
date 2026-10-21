@@ -307,8 +307,8 @@
         "workflow_version": 1
       },
       "stats": {
-        "estimated_extract_seconds": 2,
-        "label_seconds": 0.2,
+        "estimated_extract_seconds": "<masked>",
+        "label_seconds": "<masked>",
         "low_confidence": 0,
         "pages": 2,
         "pages_by_kind": {
@@ -502,8 +502,8 @@
         "workflow_version": 1
       },
       "stats": {
-        "estimated_extract_seconds": 2,
-        "label_seconds": 0.2,
+        "estimated_extract_seconds": "<masked>",
+        "label_seconds": "<masked>",
         "low_confidence": 0,
         "pages": 2,
         "pages_by_kind": {
@@ -621,8 +621,8 @@
         "workflow_version": null
       },
       "stats": {
-        "estimated_extract_seconds": 2,
-        "label_seconds": 0.2,
+        "estimated_extract_seconds": "<masked>",
+        "label_seconds": "<masked>",
         "low_confidence": 0,
         "pages": 2,
         "pages_by_kind": {
@@ -735,9 +735,9 @@
         {
           "absorbed_into": null,
           "bbox": [
-            72,
+            72.0,
             68.0,
-            300,
+            300.0,
             84.0
           ],
           "font": {
@@ -762,9 +762,9 @@
         {
           "absorbed_into": null,
           "bbox": [
-            72,
+            72.0,
             100.0,
-            500,
+            500.0,
             140.0
           ],
           "font": {
@@ -789,9 +789,9 @@
         {
           "absorbed_into": null,
           "bbox": [
-            72,
+            72.0,
             200.0,
-            400,
+            400.0,
             300.0
           ],
           "font": {
@@ -817,9 +817,9 @@
       "tables": [
         {
           "bbox": [
-            72,
+            72.0,
             200.0,
-            400,
+            400.0,
             300.0
           ],
           "cells": [
@@ -912,9 +912,9 @@
       "regions": [
         {
           "bbox": [
-            72,
+            72.0,
             68.0,
-            300,
+            300.0,
             84.0
           ],
           "classes": null,
@@ -935,9 +935,9 @@
         },
         {
           "bbox": [
-            72,
+            72.0,
             100.0,
-            500,
+            500.0,
             140.0
           ],
           "classes": null,
@@ -958,9 +958,9 @@
         },
         {
           "bbox": [
-            72,
+            72.0,
             200.0,
-            400,
+            400.0,
             300.0
           ],
           "classes": null,

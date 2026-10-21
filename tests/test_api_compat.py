@@ -16,7 +16,7 @@ GOLDEN = os.path.join(os.path.dirname(__file__), "data", "api_v2_responses.json"
 VOLATILE = {"job_id", "id", "created_at", "updated_at", "at", "approved_at", "confirmed_at", "dir", "sha256",
             "package", "delivery_dir", "models_dir", "version", "run", "seconds", "elapsed_s", "duration_s",
             "last", "busy", "pymupdf", "docling", "kb_intake_version", "estimate_s", "label_s", "extract_s",
-            "cpu_seconds", "cache_key"}
+            "cpu_seconds", "cache_key", "label_seconds", "estimated_extract_seconds"}
 JOB_ID = re.compile(r"\d{8}T\d{6}-[0-9a-f]{6}")
 
 
