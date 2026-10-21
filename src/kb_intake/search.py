@@ -25,12 +25,11 @@ from pathlib import Path
 
 import pymupdf
 
-from kb_intake import textlayer
+from kb_intake import review, textlayer
 from kb_intake.jobs import Jobs
 from kb_intake.package import read_jsonl, sha_file, write_jsonl
 from kb_intake.vocab import GAP_CODES, REGION_TYPES, STATUSES
 
-POST_EXTRACT = ("extracted", "in_review", "confirmed", "delivered")
 SIGNED_FILES = ("label/regions.jsonl", "extract/regions.jsonl", "extract/tables.jsonl", "extract/gaps.jsonl",
                 "review/gaps.jsonl", "review/resolved.jsonl", "llm/llm.jsonl")
 SOURCES = ("region", "cell", "llm")
@@ -122,14 +121,13 @@ def load_rows(jobs: Jobs, job_id: str) -> Rows:
 
 
 def _load_rows(job) -> Rows:
-    from kb_intake import review           # review imports extract; keep this module light to import
     job_id = job.id
     d = job.dir
     if not (d / "label" / "regions.jsonl").is_file():
         raise KeyError(f"job {job_id} is not labelled yet")
     label_regions = read_jsonl(d / "label" / "regions.jsonl")
     by_box = _label_text(d, label_regions)
-    if job.status in POST_EXTRACT and (d / "extract" / "regions.jsonl").is_file():
+    if job.status in review.POST_EXTRACT and (d / "extract" / "regions.jsonl").is_file():
         state = review.current(d)
         stage, regions, tables, gaps = "current", state["regions"], state["tables"], review.all_gaps(d, state)
     else:
@@ -221,8 +219,6 @@ def _documents(rows: Rows):
                                                               "bbox": c.get("bbox") or table["bbox"]}), c["text"])
         elif r.get("text"):
             yield (r["region_id"], "region", json.dumps({"bbox": r["bbox"]}), r["text"])
-        for text in r.get("llm_texts", ()):
-            yield (r["region_id"], "llm", json.dumps({"bbox": r["bbox"]}), text)
 
 
 WORD = re.compile(r"\w", re.UNICODE)

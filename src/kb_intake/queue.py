@@ -11,10 +11,9 @@ grouped by problem.
 
 from kb_intake import review
 from kb_intake.jobs import Jobs
-from kb_intake.package import read_jsonl
+from kb_intake.review import POST_EXTRACT
 from kb_intake.vocab import GAP_CODES, GAP_LABELS
 
-POST_EXTRACT = ("extracted", "in_review", "confirmed", "delivered")
 GROUPS = {**{c: GAP_LABELS[c] for c in GAP_CODES}, "continued_hint": "Continuation hints (weak)"}
 
 
