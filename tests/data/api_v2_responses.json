@@ -40,6 +40,7 @@
           "describe": true,
           "summary": true
         },
+        "images": null,
         "key_present": false,
         "model": "MiniMax-M3",
         "provider": "openai_compatible",
@@ -101,6 +102,7 @@
           "describe": true,
           "summary": true
         },
+        "images": null,
         "key_present": false,
         "model": "MiniMax-M3",
         "provider": "openai_compatible",
@@ -1046,6 +1048,7 @@
           "describe": true,
           "summary": true
         },
+        "images": null,
         "key_present": false,
         "model": "MiniMax-M3",
         "provider": "openai_compatible",

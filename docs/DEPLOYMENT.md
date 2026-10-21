@@ -36,7 +36,7 @@ Download the source zip of the release from GitHub and unpack it. For example, f
 the release page's "Source code (zip)"):
 
 ```bash
-unzip kb-intake-0.3.0.zip && cd kb-intake-0.3.0
+unzip kb-intake-0.3.0.zip && cd kb-intake-0.3.0      # the folder the zip unpacks to
 ```
 
 Everything below happens in that directory. Git and Node are not needed: the web UI is prebuilt inside the source.
@@ -145,7 +145,7 @@ environment wins over the file. Relative paths are relative to this directory.
 | `INTAKE_LLM_MODEL` | | the model name the endpoint serves |
 | `INTAKE_LLM_API_KEY` | | the key; sent only in the `Authorization` header to that URL, never written anywhere else |
 | `INTAKE_LLM_ALLOW_HTTP` | `false` | `true` accepts a plain `http://` URL on another host; the key then crosses the network unencrypted. Without it such a URL is refused |
-| `INTAKE_LLM_DESCRIBE` | | `false` switches chart and picture descriptions off. `kb-intake doctor` writes this line when the model rejects images, and removes it when they work again |
+| `INTAKE_LLM_DESCRIBE` | | `false` switches chart and picture descriptions off. You do not need it for a text-only model: `kb-intake doctor` tests images on every run and switches descriptions off by itself (§4) |
 | `PIP_INDEX_URL` | | the pip mirror for `./setup.sh`. Without it, pip uses your existing pip configuration, which `./setup.sh` never changes |
 | `PIP_EXTRA_INDEX_URL` | | a mirror of PyTorch's CPU wheels (Linux; §6.3) |
 | `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` | | a proxy for pip and for the LLM requests |
@@ -208,7 +208,7 @@ terminal and to `kb-intake-doctor.json`. Send that file when asking for help; it
 | `torch` | never fails: reports CPU or CUDA build | a CUDA build works but is several GB larger (§6.3) |
 | `llm` | enabled without a key | set `INTAKE_LLM_API_KEY`, or `INTAKE_LLM_ENABLED=false` |
 | `llm_text` | the endpoint cannot be reached or refuses (the error kind is named) | network: check `INTAKE_LLM_BASE_URL`, `HTTPS_PROXY` / `NO_PROXY`, `SSL_CERT_FILE`. 401/403: the key. 404: the base URL (usually ends in `/v1`) or the model name |
-| `llm_image` | the model rejects images | **not blocking**: chart and picture descriptions are switched off in `.env`; summaries still work. Use a model that accepts images and run `kb-intake doctor` again |
+| `llm_image` | the model rejects images | **not blocking**: chart and picture descriptions are switched off automatically; summaries still work. The result is recorded in `<INTAKE_DATA_DIR>/work/llm-capabilities.json` (never in `.env`), and the latest check counts. After switching to a model that accepts images, run `kb-intake doctor` again: descriptions come back. Restart `serve` after a doctor run |
 | `smoke_label` … `smoke_package` | the end-to-end test failed (the step and message are shown) | usually models or dependencies (see those rows); otherwise send `kb-intake-doctor.json` |
 | `config` | a setting cannot be used (e.g. `http://` on another host without `INTAKE_LLM_ALLOW_HTTP`) | correct it in `.env` |
 
@@ -243,12 +243,12 @@ PASS  smoke_package             0.4 s; contract check ok; table cells read: 3/3 
 kb-intake 0.3.0 on arm64: ready
 ```
 
-A model that accepts only text. The run takes 16 s, because the installation is skipped. The exit code is 0:
+A model that accepts only text. The exit code is 0, and `.env` is not changed:
 
 ```
 PASS  llm_text                  answered in 0.0 s
-FAIL  llm_image                 http_400: HTTP 400: chart and picture descriptions unavailable (INTAKE_LLM_DESCRIBE=false written to …/.env); the document summary still works
-                                fix: use a model that accepts images to get descriptions, then run `kb-intake doctor` again (it removes the line)
+FAIL  llm_image                 http_400: HTTP 400: images not accepted: chart and picture descriptions switched off automatically (latest check, recorded in …/data/work/llm-capabilities.json); the document summary still works
+                                fix: use a model that accepts images to get descriptions; the next `kb-intake doctor` checks again
 PASS  smoke_summary             document summary made
 …
 kb-intake 0.3.0 on arm64: ready
@@ -360,7 +360,7 @@ optional and unknown keys are refused. Precedence: command-line flag > environme
 | `llm.api_key_env` | `INTAKE_LLM_API_KEY` | the name of the environment variable that holds the key; the key itself is never in this file |
 | `llm.allow_http` | `false` | `INTAKE_LLM_ALLOW_HTTP` |
 | `llm.remote` | derived | whether data leaves this machine: true unless `base_url` is localhost; `false` is accepted only for localhost |
-| `llm.features` | `{summary: true, describe: true, chart_table: false}` | which LLM uses are allowed (`INTAKE_LLM_DESCRIBE` for describe); a job's workflow can switch `describe` and `chart_table` off |
+| `llm.features` | `{summary: true, describe: true, chart_table: false}` | which LLM uses are allowed (`INTAKE_LLM_DESCRIBE` for describe; also off when the latest doctor check found that the model refuses images); a job's workflow can switch `describe` and `chart_table` off |
 
 `.env` (§3) is read from the directory kb-intake is started in: the `INTAKE_*` variables and the proxy and CA
 variables, for whatever the environment does not set.
@@ -379,6 +379,7 @@ host. It is not written to logs, the cache, the work files, the package or the d
 ```
 work_dir/
   state.db                 jobs, workflow versions, review operations (SQLite)
+  llm-capabilities.json    the latest `kb-intake doctor` image check of the configured model
   uploads/                 files being received by the server (temporary)
   jobs/<job_id>/
     source.pdf
@@ -500,7 +501,7 @@ stand-in on another address, over `http://` with `INTAKE_LLM_ALLOW_HTTP=true`, i
 | Set-up | Result |
 |---|---|
 | macOS arm64, venv (`python3.12`), text and images work | setup 106 s, exit 0; every check PASS; `./kb-intake serve` serves the UI |
-| same, a text-only model (images refused) | exit 0; `llm_image` FAIL (not blocking), `INTAKE_LLM_DESCRIBE=false` written to `.env`; the UI no longer offers "LLM describe"; the upload form names the host |
+| same, a text-only model (images refused) | exit 0; `llm_image` FAIL (not blocking); descriptions switched off through `data/work/llm-capabilities.json`, `.env` unchanged (checksum); `serve` then reports `images: false` and the UI no longer offers "LLM describe"; the upload form names the host |
 | same, the endpoint unreachable | exit 1; `llm_text` FAIL with what to check |
 | macOS arm64, miniforge 26.7.2 (conda-forge only, a clean home directory) | conda environment `kb-intake` with Python 3.12.15; setup 132 s, exit 0; every check PASS; `serve` works |
 | Linux aarch64 in Docker (`condaforge/miniforge3`, on the Mac), `PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu`, no pip cache, the LLM on the host | conda environment with Python 3.12.15; first installation from scratch 3 min 17 s, exit 0; `torch 2.14.1+cpu` installed; every check PASS |

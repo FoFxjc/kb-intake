@@ -1178,6 +1178,18 @@
           "features": {
             "$ref": "#/components/schemas/LlmFeatures"
           },
+          "images": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "the latest `kb-intake doctor` image check of this endpoint and model; false switches describe off; null when never checked",
+            "title": "Images"
+          },
           "key_present": {
             "title": "Key Present",
             "type": "boolean"

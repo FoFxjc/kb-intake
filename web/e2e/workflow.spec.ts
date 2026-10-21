@@ -157,6 +157,7 @@ test.describe('LLM enabled (fake model on 127.0.0.1)', () => {
       const r = await route.fetch();
       const j = await r.json();
       j.llm.features.describe = false;
+      j.llm.images = false;
       return route.fulfill({ response: r, json: j });
     });
     await page.goto(`./#/job/${jobId}/workflow`);
@@ -167,5 +168,6 @@ test.describe('LLM enabled (fake model on 127.0.0.1)', () => {
     await chart.getByRole('button', { name: 'Text by box' }).click();
     await expect(chart.getByRole('button', { name: 'Text by box' })).toHaveAttribute('aria-pressed', 'true');
     await expect(chart.getByRole('button', { name: 'LLM describe' })).toHaveCount(0);
+    await expect(page.getByTestId('llm-panel')).toContainText('the model does not accept images');
   });
 });

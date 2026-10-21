@@ -27,8 +27,10 @@ a setting that is not implemented can never look as if it took effect.
       features: {summary: true, describe: true, chart_table: false}
 """
 
+import json
 import os
 import sys
+import time
 import urllib.parse
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -151,7 +153,7 @@ def _llm(raw: dict, env: dict | None = None) -> LlmConfig:
         if (env or {}).get(var, "").strip():
             raw[key] = _bool_env(env, var) if key in ("enabled", "allow_http") else env[var].strip()
     features = dict(features)
-    if (env or {}).get("INTAKE_LLM_DESCRIBE", "").strip():    # kb-intake doctor sets it false when images fail
+    if (env or {}).get("INTAKE_LLM_DESCRIBE", "").strip():    # the user's own switch
         features["describe"] = _bool_env(env, "INTAKE_LLM_DESCRIBE")
     url = urllib.parse.urlsplit(raw.get("base_url", d.base_url))
     loopback = url.hostname in LOOPBACK
@@ -171,6 +173,37 @@ def _llm(raw: dict, env: dict | None = None) -> LlmConfig:
                      allow_http=allow_http, features={**d.features, **features})
 
 
+CAPABILITIES = "llm-capabilities.json"
+
+
+def capabilities_path(cfg: "Config") -> Path:
+    """Where kb-intake doctor records what the configured model accepts (in the data directory, never in .env)."""
+    return cfg.work_dir / CAPABILITIES
+
+
+def record_capabilities(cfg: "Config", images: bool, reason: str | None) -> Path:
+    """Record the latest image check of cfg's endpoint and model (kb-intake doctor runs it every time)."""
+    p = capabilities_path(cfg)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_name(f".{p.name}.tmp")
+    tmp.write_text(json.dumps({"base_url": cfg.llm.base_url, "model": cfg.llm.model, "images": images,
+                               "reason": reason, "checked_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}, indent=1)
+                   + "\n", encoding="utf-8")
+    os.replace(tmp, p)
+    return p
+
+
+def images_accepted(cfg: "Config") -> bool | None:
+    """The latest image check for this endpoint and model: True, False, or None when there is none."""
+    try:
+        rec = json.loads(capabilities_path(cfg).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(rec, dict) or (rec.get("base_url"), rec.get("model")) != (cfg.llm.base_url, cfg.llm.model):
+        return None
+    return rec.get("images") if isinstance(rec.get("images"), bool) else None
+
+
 def llm_host(llm: LlmConfig) -> str:
     """Where the LLM's data goes: the host (and port) of base_url."""
     return urllib.parse.urlsplit(llm.base_url).netloc
@@ -184,6 +217,7 @@ def public_llm_info(cfg: Config, env: dict | None = None) -> dict:
     key_present = bool(env.get(llm.api_key_env))
     return {"enabled": llm.enabled and key_present, "configured": llm.enabled, "key_present": key_present,
             "remote": llm.remote, "provider": llm.provider, "model": llm.model, "base_url": llm.base_url,
+            "images": images_accepted(cfg),
             "features": dict(llm.features)}
 
 
@@ -288,4 +322,6 @@ def load(path: str | os.PathLike | None = None, env: dict | None = None) -> Conf
     for var, key in ENV_PATHS.items():
         if env.get(var):
             cfg = replace(cfg, **{key: _path(env[var])})
+    if images_accepted(cfg) is False:                 # the latest check: this model refuses images
+        cfg = replace(cfg, llm=replace(cfg.llm, features={**cfg.llm.features, "describe": False}))
     return cfg

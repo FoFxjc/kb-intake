@@ -248,7 +248,13 @@ export function WorkflowPage({ detail, onChanged }: { detail: JobDetail; onChang
             <Toggle label="Document summary" hint="Generated after labeling; set in the configuration" on={llm.features.summary} />
             <Toggle
               label="Chart and picture descriptions"
-              hint={llm.features.describe ? 'Runs on regions set to "LLM describe" above' : 'Off in the configuration'}
+              hint={
+                llm.features.describe
+                  ? 'Runs on regions set to "LLM describe" above'
+                  : llm.images === false
+                    ? 'Off: the model does not accept images (latest kb-intake doctor check)'
+                    : 'Off in the configuration'
+              }
               on={eff.describe}
               onFlip={editable && llm.features.describe ? () => setSw((s) => ({ ...s, describe: !s.describe })) : undefined}
             />
