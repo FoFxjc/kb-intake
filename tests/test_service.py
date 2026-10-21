@@ -466,3 +466,20 @@ def test_ack_through_the_api_gaps_resolved_and_review_list(p106):
     again = c.post(f"/v1/jobs/{job_id}/review", json={"by": "peter", "ops": [
         {"action": "ack", "item_id": item["item_id"]}]})
     assert again.status_code == 400 and "resolved" in again.json()["detail"]
+
+
+def test_llm_endpoints_are_off_without_config(svc, monkeypatch):
+    monkeypatch.setenv("INTAKE_LLM_API_KEY", "sk-sentinel-123")
+    job_id = labelled(svc)
+    s = svc.get(f"/v1/jobs/{job_id}/summary").json()
+    assert s == {"status": "off", "provider": "openai_compatible", "model": "MiniMax-M3", "remote": True, "text": None}
+    llm = svc.get(f"/v1/jobs/{job_id}/llm").json()
+    assert llm["enabled"] is False and llm["items"] == []
+    assert set(llm["progress"]) == {"summary", "describe", "chart_table"}
+    for path in (f"/v1/jobs/{job_id}/workflow", "/v1/health", "/v1/engines"):
+        body = svc.get(path).json()
+        assert body["llm"]["enabled"] is False and body["llm"]["key_present"] is True, path
+    for path in (f"/v1/jobs/{job_id}/summary", f"/v1/jobs/{job_id}/llm", f"/v1/jobs/{job_id}/workflow", "/v1/health",
+                 "/v1/engines", f"/v1/jobs/{job_id}", "/openapi.json"):
+        assert "sk-sentinel-123" not in svc.get(path).text, path
+    assert svc.get("/v1/jobs/nope/summary").status_code == 404

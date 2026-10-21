@@ -15,6 +15,14 @@ a setting that is not implemented can never look as if it took effect.
       document_timeout: 1800            # Docling's own budget, seconds
       wall_timeout: 2100                # hard limit: the conversion subprocess is killed after this many seconds
     scan_roots: []                      # serve: directories the web UI / API may list; empty = uploads only
+    llm:                                # optional LLM help (intake-ui-llm-design-v1 §4); off unless enabled here
+      enabled: false                    #   and the key is in the environment variable named by api_key_env
+      provider: openai_compatible
+      base_url: https://api.minimax.io/v1
+      model: MiniMax-M3
+      api_key_env: INTAKE_LLM_API_KEY   # the key itself is never read from a file
+      remote: true                      # region images and text leave this machine (UI and manifest say so)
+      features: {summary: true, describe: true, chart_table: false}
 """
 
 import os
@@ -29,7 +37,10 @@ HOME = Path("~/.kb-intake")
 STAGES = ("label", "extract")
 KEYS = {"models_dir": None, "cache_dir": None, "work_dir": None, "delivery_dir": None, "scan_roots": None,
         "low_confidence": None,
-        "docling": {"table_mode", "device", "num_threads", "document_timeout", "wall_timeout"}}
+        "docling": {"table_mode", "device", "num_threads", "document_timeout", "wall_timeout"},
+        "llm": {"enabled", "provider", "base_url", "model", "api_key_env", "remote", "features"}}
+LLM_FEATURES = ("summary", "describe", "chart_table")
+LLM_PROVIDERS = ("openai_compatible",)
 
 
 class ConfigError(ValueError):
@@ -58,6 +69,17 @@ class DoclingParams:
 
 
 @dataclass(frozen=True)
+class LlmConfig:
+    enabled: bool = False
+    provider: str = "openai_compatible"
+    base_url: str = "https://api.minimax.io/v1"
+    model: str = "MiniMax-M3"
+    api_key_env: str = "INTAKE_LLM_API_KEY"
+    remote: bool = True
+    features: dict = field(default_factory=lambda: {"summary": True, "describe": True, "chart_table": False})
+
+
+@dataclass(frozen=True)
 class Config:
     models_dir: Path = field(default_factory=lambda: (HOME / "models").expanduser())
     cache_dir: Path = field(default_factory=lambda: (HOME / "cache").expanduser())
@@ -67,6 +89,7 @@ class Config:
     docling: DoclingParams = field(default_factory=DoclingParams)
     scan_roots: tuple[Path, ...] = ()   # resolved; only `serve` uses them
     layout_enabled: bool = True         # False only for the degradation tests (no Docling at all)
+    llm: LlmConfig = field(default_factory=LlmConfig)
 
     @property
     def state_db(self) -> Path:
@@ -84,6 +107,41 @@ def inside(path: Path, roots) -> bool:
     except OSError:
         return False
     return any(real == r or real.is_relative_to(r) for r in roots)
+
+
+def _llm(raw: dict) -> LlmConfig:
+    d = LlmConfig()
+    for key in ("enabled", "remote"):
+        if key in raw and not isinstance(raw[key], bool):
+            raise ConfigError(f"llm.{key} must be true or false")
+    for key in ("provider", "base_url", "model", "api_key_env"):
+        if key in raw and (not isinstance(raw[key], str) or not raw[key].strip()):
+            raise ConfigError(f"llm.{key} must be a non-empty string")
+    if raw.get("provider", d.provider) not in LLM_PROVIDERS:
+        raise ConfigError(f"llm.provider must be one of {list(LLM_PROVIDERS)}")
+    features = raw.get("features") or {}
+    if not isinstance(features, dict):
+        raise ConfigError("llm.features must be a mapping")
+    bad = sorted(set(features) - set(LLM_FEATURES))
+    if bad:
+        raise ConfigError(f"unknown llm feature(s) {bad} (known: {list(LLM_FEATURES)})")
+    if not all(isinstance(v, bool) for v in features.values()):
+        raise ConfigError("llm.features values must be true or false")
+    return LlmConfig(enabled=raw.get("enabled", d.enabled), provider=raw.get("provider", d.provider),
+                     base_url=raw.get("base_url", d.base_url), model=raw.get("model", d.model),
+                     api_key_env=raw.get("api_key_env", d.api_key_env), remote=raw.get("remote", d.remote),
+                     features={**d.features, **features})
+
+
+def public_llm_info(cfg: Config, env: dict | None = None) -> dict:
+    """What the API and UI may show about the LLM settings; never the key. `enabled` is true only when the
+    configuration enables it and the key's environment variable is set."""
+    env = os.environ if env is None else env
+    llm = cfg.llm
+    key_present = bool(env.get(llm.api_key_env))
+    return {"enabled": llm.enabled and key_present, "configured": llm.enabled, "key_present": key_present,
+            "remote": llm.remote, "provider": llm.provider, "model": llm.model, "base_url": llm.base_url,
+            "features": dict(llm.features)}
 
 
 ENV_PATHS = {"INTAKE_MODELS_DIR": "models_dir", "INTAKE_CACHE_DIR": "cache_dir", "INTAKE_WORK_DIR": "work_dir",
@@ -137,7 +195,7 @@ def load(path: str | os.PathLike | None = None, env: dict | None = None) -> Conf
     if not isinstance(roots, list):
         raise ConfigError("scan_roots must be a list of directories")
     scan_roots = tuple((p if p.is_absolute() else base / p).resolve() for p in map(_path, roots))
-    cfg = replace(cfg, docling=params, scan_roots=scan_roots)
+    cfg = replace(cfg, docling=params, scan_roots=scan_roots, llm=_llm(raw.get("llm") or {}))
     for var, key in ENV_PATHS.items():
         if env.get(var):
             cfg = replace(cfg, **{key: _path(env[var])})

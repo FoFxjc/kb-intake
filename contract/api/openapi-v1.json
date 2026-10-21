@@ -449,6 +449,9 @@
             "title": "Layout Enabled",
             "type": "boolean"
           },
+          "llm": {
+            "$ref": "#/components/schemas/LlmInfo"
+          },
           "models_dir": {
             "title": "Models Dir",
             "type": "string"
@@ -474,7 +477,8 @@
           "stages",
           "models_dir",
           "pymupdf",
-          "layout_enabled"
+          "layout_enabled",
+          "llm"
         ],
         "title": "EnginesView",
         "type": "object"
@@ -787,6 +791,9 @@
               }
             ]
           },
+          "llm": {
+            "$ref": "#/components/schemas/LlmInfo"
+          },
           "ok": {
             "title": "Ok",
             "type": "boolean"
@@ -801,7 +808,8 @@
           "version",
           "contract_version",
           "busy",
-          "last"
+          "last",
+          "llm"
         ],
         "title": "Health",
         "type": "object"
@@ -1098,6 +1106,222 @@
           "package"
         ],
         "title": "JobSummary",
+        "type": "object"
+      },
+      "LlmCount": {
+        "properties": {
+          "cached": {
+            "title": "Cached",
+            "type": "integer"
+          },
+          "done": {
+            "title": "Done",
+            "type": "integer"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "done",
+          "cached",
+          "failed"
+        ],
+        "title": "LlmCount",
+        "type": "object"
+      },
+      "LlmFeatures": {
+        "properties": {
+          "chart_table": {
+            "title": "Chart Table",
+            "type": "boolean"
+          },
+          "describe": {
+            "title": "Describe",
+            "type": "boolean"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "summary",
+          "describe",
+          "chart_table"
+        ],
+        "title": "LlmFeatures",
+        "type": "object"
+      },
+      "LlmInfo": {
+        "properties": {
+          "base_url": {
+            "title": "Base Url",
+            "type": "string"
+          },
+          "configured": {
+            "description": "llm.enabled in the configuration",
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "enabled": {
+            "description": "configured and the key's environment variable is set",
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "features": {
+            "$ref": "#/components/schemas/LlmFeatures"
+          },
+          "key_present": {
+            "title": "Key Present",
+            "type": "boolean"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "remote": {
+            "description": "region images and text are sent to an external service",
+            "title": "Remote",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "configured",
+          "key_present",
+          "remote",
+          "provider",
+          "model",
+          "base_url",
+          "features"
+        ],
+        "title": "LlmInfo",
+        "type": "object"
+      },
+      "LlmItem": {
+        "additionalProperties": true,
+        "description": "An llm.jsonl row.",
+        "properties": {
+          "input_sha256": {
+            "title": "Input Sha256",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "summary",
+              "describe",
+              "chart_table"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "output": {
+            "additionalProperties": true,
+            "description": "{text} or {table}",
+            "title": "Output",
+            "type": "object"
+          },
+          "prompt_version": {
+            "title": "Prompt Version",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "region_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region Id"
+          },
+          "weight": {
+            "const": "low",
+            "title": "Weight",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "region_id",
+          "provider",
+          "model",
+          "prompt_version",
+          "input_sha256",
+          "output",
+          "weight"
+        ],
+        "title": "LlmItem",
+        "type": "object"
+      },
+      "LlmProgress": {
+        "properties": {
+          "chart_table": {
+            "$ref": "#/components/schemas/LlmCount"
+          },
+          "describe": {
+            "$ref": "#/components/schemas/LlmCount"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/LlmCount"
+          }
+        },
+        "required": [
+          "summary",
+          "describe",
+          "chart_table"
+        ],
+        "title": "LlmProgress",
+        "type": "object"
+      },
+      "LlmView": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LlmItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/LlmProgress"
+          },
+          "remote": {
+            "title": "Remote",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "remote",
+          "progress",
+          "items"
+        ],
+        "title": "LlmView",
         "type": "object"
       },
       "Match": {
@@ -2182,6 +2406,53 @@
         "title": "StepRef",
         "type": "object"
       },
+      "Summary": {
+        "properties": {
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "remote": {
+            "title": "Remote",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "off",
+              "pending",
+              "done",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "2-4 sentences; low weight, for reference",
+            "title": "Text"
+          }
+        },
+        "required": [
+          "status",
+          "provider",
+          "model",
+          "remote",
+          "text"
+        ],
+        "title": "Summary",
+        "type": "object"
+      },
       "Table": {
         "additionalProperties": true,
         "properties": {
@@ -2411,6 +2682,9 @@
             "title": "Handlers",
             "type": "array"
           },
+          "llm": {
+            "$ref": "#/components/schemas/LlmInfo"
+          },
           "notes": {
             "items": {},
             "title": "Notes",
@@ -2454,7 +2728,8 @@
           "approved_version",
           "types",
           "handlers",
-          "notes"
+          "notes",
+          "llm"
         ],
         "title": "WorkflowView",
         "type": "object"
@@ -3201,6 +3476,93 @@
         "summary": "Job Gaps"
       }
     },
+    "/v1/jobs/{job_id}/llm": {
+      "get": {
+        "description": "LLM outputs of the job (llm.jsonl rows) and progress per use.",
+        "operationId": "job_llm_v1_jobs__job_id__llm_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "summary",
+                    "describe",
+                    "chart_table"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "region_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Region Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Job Llm"
+      }
+    },
     "/v1/jobs/{job_id}/pages/{n}": {
       "get": {
         "operationId": "page_v1_jobs__job_id__pages__n__get",
@@ -3906,6 +4268,56 @@
           }
         },
         "summary": "Source Pdf"
+      }
+    },
+    "/v1/jobs/{job_id}/summary": {
+      "get": {
+        "description": "The document summary (LLM, low weight); `off` when the LLM is not enabled.",
+        "operationId": "job_summary_v1_jobs__job_id__summary_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Summary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Job Summary"
       }
     },
     "/v1/jobs/{job_id}/workflow": {

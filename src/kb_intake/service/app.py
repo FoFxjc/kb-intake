@@ -14,6 +14,8 @@ The API is frozen in contract/api/openapi-v1.json (kb_intake.service.openapi_sna
     GET  /v1/jobs/{id}/clusters         groups of similar regions (kb_intake.clusters)
     GET  /v1/jobs/{id}/queue            the review inbox (kb_intake.queue)
     POST /v1/jobs/{id}/queue/seen       {"item_ids"}: items shown to the reviewer (work state only)
+    GET  /v1/jobs/{id}/summary          the document summary (LLM; status off when not enabled)
+    GET  /v1/jobs/{id}/llm              LLM outputs and progress
     GET  /v1/jobs/{id}/workflow         the latest (or ?version=) workflow: YAML text and parsed
     PUT  /v1/jobs/{id}/workflow         YAML text -> a new version (422 when invalid)
     POST /v1/jobs/{id}/approve          {"by", "version"?} -> 202, starts extract
@@ -414,6 +416,26 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
             raise HTTPException(422, f"unknown queue items {unknown[:5]}")
         return {"updated": jobs.mark_seen(job_id, ids)}
 
+    # ---------- LLM (intake-ui-llm-design-v1 §4) ----------
+
+    @app.get("/v1/jobs/{job_id}/summary", **route(m.Summary, 404))
+    def job_summary(job_id: str):
+        """The document summary (LLM, low weight); `off` when the LLM is not enabled."""
+        get_job(job_id)
+        info = config.public_llm_info(cfg)
+        return {"status": "off", "provider": info["provider"], "model": info["model"], "remote": info["remote"],
+                "text": None}
+
+    @app.get("/v1/jobs/{job_id}/llm", **route(m.LlmView, 404))
+    def job_llm(job_id: str, kind: Literal["summary", "describe", "chart_table"] | None = None,
+                region_id: str | None = None):
+        """LLM outputs of the job (llm.jsonl rows) and progress per use."""
+        get_job(job_id)
+        info = config.public_llm_info(cfg)
+        zero = {"total": 0, "done": 0, "cached": 0, "failed": 0}
+        return {"enabled": info["enabled"], "remote": info["remote"],
+                "progress": {k: dict(zero) for k in config.LLM_FEATURES}, "items": []}
+
     # ---------- workflow and approval ----------
 
     @app.get("/v1/jobs/{job_id}/workflow", **route(m.WorkflowView, 404))
@@ -429,7 +451,8 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
         stats = job.dir / "label" / "stats.json"
         notes = (read_json(stats).get("workflow_notes") if stats.is_file() else None) or []
         return {**wf, "workflow": parsed, "error": error, "approved_version": job.workflow_version,
-                "types": list(vocab.REGION_TYPES), "handlers": list(vocab.HANDLERS), "notes": notes}
+                "types": list(vocab.REGION_TYPES), "handlers": list(vocab.HANDLERS), "notes": notes,
+                "llm": config.public_llm_info(cfg)}
 
     @app.put("/v1/jobs/{job_id}/workflow", **route(m.WorkflowSaved, 404, 409, 422, body={"requestBody": {
         "required": True, "content": {"application/yaml": {"schema": {"type": "string"}}}}}))
@@ -547,7 +570,7 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
         infos = {s: (engines.get(s) or DoclingEngine(cfg.models_dir, cfg.docling, stage=s)).info() for s in STAGES}
         return {"ready": all(i.ready for i in infos.values()), "stages": {s: asdict(i) for s, i in infos.items()},
                 "models_dir": str(cfg.models_dir), "pymupdf": pymupdf.VersionBind,
-                "layout_enabled": cfg.layout_enabled}
+                "layout_enabled": cfg.layout_enabled, "llm": config.public_llm_info(cfg)}
 
     @app.get("/v1/directories", **route(m.DirectoriesView, 403, 422))
     def directories(path: str | None = None):
@@ -574,7 +597,7 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
     @app.get("/v1/health", **route(m.Health))
     def health():
         return {"ok": True, "version": __version__, "contract_version": CONTRACT_VERSION, "busy": runner.busy(),
-                "last": runner.last}
+                "last": runner.last, "llm": config.public_llm_info(cfg)}
 
     @app.get("/", include_in_schema=False)
     def root():

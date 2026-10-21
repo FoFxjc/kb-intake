@@ -31,6 +31,20 @@
   "GET /v1/engines": {
     "body": {
       "layout_enabled": true,
+      "llm": {
+        "base_url": "https://api.minimax.io/v1",
+        "configured": false,
+        "enabled": false,
+        "features": {
+          "chart_table": false,
+          "describe": true,
+          "summary": true
+        },
+        "key_present": false,
+        "model": "MiniMax-M3",
+        "provider": "openai_compatible",
+        "remote": true
+      },
       "models_dir": "<masked>",
       "pymupdf": "<masked>",
       "ready": true,
@@ -78,6 +92,20 @@
       "busy": "<masked>",
       "contract_version": "2",
       "last": "<masked>",
+      "llm": {
+        "base_url": "https://api.minimax.io/v1",
+        "configured": false,
+        "enabled": false,
+        "features": {
+          "chart_table": false,
+          "describe": true,
+          "summary": true
+        },
+        "key_present": false,
+        "model": "MiniMax-M3",
+        "provider": "openai_compatible",
+        "remote": true
+      },
       "ok": true,
       "version": "<masked>"
     },
@@ -1008,6 +1036,20 @@
         "unhandled",
         "ocr"
       ],
+      "llm": {
+        "base_url": "https://api.minimax.io/v1",
+        "configured": false,
+        "enabled": false,
+        "features": {
+          "chart_table": false,
+          "describe": true,
+          "summary": true
+        },
+        "key_present": false,
+        "model": "MiniMax-M3",
+        "provider": "openai_compatible",
+        "remote": true
+      },
       "notes": [],
       "text": "name: default\nversion: 1\nhandlers:\n  title: text\n  heading: text\n  text: text\n  list: text\n  caption: text\n  footnote: text\n  formula: text\n  toc: text\n  table: table_structure\n  chart: text\n  diagram: text\n  picture: discard\n  logo: discard\n  icon: discard\n  signature: record\n  stamp: record\n  page_header: discard\n  page_footer: discard\n  unknown: unhandled\nexclude_pages: []\n",
       "types": [

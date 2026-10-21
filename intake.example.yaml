@@ -13,3 +13,15 @@ docling:
   wall_timeout: 2100                 # hard limit: the conversion process is killed after this many seconds
 scan_roots: []                       # serve only: directories the web UI / API may read files from (symlinks and ..
                                      # resolved before the check); empty = uploads only
+
+# Optional LLM help (document summary, chart and picture descriptions, chart to table). Off by default. When
+# enabled, region images and text are sent to the service below; the key is read from the environment variable
+# named by api_key_env, never from this file.
+llm:
+  enabled: false
+  provider: openai_compatible
+  base_url: https://api.minimax.io/v1
+  model: MiniMax-M3
+  api_key_env: INTAKE_LLM_API_KEY
+  remote: true
+  features: {summary: true, describe: true, chart_table: false}

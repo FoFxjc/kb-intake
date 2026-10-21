@@ -210,6 +210,7 @@ class WorkflowView(BaseModel):
     types: list[str]
     handlers: list[str]
     notes: list[Any]
+    llm: "LlmInfo"
 
 
 class WorkflowSaved(BaseModel):
@@ -270,6 +271,7 @@ class EnginesView(BaseModel):
     models_dir: str
     pymupdf: str
     layout_enabled: bool
+    llm: "LlmInfo"
 
 
 class DirectoryEntry(BaseModel):
@@ -295,6 +297,7 @@ class Health(BaseModel):
     contract_version: str
     busy: StepRef | None
     last: StepRef | None
+    llm: "LlmInfo"
 
 
 class ErrorBody(BaseModel):
@@ -450,3 +453,66 @@ class SeenBody(BaseModel):
 
 class SeenResult(BaseModel):
     updated: int = Field(description="items that were not marked seen before")
+
+
+# ---------- LLM (intake-ui-llm-design-v1 §4; filled by stage L) ----------
+
+class LlmFeatures(BaseModel):
+    summary: bool
+    describe: bool
+    chart_table: bool
+
+
+class LlmInfo(BaseModel):
+    enabled: bool = Field(description="configured and the key's environment variable is set")
+    configured: bool = Field(description="llm.enabled in the configuration")
+    key_present: bool
+    remote: bool = Field(description="region images and text are sent to an external service")
+    provider: str
+    model: str
+    base_url: str
+    features: LlmFeatures
+
+
+class Summary(BaseModel):
+    status: Literal["off", "pending", "done", "failed"]
+    provider: str
+    model: str
+    remote: bool
+    text: str | None = Field(description="2-4 sentences; low weight, for reference")
+
+
+class LlmCount(BaseModel):
+    total: int
+    done: int
+    cached: int
+    failed: int
+
+
+class LlmProgress(BaseModel):
+    summary: LlmCount
+    describe: LlmCount
+    chart_table: LlmCount
+
+
+class LlmItem(Open):
+    """An llm.jsonl row."""
+    kind: Literal["summary", "describe", "chart_table"]
+    region_id: str | None
+    provider: str
+    model: str
+    prompt_version: str
+    input_sha256: str
+    output: dict[str, Any] = Field(description="{text} or {table}")
+    weight: Literal["low"]
+
+
+class LlmView(BaseModel):
+    enabled: bool
+    remote: bool
+    progress: LlmProgress
+    items: list[LlmItem]
+
+
+for _model in (WorkflowView, EnginesView, Health):
+    _model.model_rebuild()

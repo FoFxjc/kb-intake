@@ -26,3 +26,35 @@ def test_unknown_keys_and_bad_values_are_refused(tmp_path):
 def test_environment_overrides_the_directories(tmp_path):
     cfg = config.load(None, env={"INTAKE_WORK_DIR": str(tmp_path / "w"), "INTAKE_DELIVERY_DIR": str(tmp_path / "d")})
     assert cfg.work_dir == tmp_path / "w" and cfg.delivery_dir == tmp_path / "d"
+
+
+# ---------- llm (intake-ui-llm-design-v1 §4.1) ----------
+
+def test_llm_config_defaults_off():
+    cfg = config.load(None, env={})
+    assert cfg.llm.enabled is False and cfg.llm.model == "MiniMax-M3"
+    assert cfg.llm.base_url == "https://api.minimax.io/v1" and cfg.llm.api_key_env == "INTAKE_LLM_API_KEY"
+    assert cfg.llm.features == {"summary": True, "describe": True, "chart_table": False}
+    info = config.public_llm_info(cfg, env={})
+    assert info == {"enabled": False, "configured": False, "key_present": False, "remote": True,
+                    "provider": "openai_compatible", "model": "MiniMax-M3", "base_url": "https://api.minimax.io/v1",
+                    "features": {"summary": True, "describe": True, "chart_table": False}}
+
+
+def test_llm_is_enabled_only_with_config_and_key(tmp_path):
+    p = tmp_path / "c.yaml"
+    p.write_text("llm: {enabled: true, features: {chart_table: true}}\n")
+    cfg = config.load(p, env={})
+    assert cfg.llm.features == {"summary": True, "describe": True, "chart_table": True}
+    assert config.public_llm_info(cfg, env={})["enabled"] is False
+    on = config.public_llm_info(cfg, env={"INTAKE_LLM_API_KEY": "sk-secret"})
+    assert on["enabled"] is True and on["key_present"] is True and "sk-secret" not in repr(on)
+
+
+def test_llm_config_rejects_unknown_or_bad_values(tmp_path):
+    p = tmp_path / "c.yaml"
+    for text in ("llm: {api_key: x}\n", "llm: {features: {ocr: true}}\n", "llm: {provider: other}\n",
+                 "llm: {enabled: maybe}\n", "llm: {features: {summary: 1}}\n", "llm: []\n"):
+        p.write_text(text)
+        with pytest.raises(config.ConfigError):
+            config.load(p, env={})
