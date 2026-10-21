@@ -190,6 +190,8 @@ def test_service_runs_the_summary_after_label_without_holding_the_step_slot(tmp_
         job_id = r.json()["job_id"]
         assert app.state.runner.wait(60)
         assert c.get(f"/v1/jobs/{job_id}").json()["job"]["status"] == "planned"
+        # never "off" once labelling is done (OCBC UI walk-through: a page that asked then never asked again)
+        assert c.get(f"/v1/jobs/{job_id}/summary").json()["status"] in ("pending", "done")
         assert app.state.summaries.wait(60)
         assert c.get(f"/v1/jobs/{job_id}/summary").json()["status"] == "done"
 

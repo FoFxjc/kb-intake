@@ -204,8 +204,10 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
     def run_label(job_id: str):
         def work():
             _step("label").run(jobs, job_id, cfg, engine=engines.get("label"))
-            # the summary (LLM, when enabled) must not keep the job from its workflow: own thread, no step slot
-            summaries.start(f"summary-{job_id}", lambda: _step("llm").summarize(jobs, job_id, cfg))
+            # the summary (LLM, when enabled) must not keep the job from its workflow: own thread, no step slot;
+            # marked pending first, so /summary never says "off" for a summary about to run
+            if _step("llm").expect_summary(jobs, job_id, cfg):
+                summaries.start(f"summary-{job_id}", lambda: _step("llm").summarize(jobs, job_id, cfg))
         return work
 
     def run_extract(job_id: str):

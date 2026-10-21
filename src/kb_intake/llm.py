@@ -284,6 +284,18 @@ def _save(job_dir: Path, rows: list[dict], gaps: list[dict], runner: "Runner | N
         write_json(d / "run.json", run)
 
 
+def expect_summary(jobs, job_id: str, cfg: config.Config, env=None) -> bool:
+    """Mark the summary pending now, when it is enabled (the label step calls this before the summary starts on
+    its own thread, so /summary never answers "off" in between); True when a summary will follow."""
+    from kb_intake.package import write_json
+    if not Runner(cfg, env=env).enabled("summary"):
+        return False
+    d = jobs.get(job_id).dir
+    (d / "llm").mkdir(exist_ok=True)
+    write_json(d / "llm" / "summary.json", {"status": "pending"})
+    return True
+
+
 def summarize(jobs, job_id: str, cfg: config.Config, chat=None, env=None) -> dict | None:
     """The document summary of a labelled job (llm.jsonl row or llm_failed gap); None when the summary is off.
     llm/summary.json says pending, done or failed while and after it runs."""

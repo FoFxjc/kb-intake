@@ -204,6 +204,27 @@ test.describe('with the LLM enabled (fake model)', () => {
     await shot(page, 'labels-llm');
   });
 
+  test('a page opened while the job was labelling shows the summary once labelling is done', async ({ page, request }) => {
+    // OCBC walk-through: the card asked once (status off, labelling still running) and never asked again
+    const job = await freshJob(request, { extract: false });
+    let labelling = true;
+    await page.route(`**/v1/jobs/${job.jobId}`, async (route) => {
+      const r = await route.fetch();
+      const body = await r.json();
+      if (labelling) body.job = { ...body.job, status: 'uploaded', running_op: 'label' };
+      await route.fulfill({ response: r, json: body });
+    });
+    await page.route(`**/v1/jobs/${job.jobId}/summary`, async (route) => {
+      const r = await route.fetch();
+      const body = await r.json();
+      await route.fulfill({ response: r, json: labelling ? { ...body, status: 'off', text: null } : body });
+    });
+    await page.goto(`./#/job/${job.jobId}/labels`);
+    await expect(page.getByTestId('summary-card')).toContainText('No summary');
+    labelling = false;
+    await expect(page.getByTestId('summary-text')).toContainText('An annual report', { timeout: 15_000 });
+  });
+
   test('a job labelled before the summary existed says so', async ({ page, request }) => {
     const jobId = await seededJob(request);
     await page.goto(`./#/job/${jobId}/labels`);

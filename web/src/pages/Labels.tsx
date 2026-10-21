@@ -155,7 +155,7 @@ export function LabelsPage({ detail }: { detail: JobDetail }) {
 
       <section className="inv-top">
         <MetadataCard detail={detail} />
-        {llmOn && <SummaryCard jobId={jobId} />}
+        {llmOn && <SummaryCard jobId={jobId} jobStatus={detail.job.status} />}
       </section>
 
       <section className="page inv">
@@ -311,8 +311,9 @@ function MetadataCard({ detail }: { detail: JobDetail }) {
   );
 }
 
-/** The document summary (GET /summary; only rendered when the LLM is enabled). Polled while it is pending. */
-function SummaryCard({ jobId }: { jobId: string }) {
+/** The document summary (GET /summary; only rendered when the LLM is enabled). Asked again when the job's status
+ * changes (a page opened while labelling asked before the summary existed) and polled while it is pending. */
+function SummaryCard({ jobId, jobStatus }: { jobId: string; jobStatus: string }) {
   const [s, setS] = useState<Summary | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
   const [tick, setTick] = useState(0);
@@ -326,7 +327,7 @@ function SummaryCard({ jobId }: { jobId: string }) {
       (e: unknown) => isAbort(e) || setError(asApiError(e)),
     );
     return () => ac.abort();
-  }, [jobId, tick]);
+  }, [jobId, jobStatus, tick]);
   const pending = s?.status === 'pending';
   useEffect(() => {
     if (!pending) return;

@@ -208,6 +208,8 @@ mark { background: #fbe7a1; color: inherit; border-radius: 2px; padding: 0 1px; 
 .dot { width: 8px; height: 8px; border-radius: var(--pill); flex: none; }
 .rv-clusters { display: flex; flex-direction: column; gap: 8px; }
 .rv-clusters .facet-head { padding-bottom: 0; }
+/* a long document has dozens of groups (OCBC: 68): they scroll inside the card, the page stays one screen */
+.rv-cluster-list { display: flex; flex-direction: column; gap: 8px; max-height: 60vh; overflow-y: auto; padding-right: 2px; }
 .cluster { border: 1px solid var(--line-faint); border-radius: var(--radius); padding: 10px; display: flex; flex-direction: column;
   gap: 6px; font-size: 13px; }
 .cluster.on { border-color: var(--ink); }
@@ -221,7 +223,8 @@ mark { background: #fbe7a1; color: inherit; border-radius: 2px; padding: 0 1px; 
 .rv-right { flex: 1 1 320px; max-width: 380px; display: flex; flex-direction: column; gap: 12px; }
 .rv-title { font-size: 15px; font-weight: 600; line-height: 1.4; }
 .rv-detail { font-size: 13px; line-height: 1.55; color: var(--ink-2); overflow-wrap: anywhere; }
-.rv-resolved { border-radius: var(--radius); padding: 10px; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.rv-resolved { border-radius: var(--radius); padding: 10px; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere;
+  max-height: 40vh; overflow-y: auto; }
 .rv-act { min-height: 44px; text-align: left; font-size: 14px; }
 .rv-reclass { display: flex; align-items: flex-end; gap: 8px; }
 .rv-reclass .btn { min-height: 40px; }

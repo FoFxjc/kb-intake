@@ -325,8 +325,11 @@ export function ReviewPage({ detail }: { detail: JobDetail }) {
         </div>
 
         <div className="card facet-card rv-clusters" data-testid="clusters">
-          <div className="eyebrow facet-head">Similar groups · bulk actions</div>
+          <div className="eyebrow facet-head">
+            Similar groups · bulk actions{clusters.length > 0 && <span className="muted"> · {clusters.length}</span>}
+          </div>
           {clusters.length === 0 && doneClusters.length === 0 && <div className="muted facet-empty">No similar groups.</div>}
+          <div className="rv-cluster-list" data-testid="cluster-list">
           {clusters.map((c) => (
             <ClusterCard
               key={c.cluster_id}
@@ -341,6 +344,7 @@ export function ReviewPage({ detail }: { detail: JobDetail }) {
           {doneClusters.map(([id, r]) => (
             <ClusterCard key={id} cluster={r.cluster} result={r.text} busy={busy} open={false} onExcludeAll={() => {}} onOpen={() => {}} />
           ))}
+          </div>
         </div>
       </aside>
 
