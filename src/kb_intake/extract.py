@@ -223,7 +223,11 @@ def table_from_cells(region: dict, grid: dict, words: list[list], method: str) -
         raw = [(r, c, 1, 1, box, False) for r, row in enumerate(grid["rows"]) for c, box in enumerate(row)
                if box is not None]
     raw = sorted(raw, key=lambda x: (x[0], x[1]))
-    own = {i: (textlayer.words_in(words, box) if box is not None else []) for i, (*_, box, _h) in enumerate(raw)}
+    own: dict[int, list] = {i: [] for i in range(len(raw))}
+    for w in textlayer.words_in(words, grid["bbox"]) if raw else []:
+        i = _home_cell(w, raw)
+        if i is not None:
+            own[i].append(w)
     taken = {id(w) for ws in own.values() for w in ws}
     for w in textlayer.words_in(words, grid["bbox"]):      # a wrapped line just outside its cell's box
         if id(w) not in taken:
@@ -237,7 +241,7 @@ def table_from_cells(region: dict, grid: dict, words: list[list], method: str) -
         text = textlayer.text_of(ws)
         if text is None:
             bbox, source = None, None
-        elif len(ws) > len(textlayer.words_in(words, box)):            # it took in words outside its box
+        elif any(not textlayer.centre_in(w, box) for w in ws):          # it took in words outside its box
             bbox, source = [min(w[0] for w in ws), min(w[1] for w in ws), max(w[2] for w in ws),
                             max(w[3] for w in ws)], "text"
         else:
@@ -257,6 +261,15 @@ def table_from_cells(region: dict, grid: dict, words: list[list], method: str) -
                          f"{len(values)} number(s) or nil sign(s) in the table box but in no cell: {sample}",
                          region_id=region["region_id"], count=len(values)))
     return table, gaps
+
+
+def _home_cell(w: list, raw: list) -> int | None:
+    """The index of the cell a word is centred in; when TableFormer's boxes overlap and it is centred in several,
+    the one whose box centre is nearest (a word is read into one cell only)."""
+    cx, cy = (w[0] + w[2]) / 2, (w[1] + w[3]) / 2
+    homes = [((cx - (b[0] + b[2]) / 2) ** 2 + (cy - (b[1] + b[3]) / 2) ** 2, i)
+             for i, (*_, b, _h) in enumerate(raw) if b is not None and textlayer.centre_in(w, b)]
+    return min(homes)[1] if homes else None
 
 
 ADJACENT_LINES = 1.2      # how far (in the word's own height) a word may sit above or below a cell to join it
