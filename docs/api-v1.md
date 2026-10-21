@@ -65,6 +65,8 @@ op `ack`.
 - Results are in reading order; `next_cursor` is null on the last page.
 - `/facets` counts types, statuses and open gap codes for the same filters; each dimension is counted without its
   own filter, so picking a type keeps the other types' counts visible.
+- Known limitation (accepted 2026-10-21): the tokenizer (`unicode61`) keeps a run of Chinese or Japanese characters
+  as one word, so such text is found only from the start of the run. Revisit when CJK documents come into scope.
 - The index lives in `state.db` (SQLite FTS5) and is rebuilt for a job when its work files change, including
   changes made by the CLI. The first search of a job builds it (OCBC, 276 pages: 1.7 s).
 
