@@ -1,17 +1,21 @@
 # kb-intake 设计 v1：把入库前的部分拆成独立库
 
 状态：草案；决定编号拟为拆分 D49、Docling 抽取层 D50（已核实未被占用）；第 9 节"抽取层：Docling 主 + find_tables 副，稳定性优先"已确认（2026-10-20）
-日期：2026-10-20（review 修订 17:30；对齐 kb #29 / #30 修订 17:45，见第 11 节）
+日期：2026-10-20（review 修订 17:30；对齐 kb #29 / #30 修订 17:45）；2026-10-21 定位纠偏：以可插拔、可独立部署的组件为目标，见第 11 节
 相关：`layout-design-v1.md`（区域与类型）、`ocr-design-v1.md`（OCR）、`docling-eval-v1.md`（实测依据）
 
 ## 1. 定位
 
-kb-intake 是一个独立仓库里的单一组件，负责把“任意文件”变成“知识库可以读的标准入件包”。它只关心文件格式，不关心知识。
+kb-intake 是一个**可插拔、可独立部署**的组件，负责把“任意文件”变成“知识库可以读的标准入件包”。它只关心文件格式，不关心知识。
+
+- **可插拔**：每个处理阶段（检测、取文字、OCR、版面、表格、标题、检查）都是接口后面的插件，按配置选用和组合；装不装 Docling、用哪个 OCR，只改配置不改代码（§3.1）
+- **可独立部署**：一个容器、一条命令起服务，带 Web UI 和 HTTP API；不依赖 kb 仓库、kb 的数据库或任何 kb 代码；运行时可离线（§3.2、§7）
+- **kb 只是使用方之一**：kb 通过契约 v1 读包。任何能读契约的系统都可以接；OCBC 的 6 份年报只是测试样本，用来验证功能和 UI，不是组件的设计目标
 
 - 输入：一个文件 + 一份声明（声明里显式写 `doc_id`；intake 只校验格式并用它给包命名，kb 导入时按自己的类型配置复算，对不上就拒收）
 - 输出：一个入件包（目录或 zip），带版本号的契约
 - 自带：Web UI、命令行、大模型 API 配置、本地状态
-- 不做：常驻进程、任务队列、服务间调用、写 Doris、写 kb 的 Postgres
+- 不做：独立 worker 进程、任务队列、调用 kb、写 Doris、写 kb 的 Postgres
 
 kb 只读入件包，不再碰原件，也不再 import 任何格式解析代码。
 
@@ -37,7 +41,43 @@ kb 只读入件包，不再碰原件，也不再 import 任何格式解析代码
 
 ## 3. 组件形态
 
-一个 Python 包，一个进程，同步运行。
+一个 Python 包，一个进程。`serve` 模式下作业在同一进程的后台线程里逐个执行（一次一份，不排队、不并发），这样 UI 能看到逐步进度。
+
+### 3.1 插件接口
+
+每个阶段一个接口（Python Protocol），插件通过 entry point 组 `kb_intake.plugins` 注册，配置按名字选用：
+
+| 阶段 | 接口 | 输入 → 输出 | 内置插件 |
+|---|---|---|---|
+| 格式检测 | `Detector` | 文件 → 格式、逐页类别、语言 | `pdf`（魔数 + 页分类） |
+| 取文字 | `TextSource` | 页 → 文字、词坐标 | `pymupdf` |
+| OCR | `OcrEngine` | 页图或区域 → 词、坐标、置信度 | `rapidocr`、`tesseract`（流程 B 时实现） |
+| 版面 | `LayoutEngine` | 页 → 区域（layout-design §2 类型） | `docling` |
+| 表格 | `TableExtractor` | 页 / 区域 → 表格（单元格 + 框） | `docling`、`find_tables` |
+| 标题 | `HeadingDetector` | 文档 → 标题候选 | `font_numbering`（字体 + 编号，按 profile 或自动推断）、`docling` |
+| 检查 | `Check` | 包内产物 → checks / gaps | `text_conservation`、`table_cross`、`table_missed` |
+
+约定：
+- 每个插件声明 `name`、`version`、支持的格式、是否需要模型、所需 extra（如 `kb-intake[docling]`）；manifest 记录本次实际用了哪些插件及版本
+- 基础安装只依赖 PyMuPDF，不装 Docling 也能出合法包；可选插件没装或出错时降级并记 gap，不让整份失败
+- 流程（A–F）是配置里的插件组合，由检测结果选择；主副关系（如表格 Docling 主、find_tables 副）也写在配置里
+- 文档系列相关的规则（如 OCBC 的字体→层级映射）只能放在 profile 配置里，代码里不出现任何样本专属逻辑
+- 新格式（docx、pptx、xlsx、html……）只需新增 `Detector` + `TextSource`（或复用 Docling 后端）；目前只留接口，不实现
+
+### 3.2 HTTP API
+
+| 方法 | 路径 | 作用 |
+|---|---|---|
+| GET | `/v1/health` | 存活与版本 |
+| GET | `/v1/plugins` | 已安装插件、版本、是否可用（模型是否就位） |
+| GET / PUT | `/v1/config` | 读取 / 修改当前配置（密钥只显示环境变量名） |
+| POST | `/v1/jobs` | 上传文件 + 声明，返回 job_id |
+| GET | `/v1/jobs/{id}` | 逐步状态、耗时、交叉验证结论、gaps 摘要 |
+| GET | `/v1/jobs/{id}/pages/{n}` | 单页核对数据：页图、区域框、表格单元格框、词框、该页 gaps |
+| GET | `/v1/packages`、`/v1/packages/{name}` | 包列表；下载 zip |
+| POST | `/v1/packages/check` | 上传一个包，按契约校验 |
+
+UI 只调这套 API；其他系统也可以直接调它来入件。和使用方之间仍然只交接文件（包），不调用使用方。
 
 ```
 kb-intake run  <file> --decl decl.yaml --out ./packages     # 命令行：跑完退出
@@ -136,31 +176,43 @@ UI 里有同样的配置页，可以测试连通性。
 - Postgres：`source` 由入件包 manifest 写入；`ingest_run` 只保留 kb 自己的阶段（tree、build、load），intake 的运行记录随包附带
 - 管理接口的“触发入库”改为“导入入件包”
 
-## 6. 迁移计划
+## 6. 实施计划
+
+### 6.1 已完成（2026-10-20）
+
+| 步 | 内容 | 状态 |
+|---|---|---|
+| 0 | kb 基线 tag `pre-intake-baseline` | 完成 |
+| 1–3 | 拆仓库、契约 v1、流程 A 出包；kb 改读包（kb#32） | PR 已开：kb-intake#1、#2，kb#32 |
+| 3b | Docling 表格主抽取、后处理、三重检查、标题候选（intake 侧） | 主体完成，未开 PR |
+
+第 0–3 步证明了“搬出来不改变结果”。这部分到此为止。
+
+### 6.2 接下来：做成组件（按顺序）
 
 | 步 | 内容 | 验收 |
 |---|---|---|
-| 0 | 定基线：合并 kb 的 #26、#29、#30，在合并后的 main 上重建 6 份报告的 `data/jsonl` 与 layout，跑 31 题评测，打 tag `pre-intake-baseline` | 基线产物与评测结果存档；之后所有“逐字节不变”都对这个 tag |
-| 1 | 建仓库 FoFxjc/kb-intake；用 git filter-repo 带历史从基线搬出相关文件；写契约 v1 schema | `kb-intake check` 能跑 |
-| 2 | 流程 A（原生 PDF）跑通：对 6 份 OCBC 报告出包，先只用 find_tables（`regions.jsonl`、`headings.jsonl`、`docling.json` 可为空或缺省） | 包内页文字、页分类、词坐标、表格单元格与框，与基线产物逐项一致 |
-| 3 | kb 切到读包，删掉搬走的代码；`structure` 改读包 | 重建后 kb 的 4 类 JSONL 除 `document.path` 外与基线逐字节一致（`path` 的差异单独列出）；node_concept、observation、fact 与基线一致；31 题评测与基线一致 |
-| 3b | 接入 Docling：区域、表格主抽取、后处理、三重检查、标题候选（第 9 节） | 见 9.4 |
-| 4 | UI 4 个视图 + 配置页 | 浏览器里上传一份报告，下载到的包通过契约校验 |
-| 5 | 部署：Dockerfile（含 tesseract、rapidocr、Docling 模型权重）、`uv tool install` 两种方式 | 新机器一条命令起 UI，运行时不访问 Hugging Face |
-| 6 | 流程 B（扫描 PDF）：拿一份 OCBC 报告渲染成纯图片再入件 | 与原生版本对比，数字串一致率达标；分歧都有证人记录或缺口 |
+| C | 插件化（§3.1）：把现有 detect / native / 3b 代码重构到接口后面；注册表 + 配置选用；Docling 改为可选 extra；样本专属规则移进 profile | 三种配置都能出合法包且通过 `check`：①基础安装（无 Docling）②Docling 主 + find_tables 副 ③关闭表格抽取；切换只改配置。`examples/` 下一个最小第三方插件，安装后出现在 `/v1/plugins` 并能被选用。24 张基准表与确定性测试仍然通过 |
+| D | 服务与 UI：§3.2 的 API + 4 个视图（上传、运行进度、逐页核对、入件包）+ 配置页 | 浏览器里上传任意 PDF → 看到逐步进度 → 逐页核对看到区域框、表格单元格、gaps → 下载的包通过契约校验。用 OCBC 年报和至少一份非 OCBC 的 PDF 各走一遍 |
+| E | 独立部署：Dockerfile（基础镜像 + 带 Docling 权重的镜像两种）、`uv tool install` | 在一台没有 kb 仓库的机器上，一条 `docker run` 起服务；断网可用；数据目录挂载后重启不丢 |
+| F | 流程 B（扫描 PDF）：OCR 插件 | 合成扫描集出包；数字串一致率达标；分歧都有证人记录或缺口 |
 
-第 0–3 步做完才算拆分完成；3b 之后表格改为以 Docling 为主。先拆后换，两件事的验收互不干扰。
+### 6.3 不在组件范围内（使用方各自的事）
 
+- kb 用 3b 包重建、31 题评测、观测与事实的逐条差异：等 kb 决定接入 3b 包时，作为 kb 的任务单独做
+- 某个文档系列的规则调优（如中文版年报的子附注识别）：写进对应 profile，按需做
 ## 7. 部署
 
 - 单容器：`docker run -p 8700:8700 -v ./intake-data:/data -e INTAKE_LLM_API_KEY=... kb-intake serve`
+- 两种镜像：`kb-intake:base`（只有 PyMuPDF）、`kb-intake:docling`（带按 revision 固定的模型权重）
+- 配置：挂载 `intake.yaml`，或用 `INTAKE_*` 环境变量覆盖；不读任何 `KB_*` 变量
 - 或本机：`uv tool install git+https://github.com/FoFxjc/kb-intake` 后 `kb-intake serve`
 - Docling 模型权重在构建镜像时用 `docling-tools models download` 按 Hugging Face revision 预下载，放在 `artifacts_path`；企业内网环境无需连 Hugging Face
 - kb 与 intake 之间只有文件交接：共享目录、手动上传 zip，或 kb 管理页“导入入件包”
 
 ## 8. 不做
 
-常驻 worker、消息队列、intake 调 kb 的接口、intake 写 kb 的数据库、多租户、权限系统。
+独立 worker 进程、消息队列、intake 调 kb 的接口、intake 写 kb 的数据库、多租户、权限系统。
 
 ## 9. 抽取层：Docling 主 + find_tables 副，稳定性优先（已确认）
 
@@ -236,3 +288,7 @@ UI 里有同样的配置页，可以测试连通性。
   - `doc_id` 写在声明里，kb 导入时复算校验（`profiles.abbr` 属于类型配置，intake 不能 import）
   - `document.path` 指向 working.pdf；第 3 步逐字节验收豁免这一个字段
   - 编号：拆分 D49，Docling 抽取层 D50
+- 2026-10-21 定位纠偏（Peter）：
+  - 目标是可插拔、可独立部署的组件；现有文件只用来测试功能和 UI
+  - 新增 §3.1 插件接口、§3.2 HTTP API；第 6 节改为实施计划：C 插件化 → D 服务与 UI → E 独立部署 → F 扫描件
+  - kb 侧的 3b 重建与评测移出组件范围（§6.3）
