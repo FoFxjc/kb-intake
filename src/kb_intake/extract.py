@@ -31,7 +31,7 @@ from pathlib import Path
 
 import pymupdf
 
-from kb_intake import deps, geometry, runner, textlayer
+from kb_intake import deps, geometry, llm, runner, textlayer
 from kb_intake.config import Config
 from kb_intake.engines.docling import DoclingEngine, extract_tables
 from kb_intake.jobs import Job, Jobs
@@ -471,6 +471,8 @@ def _run(jobs: Jobs, job_id: str, cfg: Config, engine, progress) -> dict:
                              bbox=list(t["bbox"])))
         rows, tables = finish_tables(rows, tables)
         gaps = sorted(tag_table_gaps(gaps, tables), key=gap_key)
+        with pymupdf.open(job.source) as pdf:          # LLM descriptions (off unless configured): llm/, not here
+            llm.describe_regions(job.dir, cfg, wf, rows, pdf, progress=progress)
         write_jsonl(out / "regions.jsonl", rows)
         write_jsonl(out / "tables.jsonl", tables)
         write_jsonl(out / "gaps.jsonl", gaps)

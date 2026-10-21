@@ -65,7 +65,7 @@ from kb_intake import workflow as workflow_mod
 from kb_intake.jobs import AlreadyDelivered, Busy, JobError, Jobs, WrongState
 from kb_intake.package import read_json, read_jsonl, sha_file
 from kb_intake.service import api_models as m
-from kb_intake.service.runner_thread import StepRunner
+from kb_intake.service.runner_thread import Background, StepRunner
 
 STATIC = Path(__file__).with_name("static")
 STAGES = ("label", "extract")
@@ -131,8 +131,9 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
     jobs.recover()
     cfg.delivery_dir.mkdir(parents=True, exist_ok=True)
     runner = StepRunner()
+    summaries = Background()
     app = FastAPI(title="kb-intake", version=__version__)
-    app.state.jobs, app.state.runner, app.state.cfg = jobs, runner, cfg
+    app.state.jobs, app.state.runner, app.state.cfg, app.state.summaries = jobs, runner, cfg, summaries
     allowed_hosts = {*LOCAL_HOSTS, *(_hostname(h) for h in hosts if h not in ("0.0.0.0", "::", ""))}
 
     @app.middleware("http")
@@ -200,7 +201,11 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
             raise HTTPException(404, f"job {job.id} has no page {n}")
 
     def run_label(job_id: str):
-        return lambda: _step("label").run(jobs, job_id, cfg, engine=engines.get("label"))
+        def work():
+            _step("label").run(jobs, job_id, cfg, engine=engines.get("label"))
+            # the summary (LLM, when enabled) must not keep the job from its workflow: own thread, no step slot
+            summaries.start(f"summary-{job_id}", lambda: _step("llm").summarize(jobs, job_id, cfg))
+        return work
 
     def run_extract(job_id: str):
         return lambda: _step("extract").run(jobs, job_id, cfg, engine=engines.get("extract"))
@@ -420,20 +425,34 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
     @app.get("/v1/jobs/{job_id}/summary", **route(m.Summary, 404))
     def job_summary(job_id: str):
         """The document summary (LLM, low weight); `off` when the LLM is not enabled."""
-        get_job(job_id)
+        job = get_job(job_id)
         info = config.public_llm_info(cfg)
-        return {"status": "off", "provider": info["provider"], "model": info["model"], "remote": info["remote"],
-                "text": None}
+        llm = _step("llm")
+        state = job.dir / "llm" / "summary.json"
+        status = read_json(state)["status"] if state.is_file() else "off"
+        row = next((r for r in llm.rows_of(job.dir) if r["kind"] == "summary"), None)
+        return {"status": status, "provider": row["provider"] if row else info["provider"],
+                "model": row["model"] if row else info["model"], "remote": info["remote"],
+                "text": row["output"]["text"] if row else None}
 
     @app.get("/v1/jobs/{job_id}/llm", **route(m.LlmView, 404))
     def job_llm(job_id: str, kind: Literal["summary", "describe", "chart_table"] | None = None,
                 region_id: str | None = None):
         """LLM outputs of the job (llm.jsonl rows) and progress per use."""
-        get_job(job_id)
+        job = get_job(job_id)
         info = config.public_llm_info(cfg)
-        zero = {"total": 0, "done": 0, "cached": 0, "failed": 0}
-        return {"enabled": info["enabled"], "remote": info["remote"],
-                "progress": {k: dict(zero) for k in config.LLM_FEATURES}, "items": []}
+        llm = _step("llm")
+        rows, gaps = llm.rows_of(job.dir), llm.gaps_of(job.dir)
+        run = job.dir / "llm" / "run.json"
+        cached = read_json(run) if run.is_file() else {}
+        progress = {}
+        for k in config.LLM_FEATURES:
+            done, failed = sum(r["kind"] == k for r in rows), sum(g["kind"] == k for g in gaps)
+            progress[k] = {"total": done + failed, "done": done, "cached": int(cached.get(k, {}).get("cached", 0)),
+                           "failed": failed}
+        items = [r for r in rows if (kind is None or r["kind"] == kind)
+                 and (region_id is None or r["region_id"] == region_id)]
+        return {"enabled": info["enabled"], "remote": info["remote"], "progress": progress, "items": items}
 
     # ---------- workflow and approval ----------
 

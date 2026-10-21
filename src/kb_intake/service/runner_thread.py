@@ -54,3 +54,26 @@ class StepRunner:
         if t is not None:
             t.join(timeout)
         return self.busy() is None
+
+
+class Background:
+    """Work that must not hold the step slot (the LLM summary after labelling, intake-ui-llm-design-v1 §4.2): each
+    `start` runs on its own daemon thread; failures are printed, the work records its own outcome."""
+
+    def __init__(self):
+        self._threads: list[threading.Thread] = []
+
+    def start(self, name: str, work: Callable[[], object]) -> None:
+        def run():
+            try:
+                work()
+            except Exception:  # noqa: BLE001 - recorded by the work itself (llm/summary.json)
+                traceback.print_exc()
+        t = threading.Thread(target=run, daemon=True, name=f"kb-intake-{name}")
+        self._threads.append(t)
+        t.start()
+
+    def wait(self, timeout: float | None = None) -> bool:
+        for t in list(self._threads):
+            t.join(timeout)
+        return not any(t.is_alive() for t in self._threads)

@@ -28,7 +28,7 @@ import uuid
 from collections import Counter
 from pathlib import Path
 
-from kb_intake import __version__, contract, extract, review, workflow
+from kb_intake import __version__, contract, extract, llm, review, workflow
 from kb_intake.config import Config
 from kb_intake.jobs import Job, Jobs, WrongState, now
 from kb_intake.package import name as package_name
@@ -80,7 +80,7 @@ def _deliver(jobs: Jobs, job: Job, cfg: Config, name: str, t0: float) -> Path:
     try:
         pkg = tmp / name
         pkg.mkdir(parents=True)
-        _build(jobs, job, pkg, t0)               # confirmed: no review can change the files any more
+        _build(jobs, job, pkg, t0, cfg)          # confirmed: no review can change the files any more
         result = contract.check(pkg)
         if not result["ok"]:
             raise DeliveryError("the package fails the contract v2 check: " + "; ".join(result["errors"][:5]))
@@ -141,7 +141,7 @@ def _versions(label_run: dict, extract_run: dict) -> dict:
     return lv if lv == xv or not xv else {**lv, "extract_stage": xv}
 
 
-def _build(jobs: Jobs, job: Job, pkg: Path, t0: float) -> None:
+def _build(jobs: Jobs, job: Job, pkg: Path, t0: float, cfg: Config) -> None:
     d = job.dir
     wf_row = jobs.workflow(job.id, job.workflow_version)
     wf = workflow.parse(wf_row["text"])
@@ -168,6 +168,9 @@ def _build(jobs: Jobs, job: Job, pkg: Path, t0: float) -> None:
     write_jsonl(pkg / "review.jsonl", ops)
     write_json(pkg / "workflow.json", {"workflow": wf, "approved_by": job.approved_by,
                                        "approved_at": job.approved_at})
+    llm_rows = llm.rows_of(d)
+    if llm_rows:                                   # LLM outputs (low weight): only when there are any
+        write_jsonl(pkg / "llm.jsonl", llm_rows)
     for src, dst in ((d / "label" / "docling.json", "raw/docling.json"),
                      (d / "extract" / "docling.extract.json", "raw/docling.extract.json")):
         if src.is_file():
@@ -181,6 +184,7 @@ def _build(jobs: Jobs, job: Job, pkg: Path, t0: float) -> None:
             rows = sum(1 for line in p.open(encoding="utf-8") if line.strip()) if rel.endswith(".jsonl") else None
             files[rel] = {"sha256": sha_file(p), "bytes": p.stat().st_size, "rows": rows}
 
+    llm_entry, llm_run = llm.manifest_entry(d, cfg)
     engines = label_run["engines"]
     le, ee = label_run["engine"], extract_run["engine"]
     kinds = detection.get("page_kinds") or _counts([p for p in pages if p["kind"] is not None], "kind")
@@ -209,11 +213,13 @@ def _build(jobs: Jobs, job: Job, pkg: Path, t0: float) -> None:
                      "approved_by": job.approved_by, "approved_at": job.approved_at},
         "status": {"state": "confirmed", "confirmed_by": job.confirmed_by, "confirmed_at": job.confirmed_at},
         "files": files,
+        "llm": llm_entry,
         "kb_intake_version": __version__,
         "run": {"job_id": job.id, "label_seconds": label_run.get("seconds"),
                 "extract_seconds": extract_run.get("seconds"), "deliver_seconds": round(time.monotonic() - t0, 3),
                 "cache_hits": {"label": le["cached"], "extract": ee["cached"]},
                 "engine_seconds": {"label": le["seconds"], "extract": ee["seconds"]},
-                "python": platform.python_version(), "platform": platform.platform(), "delivered_at": now()},
+                "python": platform.python_version(), "platform": platform.platform(), "delivered_at": now(),
+                **({"llm": llm_run} if llm_run is not None else {})},
     }
     write_json(pkg / "manifest.json", manifest)

@@ -32,7 +32,7 @@ from kb_intake.package import read_jsonl, sha_file, write_jsonl
 from kb_intake.vocab import GAP_CODES, REGION_TYPES, STATUSES
 
 SIGNED_FILES = ("label/regions.jsonl", "extract/regions.jsonl", "extract/tables.jsonl", "extract/gaps.jsonl",
-                "review/gaps.jsonl", "review/resolved.jsonl", "llm/llm.jsonl")
+                "review/gaps.jsonl", "review/resolved.jsonl", "llm/llm.jsonl", "llm/gaps.jsonl")
 SOURCES = ("region", "cell", "llm")
 PREVIEW = 200
 FTS = """create virtual table if not exists search_fts using fts5(
@@ -136,6 +136,14 @@ def _load_rows(job) -> Rows:
     else:
         stage, regions, tables = "label", label_regions, []
         gaps = read_jsonl(d / "label" / "gaps.jsonl") if (d / "label" / "gaps.jsonl").is_file() else []
+    llm_kinds: dict[str, set[str]] = {}
+    llm_texts: dict[str, list[str]] = {}
+    llm_file = d / "llm" / "llm.jsonl"
+    for x in read_jsonl(llm_file) if llm_file.is_file() else []:
+        if x["region_id"] is not None:
+            llm_kinds.setdefault(x["region_id"], set()).add(x["kind"])
+            if "text" in x["output"]:
+                llm_texts.setdefault(x["region_id"], []).append(x["output"]["text"])
     open_codes: dict[str, set[str]] = {}
     for g in gaps:
         if g.get("region_id") and not g.get("resolved"):
@@ -145,7 +153,8 @@ def _load_rows(job) -> Rows:
         text = r.get("text") if stage == "current" else None
         rows.append({**r, "status": r.get("status"), "handler": r.get("handler"), "table_id": r.get("table_id"),
                      "text": text if text is not None else by_box.get(r["region_id"]),
-                     "gaps": sorted(open_codes.get(r["region_id"], ())), "llm": []})
+                     "gaps": sorted(open_codes.get(r["region_id"], ())),
+                     "llm": sorted(llm_kinds.get(r["region_id"], ())), "llm_texts": llm_texts.get(r["region_id"], [])})
     return Rows(stage, rows, tables)
 
 
@@ -222,6 +231,8 @@ def _documents(rows: Rows):
                                                               "bbox": c.get("bbox") or table["bbox"]}), c["text"])
         elif r.get("text"):
             yield (r["region_id"], "region", json.dumps({"bbox": r["bbox"]}), r["text"])
+        for text in r.get("llm_texts", ()):
+            yield (r["region_id"], "llm", json.dumps({"bbox": r["bbox"]}), text)
 
 
 WORD = re.compile(r"[^\W_]")              # a letter or digit: what the unicode61 tokenizer keeps

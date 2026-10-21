@@ -6,6 +6,7 @@ Every step is the real one; Docling is the fake engine (tests/fakes.py).
 
 import json
 from functools import partial
+from pathlib import Path
 
 import pytest
 import samples
@@ -182,3 +183,26 @@ def test_a_step_left_by_a_dead_process_does_not_block_the_cli(env, capsys):
     code, out, err = run(capsys, "label", str(pdf), "--decl", str(tmp / "decl.yaml"), "--config", cfg)
     assert code == 0, err
     assert out[0]["job_id"] == job.id and out[0]["status"] == "planned"
+
+
+def test_label_runs_the_llm_summary_when_enabled(env, capsys, monkeypatch):
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent))
+    from fake_llm import FakeLlm
+    from kb_intake import llm_client
+    tmp, cfg = env
+    fake = FakeLlm()
+    try:
+        raw = yaml.safe_load(Path(cfg).read_text())
+        Path(cfg).write_text(yaml.safe_dump({**raw, "llm": {"enabled": True, "base_url": fake.url}}))
+        monkeypatch.setenv("INTAKE_LLM_API_KEY", "sk-cli")
+        monkeypatch.setattr(llm_client, "_sleep", lambda s: None)
+        pdf = samples.build_pdf(tmp / "r.pdf")
+        (tmp / "decl.yaml").write_text(samples.decl_yaml())
+        code, out, _ = run(capsys, "label", str(pdf), "--decl", str(tmp / "decl.yaml"), "--config", cfg)
+        assert code == 0
+        job_dir = tmp / "work" / "jobs" / out[-1]["job_id"]
+        assert json.loads((job_dir / "llm" / "summary.json").read_text()) == {"status": "done"}
+        assert len(fake.requests) == 1
+    finally:
+        fake.close()

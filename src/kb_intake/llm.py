@@ -131,7 +131,13 @@ class Runner:
         self.errors = (llm_client.LlmError,)
         self.cache = cache or llm_cache.Cache(cfg.cache_dir / "llm")
         self.cache_key = llm_cache.cache_key
-        self.stats = {"calls": 0, "cached": 0, "failed": 0, "seconds": 0.0, "tokens": 0}
+        self.by_kind = {k: {"calls": 0, "cached": 0, "failed": 0, "seconds": 0.0, "tokens": 0} for k in PROMPTS}
+
+    @property
+    def stats(self) -> dict:
+        """Totals over the uses: calls, cached, failed, seconds, tokens."""
+        return {k: round(sum(s[k] for s in self.by_kind.values()), 3) for k in ("calls", "cached", "failed",
+                                                                                "seconds", "tokens")}
 
     def enabled(self, feature: str, wf: dict | None = None) -> bool:
         if not self.info["enabled"] or not self.llm.features.get(feature):
@@ -151,9 +157,10 @@ class Runner:
         """(input_sha256, the model's answer text), from the cache or one call. Raises the client's LlmError."""
         sha = input_sha256(kind, text, png)
         key = self.cache_key(self.llm.provider, self.llm.model, PROMPTS[kind][0], sha)
+        st = self.by_kind[kind]
         hit = self.cache.get(key)
         if hit is not None:
-            self.stats["cached"] += 1
+            st["cached"] += 1
             return sha, hit["text"]
         content = []
         if png is not None:
@@ -164,9 +171,9 @@ class Runner:
             done = self.chat(self.llm.base_url, self.llm.model, self.env.get(self.llm.api_key_env, ""), content,
                              max_tokens=MAX_TOKENS[kind])
         finally:
-            self.stats["calls"] += 1
-            self.stats["seconds"] = round(self.stats["seconds"] + time.monotonic() - t0, 3)
-        self.stats["tokens"] += int((done.usage or {}).get("total_tokens") or 0)
+            st["calls"] += 1
+            st["seconds"] = round(st["seconds"] + time.monotonic() - t0, 3)
+        st["tokens"] += int((done.usage or {}).get("total_tokens") or 0)
         self.cache.put(key, {"text": done.text, "usage": done.usage, "model": done.model})
         return sha, done.text
 
@@ -182,7 +189,7 @@ class Runner:
             reason = getattr(e, "code", "error")
         except TableError as e:
             reason = "empty" if str(e) == "empty" else "invalid_table"
-        self.stats["failed"] += 1
+        self.by_kind[kind]["failed"] += 1
         return self._gap(kind, page_no, region_id, reason)
 
     def summary(self, job_dir: Path, decl: dict) -> dict:
@@ -210,3 +217,106 @@ def sort_rows(rows: list[dict], order: dict[str, int]) -> list[dict]:
     kinds = {"summary": 0, "describe": 1, "chart_table": 2}
     return sorted(rows, key=lambda r: (r["region_id"] is not None, order.get(r["region_id"], -1), kinds[r["kind"]]))
 
+
+
+# ---------- a job's LLM work files: llm/llm.jsonl, llm/gaps.jsonl, llm/summary.json, llm/run.json ----------
+
+def rows_of(job_dir: Path) -> list[dict]:
+    p = job_dir / "llm" / "llm.jsonl"
+    return read_jsonl(p) if p.is_file() else []
+
+
+def gaps_of(job_dir: Path) -> list[dict]:
+    p = job_dir / "llm" / "gaps.jsonl"
+    return read_jsonl(p) if p.is_file() else []
+
+
+def _order(job_dir: Path) -> dict[str, int]:
+    p = job_dir / "extract" / "regions.jsonl"
+    p = p if p.is_file() else job_dir / "label" / "regions.jsonl"
+    return {r["region_id"]: r["reading_order"] for r in read_jsonl(p)} if p.is_file() else {}
+
+
+def _save(job_dir: Path, rows: list[dict], gaps: list[dict], runner: "Runner | None" = None) -> None:
+    from kb_intake.package import read_json, write_json, write_jsonl
+    d = job_dir / "llm"
+    d.mkdir(exist_ok=True)
+    order = _order(job_dir)
+    write_jsonl(d / "llm.jsonl", sort_rows(rows, order))
+    write_jsonl(d / "gaps.jsonl", sorted(gaps, key=lambda g: (g["region_id"] is not None,
+                                                               order.get(g["region_id"], -1), g["kind"])))
+    if runner is not None:                     # durations, tokens and cache hits: manifest.run.llm, never llm.jsonl
+        run = read_json(d / "run.json") if (d / "run.json").is_file() else {}
+        for kind, st in runner.by_kind.items():
+            old = run.get(kind, {})
+            run[kind] = {k: round(old.get(k, 0) + v, 3) for k, v in st.items()}
+        write_json(d / "run.json", run)
+
+
+def summarize(jobs, job_id: str, cfg: config.Config, chat=None, env=None) -> dict | None:
+    """The document summary of a labelled job (llm.jsonl row or llm_failed gap); None when the summary is off.
+    llm/summary.json says pending, done or failed while and after it runs."""
+    from kb_intake.package import write_json
+    runner = Runner(cfg, chat=chat, env=env)
+    if not runner.enabled("summary"):
+        return None
+    job = jobs.get(job_id)
+    d = job.dir
+    (d / "llm").mkdir(exist_ok=True)
+    write_json(d / "llm" / "summary.json", {"status": "pending"})
+    out = runner.summary(d, job.declaration)
+    rows = [r for r in rows_of(d) if r["kind"] != "summary"]
+    gaps = [g for g in gaps_of(d) if g["kind"] != "summary"]
+    if out.get("code") == "llm_failed":
+        gaps.append(out)
+        status = {"status": "failed", "reason": out["reason"]}
+    else:
+        rows.append(out)
+        status = {"status": "done"}
+    _save(d, rows, gaps, runner)
+    write_json(d / "llm" / "summary.json", status)
+    return out
+
+
+def describe_regions(job_dir: Path, cfg: config.Config, wf: dict, regions: list[dict], pdf: pymupdf.Document,
+                     only: set[str] | None = None, chat=None, env=None, progress=None) -> dict:
+    """Describe (and, for charts, read into a table) the regions whose handler is `describe` and status
+    extracted, replacing the describe / chart_table rows and gaps of `only` (all regions when None). Returns
+    {"rows", "failed", "regions"}; nothing is called or written when the LLM or the use is off (the old rows of
+    those regions are still dropped)."""
+    runner = Runner(cfg, chat=chat, env=env)
+    on = runner.enabled("describe", wf)
+    todo = [r for r in regions if r.get("handler") == "describe" and r.get("status") == "extracted"
+            and (only is None or r["region_id"] in only)] if on else []
+    keep = (lambda x: x["kind"] == "summary") if only is None else \
+        (lambda x: x["kind"] == "summary" or x["region_id"] not in only)
+    rows, gaps = [r for r in rows_of(job_dir) if keep(r)], [g for g in gaps_of(job_dir) if keep(g)]
+    if not todo and not (job_dir / "llm").is_dir():
+        return {"rows": 0, "failed": 0, "regions": 0}
+    if progress and todo:
+        progress("llm", "started", {"regions": len(todo)})
+    calls = [c for r in todo for c in runner.describe_inputs(r, pdf[r["page_no"] - 1], wf)]
+    for out in runner.run_many(calls):
+        (gaps if out.get("code") == "llm_failed" else rows).append(out)
+    _save(job_dir, rows, gaps, runner if todo else None)
+    done = {"rows": sum(1 for r in rows if r["kind"] != "summary"), "failed": runner.stats["failed"],
+            "regions": len(todo)}
+    if progress and todo:
+        progress("llm", "done", done)
+    return done
+
+
+def manifest_entry(job_dir: Path, cfg: config.Config) -> tuple[dict, dict | None]:
+    """(manifest.llm, manifest.run.llm or None) of a job about to be delivered."""
+    from kb_intake.package import read_json
+    rows, gaps = rows_of(job_dir), gaps_of(job_dir)
+    run = job_dir / "llm" / "run.json"
+    if not rows and not gaps:
+        return {"used": False}, None
+    counts = {k: sum(r["kind"] == k for r in rows) for k in PROMPTS}
+    entry = {"used": True, "provider": cfg.llm.provider, "model": cfg.llm.model, "remote": cfg.llm.remote,
+             "counts": {**counts, "failed": len(gaps)}}
+    by_kind = read_json(run) if run.is_file() else {}
+    totals = {k: round(sum(v.get(k, 0) for v in by_kind.values()), 3)
+              for k in ("calls", "cached", "failed", "seconds", "tokens")}
+    return entry, totals

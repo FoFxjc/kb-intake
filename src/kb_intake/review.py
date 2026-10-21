@@ -42,6 +42,8 @@ stored in the job store just before the files are replaced; a crash between the 
 from contextlib import nullcontext
 from pathlib import Path
 
+import pymupdf
+
 from kb_intake import extract, textlayer, workflow
 from kb_intake.config import Config
 from kb_intake.jobs import Jobs, WrongState, now
@@ -89,7 +91,9 @@ def all_gaps(job_dir: Path, state: dict | None = None) -> list[dict]:
     """Label + extract + review gaps, with `resolved` set on those review dealt with, in delivery order."""
     state = state or current(job_dir)
     lookup = resolution_of(state["resolved"])
-    gaps = read_jsonl(job_dir / "label" / "gaps.jsonl") + state["extract_gaps"] + state["review_gaps"]
+    llm_gaps = job_dir / "llm" / "gaps.jsonl"
+    gaps = read_jsonl(job_dir / "label" / "gaps.jsonl") + state["extract_gaps"] + state["review_gaps"] \
+        + (read_jsonl(llm_gaps) if llm_gaps.is_file() else [])
     out = [{**g, "resolved": r} if (r := lookup(g)) else g for g in gaps]
     return sorted(out, key=extract.gap_key)
 
@@ -268,6 +272,10 @@ def apply(jobs: Jobs, job_id: str, ops: list[dict], by: str, cfg: Config) -> lis
             write_jsonl(job.dir / "review" / "gaps.jsonl", review_gaps)
             write_json(job.dir / "review" / "absorbed.json", dict(sorted(absorbed.items())))
         write_jsonl(job.dir / "review" / "resolved.jsonl", resolved)
+        if touches_regions:                       # LLM output of the changed regions follows their new handler
+            from kb_intake import llm
+            with pymupdf.open(job.source) as pdf:
+                llm.describe_regions(job.dir, cfg, wf, rows, pdf, only=changed)
     jobs.event(job_id, "review", "applied", {"ops": len(records), "by": by})
     return records
 

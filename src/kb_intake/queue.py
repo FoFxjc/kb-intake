@@ -1,8 +1,9 @@
 """The review queue (intake-ui-llm-design-v1 §3.1 `queue`, §3.4): what the reviewer should look at after extraction,
 grouped by problem.
 
-- Items: every gap of the job (label, extract and review stages), and every table whose `continued_hint` is the weak
-  kind (`same_first_row`; the strong `continued_heading` needs no look). Before extraction the queue is empty.
+- Items: every gap of the job (label, extract, review and LLM), every table whose `continued_hint` is the weak kind
+  (`same_first_row`; the strong `continued_heading` needs no look), and every LLM description (to check against the
+  chart). Before extraction the queue is empty.
 - Status: `resolved` when review dealt with the item (the gap carries `resolved`, or an `ack` op targets the item);
   else `seen` when the UI reported it shown (work state only, never delivered); else `open`.
 - Item ids are stable across review: `gap:{code}:{page or 0}:{region_id or table_id or -}`, `hint:{region_id}` (the
@@ -14,7 +15,8 @@ from kb_intake.jobs import Jobs
 from kb_intake.review import POST_EXTRACT
 from kb_intake.vocab import GAP_CODES, GAP_LABELS
 
-GROUPS = {**{c: GAP_LABELS[c] for c in GAP_CODES}, "continued_hint": "Continuation hints (weak)"}
+GROUPS = {**{c: GAP_LABELS[c] for c in GAP_CODES}, "continued_hint": "Continuation hints (weak)",
+          "llm_check": "Chart descriptions to check"}
 
 
 def item_id(target: dict) -> str:
@@ -70,6 +72,12 @@ def items(jobs: Jobs, job_id: str) -> list[dict]:
             add("continued_hint", _target("hint", hint["reason"], t["page_no"], t["region_id"], t["table_id"]),
                 t["bbox"], f"May continue table {hint['table_id']} (same column count and first row); a hint only, "
                            "intake does not merge tables", None)
+    from kb_intake import llm
+    for x in llm.rows_of(d):
+        if x["kind"] == "describe" and x["region_id"] in regions:
+            r = regions[x["region_id"]]
+            add("llm_check", _target("llm", "describe", r["page_no"], r["region_id"], None), r["bbox"],
+                "LLM description (low weight): " + x["output"]["text"][:300], None)
     order = list(GROUPS)
     return sorted(out, key=lambda i: (order.index(i["group"]) if i["group"] in order else len(order),
                                       i["page_no"] or 0, i["item_id"]))

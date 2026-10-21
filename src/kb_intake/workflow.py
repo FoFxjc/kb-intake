@@ -133,11 +133,17 @@ def llm_switch(wf: dict, feature: str, default: bool) -> bool:
     return wf.get("llm", {}).get(feature, default)
 
 
-def suggest(stats: dict) -> tuple[dict, list[str]]:
+def suggest(stats: dict, describe: str | None = None) -> tuple[dict, list[str]]:
     """(the suggested workflow, notes for the user) from the label-stage stats. The suggestion is the default
-    template; the notes point at what the user should look at before approving."""
+    template, with charts and diagrams set to `describe` when LLM descriptions are available (`describe` names the
+    model then); the notes point at what the user should look at before approving."""
     wf = load_template()
     notes: list[str] = []
+    if describe:
+        wf["handlers"].update(chart="describe", diagram="describe")
+        n = sum((stats.get("regions_by_type") or {}).get(t, 0) for t in ("chart", "diagram"))
+        notes.append(f"{n} chart and diagram region(s) are set to describe: their images and text will be sent to "
+                     f"{describe} (a remote service) for a low-weight description")
     kinds = stats.get("pages_by_kind") or {}
     scanned, mixed = kinds.get("scanned", 0), kinds.get("mixed", 0)
     if scanned:

@@ -38,7 +38,7 @@ from importlib.metadata import version as pkg_version
 
 import pymupdf
 
-from kb_intake import deps, detect, findtables, runner, textlayer, vocab, workflow
+from kb_intake import config, deps, detect, findtables, runner, textlayer, vocab, workflow
 from kb_intake.config import Config
 from kb_intake.engines.docling import DoclingEngine, label_items
 from kb_intake.geometry import area, inter, iou
@@ -219,7 +219,9 @@ def _run(jobs: Jobs, job, cfg: Config, engine, emit) -> dict:
              "low_confidence": codes["low_confidence"], "table_suspected": codes["table_suspected"],
              "estimated_extract_seconds": _estimate(engine, job, cfg, detection["page_count"]),
              "label_seconds": seconds}
-    wf, notes = workflow.suggest(stats)
+    llm_info = config.public_llm_info(cfg)
+    wf, notes = workflow.suggest(stats, llm_info["model"] if llm_info["enabled"] and llm_info["features"]["describe"]
+                                 else None)
     stats["workflow_notes"] = notes
     write_json(out / "stats.json", stats)
     write_json(out / "run.json", {

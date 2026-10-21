@@ -128,6 +128,7 @@ def _label(args) -> int:
     job, created = jobs.create(src, decl, cfg.delivery_dir)
     if job.status == "uploaded":                 # a new job, or the retry of a label step that failed
         _step("label").run(jobs, job.id, cfg, progress=_progress)
+        _step("llm").summarize(jobs, job.id, cfg)     # when the LLM is enabled; a failure is an llm_failed gap
         job = jobs.get(job.id)
     _out(_label_result(jobs, job, existing=not created))
     return 0

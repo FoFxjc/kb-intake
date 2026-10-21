@@ -7,6 +7,7 @@ The source has two pages, each with a heading (y 68-84) and body text (y 100-140
   P106_BOX (OCBC p106: a table Docling missed), so label raises a find_tables `table_suspected` gap.
 """
 
+import dataclasses
 import json
 from types import SimpleNamespace
 
@@ -57,10 +58,14 @@ def build_pdf(path):
 P106_SPLIT = ((60, 390, 420, 445), (60, 455, 420, 510))     # OCBC p106 as Docling saw it: one text item per row
 
 
-def engine(tmp_path, stage: str, behaviour: str = "ok", p106_split: bool = False) -> FakeEngine:
+CHART_BOX = (80, 600, 400, 760)     # with `chart`: a picture the classifier calls a bar chart, on page 1
+
+
+def engine(tmp_path, stage: str, behaviour: str = "ok", p106_split: bool = False, chart: bool = False) -> FakeEngine:
     """The fake Docling of this source. Page 2's table is one text item over P106_BOX, or with `p106_split` one
     text item per table row (P106_SPLIT), the first of which gets the table_suspected gap."""
-    doc, clusters = document(pages=2, stage=stage, table_page=1, table_box=TABLE_BOX)
+    pictures = [(1, CHART_BOX, [["bar_chart", 0.93], ["line_chart", 0.04]])] if chart else []
+    doc, clusters = document(pages=2, stage=stage, table_page=1, table_box=TABLE_BOX, pictures=pictures)
     for box in (P106_SPLIT if p106_split else (P106_BOX,)):     # the text item(s) that swallow page 2's table
         ref = f"#/texts/{len(doc['texts'])}"
         doc["texts"].append({"self_ref": ref, "label": "text", "content_layer": "body", "text": "docling (ignored)",
@@ -72,24 +77,29 @@ def engine(tmp_path, stage: str, behaviour: str = "ok", p106_split: bool = False
                       doc=json.dumps([doc, clusters]), calls=str(tmp_path / "calls.txt"))
 
 
-def config(tmp_path, work="work", delivery="delivery") -> Config:
-    return Config(models_dir=tmp_path / "models", cache_dir=tmp_path / "cache", work_dir=tmp_path / work,
-                  delivery_dir=tmp_path / delivery)
+def config(tmp_path, work="work", delivery="delivery", llm_url: str | None = None) -> Config:
+    """With `llm_url`, the LLM is enabled against that endpoint (the key must be in INTAKE_LLM_API_KEY)."""
+    cfg = Config(models_dir=tmp_path / "models", cache_dir=tmp_path / "cache", work_dir=tmp_path / work,
+                 delivery_dir=tmp_path / delivery)
+    if llm_url:
+        cfg = dataclasses.replace(cfg, llm=dataclasses.replace(cfg.llm, enabled=True, base_url=llm_url))
+    return cfg
 
 
-def in_review(tmp_path, work="work", delivery="delivery", workflow_text=None, source=None, p106_split=False):
+def in_review(tmp_path, work="work", delivery="delivery", workflow_text=None, source=None, p106_split=False,
+              chart=False, llm_url=None):
     """A job labelled, approved (optionally with `workflow_text`) and extracted: state `in_review`."""
-    cfg = config(tmp_path, work, delivery)
+    cfg = config(tmp_path, work, delivery, llm_url)
     jobs = Jobs(cfg.work_dir)
     src = source or tmp_path / "demo.pdf"
     if not src.exists():
         build_pdf(src)
     job, _ = jobs.create(src, dict(DECL))
-    label.run(jobs, job.id, cfg, engine=engine(tmp_path, "label", p106_split=p106_split))
+    label.run(jobs, job.id, cfg, engine=engine(tmp_path, "label", p106_split=p106_split, chart=chart))
     if workflow_text is not None:
         jobs.save_workflow(job.id, workflow_text)
     jobs.approve(job.id, "peter")
-    extract.run(jobs, job.id, cfg, engine=engine(tmp_path, "extract", p106_split=p106_split))
+    extract.run(jobs, job.id, cfg, engine=engine(tmp_path, "extract", p106_split=p106_split, chart=chart))
     return SimpleNamespace(jobs=jobs, job=jobs.get(job.id), cfg=cfg, src=src)
 
 
