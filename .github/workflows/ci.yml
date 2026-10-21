@@ -21,9 +21,49 @@ jobs:
       - name: No CJK characters outside the design documents
         run: |
           # grep exits 0 on a match, 1 on none, 2 on an error (a missing path, no -P): only 1 passes
-          paths=$(ls -d src tests scripts contract README.md AGENTS.md intake.example.yaml 2>/dev/null)
-          rc=0; grep -rnP '[\x{3000}-\x{303f}\x{4e00}-\x{9fff}\x{ff00}-\x{ffef}]' $paths || rc=$?
+          # -I skips binary files (fonts, CMaps and wasm of the built UI under src/kb_intake/service/static)
+          paths=$(ls -d src tests scripts contract README.md AGENTS.md intake.example.yaml web/src web/e2e web/scripts \
+            web/index.html 2>/dev/null)
+          rc=0; grep -rnIP '[\x{3000}-\x{303f}\x{4e00}-\x{9fff}\x{ff00}-\x{ffef}]' $paths || rc=$?
           test "$rc" -eq 1
       - run: uv sync --locked
       - run: uv run lint-imports
       - run: uv run pytest -q
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.10.2"
+      - run: npm ci
+      - run: npm run build
+      - name: The committed build and API types match the sources
+        run: |
+          git status --porcelain ../src/kb_intake/service/static src/api
+          test -z "$(git status --porcelain ../src/kb_intake/service/static src/api)"
+      - name: The wheel ships the UI (uv tool install needs no Node)
+        run: |
+          uv build --wheel -o ../dist ..
+          python3 - <<'PY'
+          import glob, zipfile
+          names = zipfile.ZipFile(glob.glob("../dist/kb_intake-*.whl")[0]).namelist()
+          assert "kb_intake/service/static/index.html" in names, "index.html missing from the wheel"
+          assert any(n.startswith("kb_intake/service/static/assets/pdf.worker") for n in names), "pdf.js worker missing"
+          print(sum(n.startswith("kb_intake/service/static/") for n in names), "UI files in the wheel")
+          PY
+      - run: uv sync --locked
+      - run: npx playwright install --with-deps chromium
+      - name: Browser tests against the fake-engine server (tests/e2e_server.py)
+        run: npx playwright test
+        env:
+          CI: "1"
