@@ -168,9 +168,9 @@ delivery/
 
 | `code` | 含义 |
 |---|---|
-| `table_suspected` | 疑似表格但没被当成表格：find_tables 在非表格区块里找到了表（p106 那种，附 find_tables 的框）；或图形分类器把一张图片判为表格（图片形式的表，需要 OCR，`source: classifier`） |
+| `table_suspected` | 疑似表格但没被当成表格：find_tables 在非表格区块里找到了表（p106 那种，附 find_tables 的框；框的一半以上落在已有表格或图形区块内的不报）；或图形分类器把一张图片判为表格（图片形式的表，需要 OCR，`source: classifier`） |
 | `low_confidence` | 版面置信度 < 0.5，或图形分类器最高分 < 0.5（阈值可配置） |
-| `table_words_unassigned` | 表格框里有词没有归到任何单元格 |
+| `table_words_unassigned` | 表格框里有**数字或无值符号（`–`、`-`）**没有归到任何单元格（可能是 TableFormer 漏了单元格）；未归入的普通文字只计入该表的 `unassigned_words` 计数，不报 gap |
 | `table_unmatched` | 两个阶段的表格对不上：打标签时是表格、抓取时没匹配到（`side: label`），或抓取时多出来的表（`side: extract`，不交付） |
 | `unhandled` | workflow 规定不处理的区块（含 `ocr` 未实现、`unknown`） |
 | `no_text_layer` | 页或区块没有文字层 |
@@ -259,3 +259,4 @@ kb-intake check   <包>
 
 - 2026-10-21 开工前决定（Peter）：确定性比较豁免人工操作时间字段；图形分类器映射（§5.11），图片形式的表记 `table_suspected`；`label_source` 增加 `native`；`low_confidence` 阈值 0.5；抓取阶段多出来的表记 `table_unmatched`（`side: extract`）；抓取阶段原始输出存为 `raw/docling.extract.json`
 - 2026-10-21 OCBC 试跑后：`continued_hint` 带 `reason`，区分强提示与“首行相同”的弱提示
+- 2026-10-21 OCBC 试跑抽查后：`table_suspected` 跳过落在已有表格或图形区块内的 find_tables 框（33 → 2，p106 保留）；`table_words_unassigned` 只报数字和无值符号
