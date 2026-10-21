@@ -88,6 +88,7 @@ def main() -> int:
         row["cache_hits"] = [json.loads((d / pkg.name / "manifest.json").read_text())["run"].get("cache_hits")
                              for d in dirs if (d / pkg.name).is_dir()]
         report[pkg.name] = row
+    ok &= bool(report)                      # no package compared (e.g. package dirs given): not a pass
     print(json.dumps({"ok": ok, "packages": report}, indent=1))
     return 0 if ok else 1
 
