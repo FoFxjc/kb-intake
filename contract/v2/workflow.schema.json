@@ -1,0 +1,271 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://github.com/FoFxjc/kb-intake/contract/v2/workflow.schema.json",
+ "type": "object",
+ "title": "workflow.json (intake-design-v2 §5.8)",
+ "properties": {
+  "workflow": {
+   "type": "object",
+   "title": "workflow",
+   "properties": {
+    "name": {
+     "type": "string"
+    },
+    "version": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "handlers": {
+     "type": "object",
+     "title": "handlers",
+     "properties": {
+      "title": {
+       "enum": [
+        "text",
+        "table_structure",
+        "record",
+        "discard",
+        "unhandled",
+        "ocr"
+       ]
+      },
+      "heading": {
+       "enum": [
+        "text",
+        "table_structure",
+        "record",
+        "discard",
+        "unhandled",
+        "ocr"
+       ]
+      },
+      "text": {
+       "enum": [
+        "text",
+        "table_structure",
+        "record",
+        "discard",
+        "unhandled",
+        "ocr"
+       ]
+      },
+      "list": {
+       "enum": [
+        "text",
+        "table_structure",
+        "record",
+        "discard",
+        "unhandled",
+        "ocr"
+       ]
+      },
+      "caption": {
+       "enum": [
+        "text",
+        "table_structure",
+        "record",
+        "discard",
+        "unhandled",
+        "ocr"
+       ]
+      },
+      "footnote": {
+       "enum": [
+        "text",
+        "table_structure",
+        "record",
+        "discard",
+        "unhandled",
+        "ocr"
+       ]
+      },
+      "formula": {
+       "enum": [
+        "text",
+        "table_structure",
+        "record",
+        "discard",
+        "unhandled",
+        "ocr"
+       ]
+      },
+      "toc": {
+       "enum": [
+        "text",
+        "table_structure",
+        "record",
+        "discard",
+        "unhandled",
+        "ocr"
+       ]
+      },
+      "table": {
+       "enum": [
+        "text",
+        "table_structure",
+        "record",
+        "discard",
+        "unhandled",
+        "ocr"
+       ]
+      },
+      "chart": {
+       "enum": [
+        "text",
+        "table_structure",
+        "record",
+        "discard",
+        "unhandled",
+        "ocr"
+       ]
+      },
+      "diagram": {
+       "enum": [
+        "text",
+        "table_structure",
+        "record",
+        "discard",
+        "unhandled",
+        "ocr"
+       ]
+      },
+      "picture": {
+       "enum": [
+        "text",
+        "table_structure",
+        "record",
+        "discard",
+        "unhandled",
+        "ocr"
+       ]
+      },
+      "logo": {
+       "enum": [
+        "text",
+        "table_structure",
+        "record",
+        "discard",
+        "unhandled",
+        "ocr"
+       ]
+      },
+      "icon": {
+       "enum": [
+        "text",
+        "table_structure",
+        "record",
+        "discard",
+        "unhandled",
+        "ocr"
+       ]
+      },
+      "signature": {
+       "enum": [
+        "text",
+        "table_structure",
+        "record",
+        "discard",
+        "unhandled",
+        "ocr"
+       ]
+      },
+      "stamp": {
+       "enum": [
+        "text",
+        "table_structure",
+        "record",
+        "discard",
+        "unhandled",
+        "ocr"
+       ]
+      },
+      "page_header": {
+       "enum": [
+        "text",
+        "table_structure",
+        "record",
+        "discard",
+        "unhandled",
+        "ocr"
+       ]
+      },
+      "page_footer": {
+       "enum": [
+        "text",
+        "table_structure",
+        "record",
+        "discard",
+        "unhandled",
+        "ocr"
+       ]
+      },
+      "unknown": {
+       "enum": [
+        "text",
+        "table_structure",
+        "record",
+        "discard",
+        "unhandled",
+        "ocr"
+       ]
+      }
+     },
+     "required": [
+      "title",
+      "heading",
+      "text",
+      "list",
+      "caption",
+      "footnote",
+      "formula",
+      "toc",
+      "table",
+      "chart",
+      "diagram",
+      "picture",
+      "logo",
+      "icon",
+      "signature",
+      "stamp",
+      "page_header",
+      "page_footer",
+      "unknown"
+     ],
+     "additionalProperties": false
+    },
+    "exclude_pages": {
+     "type": "array",
+     "items": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "uniqueItems": true
+    }
+   },
+   "required": [
+    "name",
+    "version",
+    "handlers",
+    "exclude_pages"
+   ],
+   "additionalProperties": false
+  },
+  "revision": {
+   "type": "integer",
+   "minimum": 1
+  },
+  "approved_by": {
+   "type": "string"
+  },
+  "approved_at": {
+   "type": "string"
+  }
+ },
+ "required": [
+  "workflow",
+  "revision",
+  "approved_by",
+  "approved_at"
+ ],
+ "additionalProperties": false
+}

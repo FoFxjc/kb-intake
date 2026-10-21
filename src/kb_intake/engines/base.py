@@ -1,11 +1,11 @@
-"""The two engine interfaces (intake-design §3.1). Plain Protocols, chosen by name in the configuration
-(`ENGINES` in kb_intake.engines); no entry points, no plugin registry.
+"""The two engine interfaces (intake-design-v2 §2). Plain Protocols; no entry points, no plugin registry.
 
-A layout engine is used in two halves so that the pipeline, not the engine, owns caching and fault isolation:
-- `convert(pdf)` runs the model. It is slow, may hang or crash, and runs in a child process with a hard timeout.
-  Its output (`RawResult.data`, e.g. the lossless DoclingDocument) is what the cache stores and the package keeps.
-- `interpret(data, doc_id)` maps that output to contract shapes (region types of layout-design §2, tables with cells).
-  It is a pure function of `data`, so a cached result gives byte-identical packages.
+A layout engine is used in two halves so that the caller, not the engine, owns caching and fault isolation:
+- `convert(pdf)` runs the model. It is slow, may hang or crash, and runs in a child process with a hard timeout
+  (kb_intake.runner). Its output (`RawResult.data`, the lossless DoclingDocument, plus `clusters`) is what the cache
+  stores and the package keeps under raw/.
+- `label_items` / `extract_tables` (kb_intake.engines.docling) turn that output into plain dicts. They are pure
+  functions of the stored output, so a cached result gives byte-identical packages.
 """
 
 from dataclasses import dataclass, field
@@ -30,28 +30,22 @@ class RawResult:
     failed_pages: list[int] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     page_confidence: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class LayoutResult:
-    """Contract-shaped, before post-processing. Regions and tables carry `engine_ref` (the engine's own id of the
-    item) so that post-processing can link tables, regions and gaps."""
-    regions: list[dict]
-    tables: list[dict]
+    # layout clusters that made it into the document, per page: [x0, y0, x1, y1, label, confidence], TOPLEFT points.
+    # DoclingDocument items carry no confidence; it is joined back by page and box (engines.docling.label_items).
+    clusters: dict[str, list] = field(default_factory=dict)
 
 
 class LayoutEngine(Protocol):
     name: str
+    stage: str                              # "label" or "extract"
 
     def info(self) -> EngineInfo: ...
 
     def convert(self, pdf: Path) -> RawResult: ...
 
-    def interpret(self, data: bytes, doc_id: str) -> LayoutResult: ...
-
 
 class OcrEngine(Protocol):
-    """Flow B (scanned pages, step F). Only the interface exists so far."""
+    """Scanned pages and regions (the `ocr` handler, intake-design-v2 §8). Only the interface exists so far."""
     name: str
 
     def info(self) -> EngineInfo: ...

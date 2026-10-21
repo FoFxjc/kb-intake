@@ -1,5 +1,5 @@
 {
- "comment": "Docling 2.140.0 model weights: Hugging Face revision and sha256 of every file. kb-intake models download fetches exactly these and refuses anything else.",
+ "comment": "Docling 2.140.0 model weights: Hugging Face revision and sha256 of every file. kb-intake models download fetches exactly these and refuses anything else. The picture classifier's Docling preset points at the floating revision 'main'; it is pinned here and set explicitly by the engine.",
  "models": [
   {
    "repo_id": "docling-project/docling-layout-heron",
@@ -28,6 +28,18 @@
     "model_artifacts/tableformer/accurate/tm_config.json": "984e122ceb8ccf84d84c9d2882f6f2302a44b4f1e577babd6289892c36f3cffd",
     "model_artifacts/tableformer/fast/tableformer_fast.safetensors": "3119563aab5a7c96fda4d621119b63fd8806272b86c30936d15507616422f718",
     "model_artifacts/tableformer/fast/tm_config.json": "dca6762508dddfae6d57d6cb4ef822c6000119dff0f3b6489db7413118c2622a"
+   }
+  },
+  {
+   "repo_id": "docling-project/DocumentFigureClassifier-v2.5",
+   "revision": "f859dfbff5c9916cd996942d4b0db7fa25808220",
+   "role": "picture_classifier",
+   "files": {
+    ".gitattributes": "578ac51c49a4dc3bb76753773665a312894ace5cbbc9db61eb522eba28fc893e",
+    "README.md": "df8d868e8a850ae0edd585a21eaf42d6ec00cd07374465e8e98a3a73df429e43",
+    "config.json": "dbed0349fb8b12fad95d8ff7f43b062c40971e06d9d957b25e90d91dfd3bd77e",
+    "model.safetensors": "6bf1e44d6bce316dcade6eb9929d8f8d23b6e8d9d29062b3b4011cff87c7c3cd",
+    "preprocessor_config.json": "118dc069572036346fbacc3e15586089d3f8a9aaf9036c0c54b4666236a28032"
    }
   }
  ]

@@ -1,0 +1,83 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://github.com/FoFxjc/kb-intake/contract/v2/gap.schema.json",
+ "type": "object",
+ "title": "gaps.jsonl row (intake-design-v2 §5.7)",
+ "properties": {
+  "code": {
+   "enum": [
+    "table_suspected",
+    "low_confidence",
+    "table_words_unassigned",
+    "table_unmatched",
+    "unhandled",
+    "no_text_layer",
+    "lang_mismatch",
+    "extractor_degraded"
+   ]
+  },
+  "page_no": {
+   "oneOf": [
+    {
+     "type": "integer",
+     "minimum": 1
+    },
+    {
+     "type": "null"
+    }
+   ]
+  },
+  "region_id": {
+   "type": "string",
+   "pattern": "^[a-z0-9][a-z0-9._-]*:p[0-9]{4}:r[0-9]{3}$"
+  },
+  "table_id": {
+   "type": "string",
+   "pattern": "^[a-z0-9][a-z0-9._-]*:t[0-9]{4}_[0-9]{2}$"
+  },
+  "detail": {
+   "type": "string"
+  },
+  "source": {
+   "enum": [
+    "find_tables",
+    "classifier",
+    "layout"
+   ]
+  },
+  "side": {
+   "enum": [
+    "label",
+    "extract"
+   ]
+  },
+  "bbox": {
+   "type": "array",
+   "items": {
+    "type": "number"
+   },
+   "minItems": 4,
+   "maxItems": 4
+  },
+  "pages": {
+   "type": "array",
+   "items": {
+    "type": "integer",
+    "minimum": 1
+   }
+  },
+  "extractor": {
+   "type": "string"
+  },
+  "count": {
+   "type": "integer",
+   "minimum": 0
+  }
+ },
+ "required": [
+  "code",
+  "page_no",
+  "detail"
+ ],
+ "additionalProperties": false
+}

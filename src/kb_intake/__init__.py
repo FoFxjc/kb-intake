@@ -1,4 +1,5 @@
-"""kb-intake: scan files, label their structure with Docling, and write standard intake packages (contract v1)."""
+"""kb-intake: the scan layer. Label a PDF's regions with Docling, extract them by an approved workflow, and deliver
+confirmed packages (contract v2)."""
 
-__version__ = "0.2.0"
-CONTRACT_VERSION = "1"
+__version__ = "0.3.0"
+CONTRACT_VERSION = "2"

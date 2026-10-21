@@ -1,4 +1,4 @@
-"""Running a layout engine with cache and fault isolation (intake-design §9.3).
+"""Running a layout engine with cache and fault isolation (intake-design-v1 §9.3, still in force in v2).
 
 - Cache key: source sha256 + engine name and version + the installed versions of the dependency closure
   (kb_intake.deps) + model revisions + parameters. A hit returns the stored output byte for byte, which is what makes
@@ -37,6 +37,7 @@ class Outcome:
     errors: list[str] = field(default_factory=list)
     page_confidence: dict = field(default_factory=dict)
     cache_written: bool = False
+    clusters: dict = field(default_factory=dict)
 
     @property
     def complete(self) -> bool:
@@ -139,13 +140,14 @@ def run(engine: LayoutEngine, pdf: Path, source_sha256: str, cache_dir: Path, wa
         data, meta = hit
         raw = RawResult(**{**meta["raw"], "data": data})
         return Outcome(raw.status, data, key, True, meta["seconds"], raw.failed_pages, raw.errors,
-                       raw.page_confidence)
+                       raw.page_confidence, clusters=raw.clusters)
     t0 = time.monotonic()
     status, raw, detail = convert_isolated(engine, pdf, wall_timeout)
     seconds = round(time.monotonic() - t0, 1)
     if raw is None:
         return Outcome(status, None, key, False, seconds, errors=[detail])
-    out = Outcome(raw.status, raw.data, key, False, seconds, raw.failed_pages, raw.errors, raw.page_confidence)
+    out = Outcome(raw.status, raw.data, key, False, seconds, raw.failed_pages, raw.errors, raw.page_confidence,
+                  clusters=raw.clusters)
     if out.complete and info.ready:
         out.cache_written = write_cache(entry, raw.data, raw, seconds)
     return out

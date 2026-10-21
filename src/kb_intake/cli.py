@@ -1,11 +1,9 @@
-"""Command line (intake-design §3.2):
+"""Command line (intake-design-v2 §6):
 
     kb-intake models download [--to DIR]       pinned weights into $INTAKE_MODELS_DIR (default ~/.kb-intake/models)
     kb-intake models verify [--dir DIR]        check a models directory against the shipped lock
     kb-intake engines                          engine versions, models, dependency check (ready or not)
-    kb-intake scan <file|dir> --decl d.yaml    one package per file into --out (default $INTAKE_PACKAGES_DIR or
-                                               ./packages); already packaged files are skipped
-    kb-intake check <package> ...              contract v1 check of packages (directories or zips)
+    kb-intake check <package> ...              contract v2 check of packages (directories or zips)
     kb-intake serve [--data DIR] [--port 8700] web UI + HTTP API; jobs run one at a time in this process
 
 stdout carries JSON only (one object per line); errors are JSON on stderr. Hugging Face is put offline for every
@@ -16,10 +14,9 @@ import argparse
 import json
 import os
 import sys
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from pathlib import Path
 
-import yaml
 
 
 def _err(**kw) -> None:
@@ -29,8 +26,6 @@ def _err(**kw) -> None:
 def _config(args):
     from kb_intake import config
     cfg = config.load(args.config)
-    if getattr(args, "no_layout", False):
-        cfg = replace(cfg, layout_enabled=False)
     return cfg
 
 
@@ -51,33 +46,16 @@ def _models(args) -> int:
 
 
 def _engines(args) -> int:
-    from kb_intake.engines import LAYOUT
-    cfg = _config(args)
-    info = LAYOUT[cfg.primary](models_dir=cfg.models_dir, params=cfg.docling).info()
     import pymupdf
-    print(json.dumps({"ok": info.ready, "layout": asdict(info), "models_dir": str(cfg.models_dir),
-                      "pymupdf": pymupdf.VersionBind, "secondary": cfg.secondary}, ensure_ascii=False))
-    return 0 if info.ready else 1
 
-
-def _scan(args) -> int:
-    from kb_intake import scan
-    target = Path(args.target)
-    if not target.exists():
-        _err(error="file", message=f"no such file or directory: {target}")
-        return 2
-    try:
-        decl = yaml.safe_load(Path(args.decl).read_text(encoding="utf-8")) if args.decl else None
-        cfg = _config(args)
-    except Exception as e:  # noqa: BLE001
-        _err(error="config" if not args.decl else "declaration", message=f"{type(e).__name__}: {e}")
-        return 2
-    out = Path(args.out or os.environ.get("INTAKE_PACKAGES_DIR") or "packages").expanduser()
-    worst = 0
-    for result in scan.scan(target, decl, out, cfg, replace=args.replace, recursive=args.recursive, force=args.force):
-        print(json.dumps(result, ensure_ascii=False), flush=True)
-        worst = max(worst, 1 if result["status"] == "failed" else 0)
-    return worst
+    from kb_intake.engines import DoclingEngine
+    cfg = _config(args)
+    infos = {stage: DoclingEngine(models_dir=cfg.models_dir, params=cfg.docling, stage=stage).info()
+             for stage in ("label", "extract")}
+    ready = all(i.ready for i in infos.values())
+    print(json.dumps({"ok": ready, "docling": {k: asdict(v) for k, v in infos.items()},
+                      "models_dir": str(cfg.models_dir), "pymupdf": pymupdf.VersionBind}, ensure_ascii=False))
+    return 0 if ready else 1
 
 
 def _serve(args) -> int:
@@ -119,19 +97,6 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("--config", help="intake.yaml (default: $INTAKE_CONFIG)")
     e.set_defaults(fn=_engines)
 
-    s = sub.add_parser("scan", help="build packages for a file or every supported file of a directory")
-    s.add_argument("target")
-    s.add_argument("--decl", help="declaration YAML (plain, or defaults + files for a directory)")
-    s.add_argument("--out", help="directory that receives packages (default: $INTAKE_PACKAGES_DIR or ./packages)")
-    s.add_argument("--config", help="intake.yaml (default: $INTAKE_CONFIG)")
-    s.add_argument("--replace", action="store_true", help="rebuild packages that already exist")
-    s.add_argument("--recursive", action="store_true", help="also scan subdirectories")
-    s.add_argument("--force", action="store_true",
-                   help="debugging: run the layout engine although it is not ready (recorded in the manifest)")
-    s.add_argument("--no-layout", action="store_true",
-                   help="debugging: skip the layout engine; the package is the fully degraded one")
-    s.set_defaults(fn=_scan)
-
     v = sub.add_parser("serve", help="web UI and HTTP API")
     v.add_argument("--data", help="data directory: packages, uploads, intake.db, intake.yaml, cache "
                                   "(default: $INTAKE_DATA_DIR or ./intake-data)")
@@ -140,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("--port", type=int, default=8700)
     v.set_defaults(fn=_serve)
 
-    c = sub.add_parser("check", help="check packages (directory or zip) against contract v1")
+    c = sub.add_parser("check", help="check packages (directory or zip) against contract v2")
     c.add_argument("package", nargs="+")
     c.set_defaults(fn=_check)
 

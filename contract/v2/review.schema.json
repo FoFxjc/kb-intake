@@ -1,0 +1,97 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://github.com/FoFxjc/kb-intake/contract/v2/review.schema.json",
+ "type": "object",
+ "title": "review.jsonl row (intake-design-v2 §5.9)",
+ "properties": {
+  "action": {
+   "enum": [
+    "reclassify",
+    "exclude",
+    "confirm"
+   ]
+  },
+  "region_id": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "from": {
+   "enum": [
+    "title",
+    "heading",
+    "text",
+    "list",
+    "caption",
+    "footnote",
+    "formula",
+    "toc",
+    "table",
+    "chart",
+    "diagram",
+    "picture",
+    "logo",
+    "icon",
+    "signature",
+    "stamp",
+    "page_header",
+    "page_footer",
+    "unknown",
+    "extracted",
+    "discarded",
+    "recorded",
+    "excluded",
+    "unhandled",
+    null
+   ]
+  },
+  "to": {
+   "enum": [
+    "title",
+    "heading",
+    "text",
+    "list",
+    "caption",
+    "footnote",
+    "formula",
+    "toc",
+    "table",
+    "chart",
+    "diagram",
+    "picture",
+    "logo",
+    "icon",
+    "signature",
+    "stamp",
+    "page_header",
+    "page_footer",
+    "unknown",
+    "excluded",
+    null
+   ]
+  },
+  "by": {
+   "type": "string"
+  },
+  "at": {
+   "type": "string"
+  },
+  "note": {
+   "type": [
+    "string",
+    "null"
+   ]
+  }
+ },
+ "required": [
+  "action",
+  "region_id",
+  "from",
+  "to",
+  "by",
+  "at",
+  "note"
+ ],
+ "additionalProperties": false
+}
