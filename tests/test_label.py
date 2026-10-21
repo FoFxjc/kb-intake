@@ -10,7 +10,7 @@ import pytest
 from fakes import H, W, FakeEngine, bl, document, fake_engine
 from PIL import Image
 
-from kb_intake import contract, findtables, label, runner, workflow
+from kb_intake import contract, findtables, label, runner, textlayer, workflow
 from kb_intake.config import Config, DoclingParams
 from kb_intake.jobs import Jobs, WrongState
 from kb_intake.package import read_json, read_jsonl
@@ -378,3 +378,69 @@ def test_find_tables_shapes(tmp_path):
     assert t["rows"][0][0] == [72.0, 200.0, 236.0, 250.0] and len(t["rows"]) == 2
     assert findtables.table_in(page, [60, 190, 420, 310]) == t
     assert findtables.table_in(page, [60, 400, 420, 500]) is None
+
+
+# ---------- review fixes ----------
+
+def three_line_page():
+    doc = pymupdf.open()
+    p = doc.new_page(width=W, height=H)
+    p.insert_textbox(pymupdf.Rect(72, 100, 500, 160), "Line one of the paragraph here\nLine two that Docling covers\n"
+                     "Line three of the paragraph", fontsize=10)
+    return doc, p
+
+
+def assert_no_native_region_holds_a_covered_word(regions, words):
+    others = [r["bbox"] for r in regions if r["label_source"] != "native"]
+    for r in regions:
+        if r["label_source"] == "native":
+            inside = textlayer.words_in(words, r["bbox"])
+            assert not [w[4] for w in inside if any(textlayer.centre_in(w, b, label.COVER_PAD) for b in others)]
+
+
+def test_a_native_region_never_holds_words_of_a_model_region_in_the_same_block():
+    doc, p = three_line_page()
+    words = textlayer.words(p)
+    assert len({w[5] for w in words}) == 1                                    # one text-layer block
+    y0, y1 = sorted({(w[1], w[3]) for w in words})[1]                         # its middle line
+    item = {"page_no": 1, "bbox": [70, y0 - 0.5, 510, y1 + 0.5], "label": "text", "content_layer": "body",
+            "score": 0.9, "classes": None}
+    regions, _ = label._docling_page(p, [item], words, textlayer.spans(p), 0.5)
+    native = [r for r in regions if r["label_source"] == "native"]
+    assert len(native) == 2                                                   # line one and line three
+    assert_no_native_region_holds_a_covered_word(regions, words)
+    covered = {id(w) for w in textlayer.words_in(words, item["bbox"], label.COVER_PAD)}
+    assert sum(len(textlayer.words_in(words, r["bbox"])) for r in native) == len(words) - len(covered)
+
+
+def test_a_fallback_text_region_never_holds_words_of_a_table_in_the_same_block():
+    doc, p = three_line_page()
+    words = textlayer.words(p)
+    y0, y1 = sorted({(w[1], w[3]) for w in words})[1]
+    found = [{"bbox": [70, y0 - 0.5, 510, y1 + 0.5]}]
+    regions = label._fallback_page(1, found, words, textlayer.spans(p))
+    assert [r["type"] for r in regions] == ["text", "table", "text"]
+    assert_no_native_region_holds_a_covered_word(regions, words)
+
+
+def test_a_picture_classified_table_without_a_score_does_not_crash(tmp_path, setup):
+    jobs, job, cfg = setup()
+    pics = [(2, (100, 450, 250, 550), [["table", None]])]
+    label.run(jobs, job.id, cfg, engine=fake_engine(tmp_path, pictures=pics))
+    [g] = [g for g in gaps_of(job, "table_suspected") if g.get("source") == "classifier"]
+    assert "n/a" in g["detail"]
+
+
+def test_a_retry_still_records_that_the_language_was_filled(tmp_path, setup, monkeypatch):
+    decl = {k: v for k, v in DECL.items() if k != "lang"}
+    jobs, job, cfg = setup(decl=decl, pages=3)
+
+    def boom(*a, **k):
+        raise RuntimeError("disk full")
+    monkeypatch.setattr(label, "write_jsonl", boom)
+    with pytest.raises(RuntimeError):
+        label.run(jobs, job.id, cfg, engine=fake_engine(tmp_path, pages=3))
+    monkeypatch.undo()
+    label.run(jobs, job.id, cfg, engine=fake_engine(tmp_path, pages=3))
+    assert jobs.get(job.id).declaration["lang"] == "en"
+    assert out(job, "run.json")["declaration_filled"] == ["lang"]

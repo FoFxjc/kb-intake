@@ -10,7 +10,8 @@ Regions (label/regions.jsonl, one row per region, rows in reading order):
 - A region that is still a plain picture (classifier top class other than `table`, or no classification) with
   enough native text on it is a `diagram` (the step-d rule: >= 6 characters and >= 100 x the region's share of
   the page).
-- Words of the text layer that no region covers become `text` regions, one per text-layer block, with
+- Words of the text layer that no region covers become `text` regions, one per run of uncovered words of a
+  text-layer block (split where a covered word or a joined box would take words of another region), with
   label_source `native` and score null; on a page they follow the page's body regions and precede its furniture.
 - Pages Docling did not process (failure, timeout, failed page, layout disabled) get only native regions: the
   find_tables tables as `table` regions, then the native text blocks outside them, top to bottom.
@@ -63,8 +64,8 @@ def gap(code: str, page_no: int | None, detail: str, **extra) -> dict:
     return {"code": code, "page_no": page_no, **{k: v for k, v in extra.items() if v is not None}, "detail": detail}
 
 
-def _fmt(x: float) -> str:
-    return f"{x:.3f}"
+def _fmt(x: float | None) -> str:
+    return "n/a" if x is None else f"{x:.3f}"
 
 
 # ---------- regions ----------
@@ -106,14 +107,36 @@ def _native_region(page_no: int, rtype: str, box: list, page_spans: list) -> dic
             "layer": "body", "font": textlayer.font_of(page_spans, box), "docling_label": None, "classes": None}
 
 
+def _union(ws: list) -> list[float]:
+    return [min(w[0] for w in ws), min(w[1] for w in ws), max(w[2] for w in ws), max(w[3] for w in ws)]
+
+
 def _uncovered_blocks(words: list, boxes: list) -> list[list[float]]:
-    """Boxes of the text-layer blocks made of the words no box covers, in text-layer order."""
-    blocks: dict[int, list] = {}
-    for w in words:
-        if not any(textlayer.centre_in(w, b, COVER_PAD) for b in boxes):
-            blocks.setdefault(w[5], []).append(w)
-    return [[min(w[0] for w in ws), min(w[1] for w in ws), max(w[2] for w in ws), max(w[3] for w in ws)]
-            for ws in blocks.values()]
+    """Boxes of the runs of words no box covers, in text-layer order: a run is uncovered words of one text-layer
+    block that follow each other in that order. Lines of a run are joined only while the joined box holds no covered
+    word, so a native region never takes words of a region that covers part of its block."""
+    covered = [any(textlayer.centre_in(w, b, COVER_PAD) for b in boxes) for w in words]
+    hidden = [w for w, c in zip(words, covered) if c]
+    segments: list[list] = []        # uncovered words of one line, broken by covered words
+    prev = None
+    for w, c in zip(words, covered):
+        if c:
+            prev = None
+            continue
+        if prev is not None and (prev[5], prev[6]) == (w[5], w[6]):
+            segments[-1].append(w)
+        else:
+            segments.append([w])
+        prev = w
+    runs: list[list] = []
+    for seg in segments:
+        if runs and runs[-1][-1][5] == seg[0][5]:
+            box = _union(runs[-1] + seg)
+            if not any(textlayer.centre_in(h, box) for h in hidden):
+                runs[-1] += seg
+                continue
+        runs.append(seg)
+    return [_union(ws) for ws in runs]
 
 
 # ---------- the stage ----------
@@ -146,9 +169,8 @@ def _run(jobs: Jobs, job, cfg: Config, engine, emit) -> dict:
     detection, page_rows = detect.detect_pdf(str(job.source), declared_lang)
     filled = []
     if declared_lang is None and detection["detected_lang"]:
-        decl["lang"] = detection["detected_lang"]
-        jobs.update_declaration(job_id, decl)
-        filled.append("lang")
+        decl["lang"] = detection["detected_lang"]     # stored only once the stage has succeeded, so a retry
+        filled.append("lang")                         # after a failure fills (and records) it again
     emit("detect", "done", {"pages": detection["page_count"], "page_kinds": detection.get("page_kinds")})
 
     engine = engine or DoclingEngine(cfg.models_dir, cfg.docling, stage="label")
@@ -207,6 +229,8 @@ def _run(jobs: Jobs, job, cfg: Config, engine, emit) -> dict:
                     "pymupdf": pkg_version("pymupdf"), "device": cfg.docling.device},
         "detection": detection, "declaration_filled": filled})
 
+    if filled:
+        jobs.update_declaration(job_id, decl)
     jobs.advance(job_id, "labeled", op="label")
     jobs.save_workflow(job_id, workflow.dump(wf), op="label")
     jobs.advance(job_id, "planned", op="label")
