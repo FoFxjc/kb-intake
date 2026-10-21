@@ -8,6 +8,8 @@ The API is frozen in contract/api/openapi-v1.json (kb_intake.service.openapi_sna
     GET  /v1/jobs/{id}/events?after=n   progress events after seq n
     GET  /v1/jobs/{id}/gaps             label, extract and review gaps of the work directory (each with `stage`)
     GET  /v1/jobs/{id}/source.pdf       the source file, with HTTP Range
+    GET  /v1/jobs/{id}/regions          regions in reading order: search (q), filters, cursor paging
+    GET  /v1/jobs/{id}/facets           counts per type, status and gap code for the same filters
     GET  /v1/jobs/{id}/workflow         the latest (or ?version=) workflow: YAML text and parsed
     PUT  /v1/jobs/{id}/workflow         YAML text -> a new version (422 when invalid)
     POST /v1/jobs/{id}/approve          {"by", "version"?} -> 202, starts extract
@@ -31,6 +33,8 @@ Directories on this machine are only reachable inside `scan_roots` (empty by def
 resolved (symlinks, ..) before the check.
 """
 
+import base64
+import binascii
 import importlib
 import shutil
 import uuid
@@ -39,14 +43,14 @@ from pathlib import Path
 
 import pymupdf
 import yaml
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
-from kb_intake import CONTRACT_VERSION, __version__, config, contract, declaration, detect, vocab
+from kb_intake import CONTRACT_VERSION, __version__, config, contract, declaration, detect, search, vocab
 from kb_intake import workflow as workflow_mod
 from kb_intake.jobs import AlreadyDelivered, Busy, JobError, Jobs, WrongState
 from kb_intake.package import read_json, read_jsonl, sha_file
@@ -110,6 +114,9 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
     browser sends a cross-site text/plain or multipart POST without asking first)."""
     cfg = cfg or config.load()
     engines = engines or {}
+    if not search.fts5_available():
+        raise RuntimeError("this Python's SQLite has no FTS5, which search needs; use a Python built with it "
+                           "(the uv-managed CPython has it)")
     jobs = Jobs(cfg.work_dir)
     jobs.recover()
     cfg.delivery_dir.mkdir(parents=True, exist_ok=True)
@@ -307,6 +314,59 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
         job = get_job(job_id)
         return FileResponse(job.source, media_type="application/pdf",
                             headers={"ETag": f'"{job.sha256}"', "Cache-Control": "private, max-age=0, must-revalidate"})
+
+    # ---------- search (intake-ui-llm-design-v1 §3.2) ----------
+
+    def decode_cursor(cursor: str | None) -> int | None:
+        if cursor is None:
+            return None
+        try:
+            value = int(base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4)).decode("ascii"))
+        except (ValueError, binascii.Error, UnicodeDecodeError):
+            raise HTTPException(422, "cursor is not one this API gave out") from None
+        if value < 0:
+            raise HTTPException(422, "cursor is not one this API gave out")
+        return value
+
+    def encode_cursor(value: int | None) -> str | None:
+        return None if value is None else base64.urlsafe_b64encode(str(value).encode()).decode().rstrip("=")
+
+    def filters(q, type_, status, page, gap, min_score, max_score) -> search.Filters:
+        f = search.Filters(q=q, types=type_, statuses=status, page=page, gaps=gap, min_score=min_score,
+                           max_score=max_score)
+        try:
+            f.check()
+        except ValueError as e:
+            raise HTTPException(422, str(e)) from None
+        return f
+
+    def searched(job_id: str, fn):
+        get_job(job_id)
+        try:
+            return fn()
+        except KeyError:
+            raise HTTPException(409, f"job {job_id} is not labelled yet") from None
+
+    @app.get("/v1/jobs/{job_id}/regions", **route(m.RegionPage, 404, 409, 422))
+    def regions(job_id: str, q: str = "", type: list[str] = Query([]), status: list[str] = Query([]),
+                page: int | None = None, gap: list[str] = Query([]), min_score: float | None = None,
+                max_score: float | None = None, cursor: str | None = None,
+                limit: int = Query(100, ge=1, le=500)):
+        """Regions in reading order: label-stage before extraction, current after. `q` searches region text, table
+        cells and LLM descriptions (every word as a prefix); repeat `type`, `status`, `gap` for several values."""
+        f = filters(q, type, status, page, gap, min_score, max_score)
+        after = decode_cursor(cursor)
+        out = searched(job_id, lambda: search.find(jobs, job_id, f, cursor=after, limit=limit))
+        return {**out, "next_cursor": encode_cursor(out["next_cursor"])}
+
+    @app.get("/v1/jobs/{job_id}/facets", **route(m.Facets, 404, 409, 422))
+    def facets(job_id: str, q: str = "", type: list[str] = Query([]), status: list[str] = Query([]),
+               page: int | None = None, gap: list[str] = Query([]), min_score: float | None = None,
+               max_score: float | None = None):
+        """Counts per type, status and open gap code for the same filters as /regions; each dimension is counted
+        without its own filter."""
+        f = filters(q, type, status, page, gap, min_score, max_score)
+        return searched(job_id, lambda: search.facets(jobs, job_id, f))
 
     # ---------- workflow and approval ----------
 

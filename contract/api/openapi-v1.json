@@ -474,6 +474,46 @@
         "title": "ExcludeOp",
         "type": "object"
       },
+      "Facets": {
+        "properties": {
+          "gap": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "open gap codes, counted with every filter except `gap`",
+            "title": "Gap",
+            "type": "object"
+          },
+          "status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "counted with every filter except `status`",
+            "title": "Status",
+            "type": "object"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "type": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "counted with every filter except `type`",
+            "title": "Type",
+            "type": "object"
+          }
+        },
+        "required": [
+          "total",
+          "type",
+          "status",
+          "gap"
+        ],
+        "title": "Facets",
+        "type": "object"
+      },
       "Font": {
         "properties": {
           "bold": {
@@ -944,6 +984,73 @@
         "title": "JobSummary",
         "type": "object"
       },
+      "Match": {
+        "properties": {
+          "bbox": {
+            "description": "where to highlight: the cell's box for a cell, else the region's box",
+            "items": {
+              "type": "number"
+            },
+            "title": "Bbox",
+            "type": "array"
+          },
+          "c": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "C"
+          },
+          "r": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "R"
+          },
+          "snippet": {
+            "description": "the matching text with the hits between « and »",
+            "title": "Snippet",
+            "type": "string"
+          },
+          "source": {
+            "description": "what matched: the region's text, a table cell, or an LLM description",
+            "enum": [
+              "region",
+              "cell",
+              "llm"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "table_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Table Id"
+          }
+        },
+        "required": [
+          "source",
+          "snippet",
+          "bbox"
+        ],
+        "title": "Match",
+        "type": "object"
+      },
       "PackageCheck": {
         "properties": {
           "contract_version": {
@@ -1311,6 +1418,201 @@
           "font"
         ],
         "title": "Region",
+        "type": "object"
+      },
+      "RegionPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RegionRow"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "pass as `cursor` for the next page; null on the last page",
+            "title": "Next Cursor"
+          },
+          "total": {
+            "description": "regions passing the filters",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "items",
+          "next_cursor"
+        ],
+        "title": "RegionPage",
+        "type": "object"
+      },
+      "RegionRow": {
+        "properties": {
+          "bbox": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Bbox",
+            "type": "array"
+          },
+          "font": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Font"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "gaps": {
+            "description": "codes of the region's open gaps",
+            "items": {
+              "type": "string"
+            },
+            "title": "Gaps",
+            "type": "array"
+          },
+          "handler": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Handler"
+          },
+          "label_source": {
+            "title": "Label Source",
+            "type": "string"
+          },
+          "layer": {
+            "title": "Layer",
+            "type": "string"
+          },
+          "llm": {
+            "description": "kinds of LLM output the region has",
+            "items": {
+              "type": "string"
+            },
+            "title": "Llm",
+            "type": "array"
+          },
+          "match": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Match"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "page_no": {
+            "title": "Page No",
+            "type": "integer"
+          },
+          "reading_order": {
+            "title": "Reading Order",
+            "type": "integer"
+          },
+          "region_id": {
+            "title": "Region Id",
+            "type": "string"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null before extraction",
+            "title": "Status"
+          },
+          "subtype": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subtype"
+          },
+          "table_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Table Id"
+          },
+          "text_preview": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "the first 200 characters of the region's text (text by box from the text layer where the region has none)",
+            "title": "Text Preview"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "region_id",
+          "page_no",
+          "bbox",
+          "type",
+          "subtype",
+          "score",
+          "label_source",
+          "layer",
+          "reading_order",
+          "status",
+          "handler",
+          "table_id",
+          "font",
+          "text_preview",
+          "gaps",
+          "llm",
+          "match"
+        ],
+        "title": "RegionRow",
         "type": "object"
       },
       "Resolution": {
@@ -2155,6 +2457,163 @@
         "summary": "Job Events"
       }
     },
+    "/v1/jobs/{job_id}/facets": {
+      "get": {
+        "description": "Counts per type, status and open gap code for the same filters as /regions; each dimension is counted\nwithout its own filter.",
+        "operationId": "facets_v1_jobs__job_id__facets_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "title": "Type",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "title": "Status",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Page"
+            }
+          },
+          {
+            "in": "query",
+            "name": "gap",
+            "required": false,
+            "schema": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "title": "Gap",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "min_score",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Min Score"
+            }
+          },
+          {
+            "in": "query",
+            "name": "max_score",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Max Score"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Facets"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Facets"
+      }
+    },
     "/v1/jobs/{job_id}/gaps": {
       "get": {
         "operationId": "job_gaps_v1_jobs__job_id__gaps_get",
@@ -2334,6 +2793,191 @@
           }
         },
         "summary": "Page Image"
+      }
+    },
+    "/v1/jobs/{job_id}/regions": {
+      "get": {
+        "description": "Regions in reading order: label-stage before extraction, current after. `q` searches region text, table\ncells and LLM descriptions (every word as a prefix); repeat `type`, `status`, `gap` for several values.",
+        "operationId": "regions_v1_jobs__job_id__regions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "title": "Type",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "title": "Status",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Page"
+            }
+          },
+          {
+            "in": "query",
+            "name": "gap",
+            "required": false,
+            "schema": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "title": "Gap",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "min_score",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Min Score"
+            }
+          },
+          {
+            "in": "query",
+            "name": "max_score",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Max Score"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegionPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Regions"
       }
     },
     "/v1/jobs/{job_id}/retry": {

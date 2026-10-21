@@ -324,3 +324,49 @@ class ReviewBody(BaseModel):
 
 class ConfirmBody(BaseModel):
     by: str
+
+
+# ---------- search (intake-ui-llm-design-v1 §3.2) ----------
+
+class Match(BaseModel):
+    source: Literal["region", "cell", "llm"] = Field(description="what matched: the region's text, a table cell, "
+                                                                  "or an LLM description")
+    snippet: str = Field(description="the matching text with the hits between « and »")
+    bbox: Box = Field(description="where to highlight: the cell's box for a cell, else the region's box")
+    table_id: str | None = None
+    r: int | None = None
+    c: int | None = None
+
+
+class RegionRow(BaseModel):
+    region_id: str
+    page_no: int
+    bbox: Box
+    type: str
+    subtype: str | None
+    score: float | None
+    label_source: str
+    layer: str
+    reading_order: int
+    status: str | None = Field(description="null before extraction")
+    handler: str | None
+    table_id: str | None
+    font: Font | None
+    text_preview: str | None = Field(description="the first 200 characters of the region's text (text by box from "
+                                                 "the text layer where the region has none)")
+    gaps: list[str] = Field(description="codes of the region's open gaps")
+    llm: list[str] = Field(description="kinds of LLM output the region has")
+    match: Match | None
+
+
+class RegionPage(BaseModel):
+    total: int = Field(description="regions passing the filters")
+    items: list[RegionRow]
+    next_cursor: str | None = Field(description="pass as `cursor` for the next page; null on the last page")
+
+
+class Facets(BaseModel):
+    total: int
+    type: dict[str, int] = Field(description="counted with every filter except `type`")
+    status: dict[str, int] = Field(description="counted with every filter except `status`")
+    gap: dict[str, int] = Field(description="open gap codes, counted with every filter except `gap`")

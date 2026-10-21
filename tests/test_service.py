@@ -365,3 +365,43 @@ def test_source_pdf_bad_range_and_unknown_job(svc):
     job_id = labelled(svc)
     assert svc.get(f"/v1/jobs/{job_id}/source.pdf", headers={"range": "bytes=999999999-"}).status_code == 416
     assert svc.get("/v1/jobs/nope/source.pdf").status_code == 404
+
+
+def unlabelled_job(svc):
+    pdf = build_pdf(svc.tmp / "u.pdf")
+    other = svc.tmp / "u2.pdf"
+    other.write_bytes(pdf.read_bytes() + b"\n%u")
+    job, _ = Jobs(svc.cfg.work_dir).create(other, {**samples.DECL, "doc_id": "u"})
+    return job.id
+
+
+def test_regions_and_facets(svc):
+    job_id = labelled(svc)
+    whole = svc.get(f"/v1/jobs/{job_id}/regions").json()
+    assert whole["total"] == len(whole["items"]) > 2 and whole["next_cursor"] is None
+    first = svc.get(f"/v1/jobs/{job_id}/regions", params={"limit": 2}).json()
+    assert len(first["items"]) == 2 and isinstance(first["next_cursor"], str)
+    rest = svc.get(f"/v1/jobs/{job_id}/regions", params={"cursor": first["next_cursor"], "limit": 500}).json()
+    assert [i["region_id"] for i in first["items"] + rest["items"]] == [i["region_id"] for i in whole["items"]]
+    some_type = whole["items"][0]["type"]
+    typed = svc.get(f"/v1/jobs/{job_id}/regions", params=[("type", some_type), ("type", "table")]).json()
+    assert {i["type"] for i in typed["items"]} <= {some_type, "table"}
+    f = svc.get(f"/v1/jobs/{job_id}/facets", params={"type": some_type}).json()
+    assert set(f) == {"total", "type", "status", "gap"} and f["total"] == typed["total"] - f["type"].get("table", 0)
+    assert svc.get(f"/v1/jobs/{job_id}/regions", params={"q": 'x" OR *'}).status_code == 200
+
+
+def test_regions_before_label_is_409(svc):
+    job_id = unlabelled_job(svc)
+    for path in ("regions", "facets"):
+        assert svc.get(f"/v1/jobs/{job_id}/{path}").status_code == 409
+    assert svc.get("/v1/jobs/nope/regions").status_code == 404
+
+
+def test_regions_rejects_bad_params(svc):
+    job_id = labelled(svc)
+    for params in ({"cursor": "zz"}, {"cursor": "LTE"}, {"limit": 0}, {"limit": 501}, {"type": "nope"},
+                   {"status": "nope"}, {"gap": "nope"}, {"page": "x"}):
+        r = svc.get(f"/v1/jobs/{job_id}/regions", params=params)
+        assert r.status_code == 422, (params, r.text)
+    assert svc.get(f"/v1/jobs/{job_id}/facets", params={"type": "nope"}).status_code == 422
