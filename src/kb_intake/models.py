@@ -2,7 +2,8 @@
 
 `models.lock.json` ships inside the package: for each model the Hugging Face repo, the revision (a commit sha) and
 the sha256 of every file. `download` fetches exactly that revision and refuses files that do not match; `verify`
-checks a directory, e.g. one copied from a machine with network access. At run time only the local directory is read;
+checks a directory, e.g. one copied from a machine with network access; `import` finds the pinned files under any
+directory (a Hugging Face cache, files downloaded one by one) by name and sha256 and copies them into this layout. At run time only the local directory is read;
 the pipeline refuses weights that do not match the lock, and never downloads.
 
 Layout of the directory: one folder per repo, named `<org>--<name>` (what Docling expects under artifacts_path).
@@ -112,3 +113,57 @@ def download(models_dir: Path, log=print) -> list[dict]:
             os.replace(staged, dest)
         log(f"{spec['repo_id']}@{spec['revision'][:12]}: {len(spec['files'])} files")
     return verify(models_dir)
+
+
+def tree_url(spec: dict) -> str:
+    """The pinned commit's file list on Hugging Face."""
+    return f"https://huggingface.co/{spec['repo_id']}/tree/{spec['revision']}"
+
+
+def import_from(src: Path, models_dir: Path, log=print) -> dict:
+    """Find every pinned file under `src` (recursively; a Hugging Face cache's snapshot links are followed) by its
+    file name and sha256, copy it to models_dir/<org>--<name>/<path>, then verify. Files already in place are kept.
+    A file with the right name but other content is not the pinned one. Raises ModelsError naming each file not
+    found, with the page of its pinned commit; what was found is copied anyway."""
+    src, models_dir = Path(src).expanduser(), Path(models_dir).expanduser()
+    if not src.is_dir():
+        raise ModelsError(f"{src} is not a directory")
+    todo, already = [], 0
+    for spec in lock():
+        for rel, h in spec["files"].items():
+            dest = models_dir / folder(spec["repo_id"]) / rel
+            if dest.is_file() and sha_file(dest) == h:
+                already += 1
+            else:
+                todo.append((spec, rel, h))
+    names = {Path(rel).name for _, rel, _ in todo} | {h for _, _, h in todo}   # a cache blob is named by its sha256
+    want, found, hashed = {h for _, _, h in todo}, {}, {}
+    for dirpath, _dirs, files in os.walk(src):
+        for name in files:
+            if name not in names:
+                continue
+            try:
+                real = (Path(dirpath) / name).resolve(strict=True)
+            except OSError:
+                continue
+            if not real.is_file():
+                continue
+            if real not in hashed:
+                hashed[real] = sha_file(real)
+            if hashed[real] in want:
+                found.setdefault(hashed[real], real)
+    copied = 0
+    for spec, rel, h in todo:
+        if h in found:
+            dest = models_dir / folder(spec["repo_id"]) / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            tmp = dest.with_name(f".{dest.name}.import")
+            shutil.copyfile(found[h], tmp)
+            os.replace(tmp, dest)
+            copied += 1
+    log(f"{copied} file(s) copied, {already} already in place")
+    missing = [(spec, rel) for spec, rel, h in todo if h not in found]
+    if missing:
+        raise ModelsError(f"{len(missing)} pinned file(s) not found under {src}: "
+                          + "; ".join(f"{spec['repo_id']}: {rel} (from {tree_url(spec)})" for spec, rel in missing))
+    return {"copied": copied, "already": already, "missing": [], "models": verify(models_dir)}

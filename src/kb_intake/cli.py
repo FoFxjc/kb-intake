@@ -10,6 +10,7 @@
     kb-intake confirm <job> --by NAME                  confirm and write the package to the delivery folder
     kb-intake jobs | status <job>                      the jobs of the work directory; one job with stats and events
     kb-intake models download [--to DIR]               pinned weights into $INTAKE_MODELS_DIR (default ~/.kb-intake/models)
+    kb-intake models import SRC [--to DIR]             copy the pinned files found under SRC (any layout) into place
     kb-intake models verify [--dir DIR]                check a models directory against the shipped lock
     kb-intake engines                                  engine versions, models, dependency check (ready or not)
     kb-intake check <package> ...                      contract v2 check of packages (directories or zips)
@@ -212,6 +213,14 @@ def _models(args) -> int:
     cfg = _config(args)
     target = Path(args.to or args.dir).expanduser() if (args.to or args.dir) else cfg.models_dir
     try:
+        if args.action == "import":
+            if not args.src:
+                _err(error="usage", message="kb-intake models import <directory with the model files>")
+                return 2
+            done = models.import_from(Path(args.src), target, log=lambda m: print(m, file=sys.stderr))
+            _out({"ok": True, "models_dir": str(target), "copied": done["copied"], "already": done["already"],
+                  "models": done["models"]})
+            return 0
         if args.action == "download":
             pins = models.download(target, log=lambda m: print(m, file=sys.stderr))
         else:
@@ -292,9 +301,11 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("job")
     p.add_argument("--events", type=int, default=20, help="how many recent events (default 20)")
 
-    p = cmd("models", _models, "download or verify the pinned model weights")
-    p.add_argument("action", choices=["download", "verify"])
-    p.add_argument("--to", help="target directory for download (default: models_dir)")
+    p = cmd("models", _models, "download, import or verify the pinned model weights")
+    p.add_argument("action", choices=["download", "import", "verify"])
+    p.add_argument("src", nargs="?", help="import: a directory holding the model files (a Hugging Face cache or "
+                                          "plain files), searched recursively")
+    p.add_argument("--to", help="target directory for download or import (default: models_dir)")
     p.add_argument("--dir", help="directory to verify (default: models_dir)")
     cmd("engines", _engines, "engine versions, models and dependency check")
     p = cmd("serve", _serve, "web UI and HTTP API (work_dir and delivery_dir from the configuration)")
