@@ -43,7 +43,7 @@ def test_cli_happy_path(env, capsys):
     code, out, err = run(capsys, "label", str(pdf), "--decl", str(tmp / "decl.yaml"), "--config", cfg)
     assert code == 0, err
     (res,) = out
-    assert set(res) == {"job_id", "status", "stats", "workflow", "notes"}
+    assert set(res) == {"job_id", "status", "existing_job", "stats", "workflow", "notes"} and not res["existing_job"]
     assert res["status"] == "planned" and res["stats"]["regions"] == 5
     assert workflow.parse(res["workflow"]) == workflow.load_template()
     assert res["notes"] == res["stats"]["workflow_notes"]
@@ -155,6 +155,7 @@ def test_label_of_a_known_source_reports_the_existing_job(env, capsys):
     code, out, _ = run(capsys, "label", str(tmp / "report.pdf"), "--decl", str(tmp / "decl.yaml"), "--config", cfg)
     assert code == 0 and out[0]["job_id"] == job_id and out[0]["status"] == "planned"
     assert len(Jobs(tmp / "work").recent()) == 1
+    assert out[0]["existing_job"] is True and "not used" in out[0]["existing_note"]
 
 
 def test_review_checks_the_state_itself(env, capsys, monkeypatch):
@@ -167,3 +168,17 @@ def test_review_checks_the_state_itself(env, capsys, monkeypatch):
     (tmp / "ops.yaml").write_text(yaml.safe_dump({"ops": []}))
     code, _, err = run(capsys, "review", job_id, "--apply", str(tmp / "ops.yaml"), "--by", "b", "--config", cfg)
     assert code == 2 and err[0]["error"] == "WrongState" and calls == []
+
+
+def test_a_step_left_by_a_dead_process_does_not_block_the_cli(env, capsys):
+    import socket
+    tmp, cfg = env
+    pdf = build_pdf(tmp / "report.pdf")
+    (tmp / "decl.yaml").write_text(decl_yaml())
+    jobs = Jobs(tmp / "work")
+    job, _ = jobs.create(pdf, yaml.safe_load(decl_yaml()))
+    jobs.db.execute("update jobs set running_op = 'label', running_owner = ? where id = ?",
+                    (f"{socket.gethostname()}:999999", job.id))              # a CLI killed in the middle
+    code, out, err = run(capsys, "label", str(pdf), "--decl", str(tmp / "decl.yaml"), "--config", cfg)
+    assert code == 0, err
+    assert out[0]["job_id"] == job.id and out[0]["status"] == "planned"

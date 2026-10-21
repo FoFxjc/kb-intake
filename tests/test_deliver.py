@@ -12,7 +12,7 @@ from jobflow import DOC, in_review, rid
 
 from kb_intake import contract, deliver, review, workflow
 from kb_intake.jobs import Busy, WrongState
-from kb_intake.package import read_json, read_jsonl
+from kb_intake.package import read_json, read_jsonl, write_jsonl
 
 sys.path.insert(0, str(Path(__file__).parent / "regression"))
 import same_packages  # noqa: E402
@@ -72,7 +72,7 @@ def test_package_contents(tmp_path):
     assert ops[1] == {"action": "confirm", "region_id": None, "from": None, "to": None, "by": "anna",
                       "at": job.confirmed_at, "note": None}
     w = read_json(pkg / "workflow.json")
-    assert w == {"workflow": wf, "revision": 2, "approved_by": "peter", "approved_at": job.approved_at}
+    assert w == {"workflow": wf, "approved_by": "peter", "approved_at": job.approved_at}
     m = read_json(pkg / "manifest.json")
     assert m["contract_version"] == "2" and m["package"] == pkg.name and m["doc_id"] == DOC
     assert m["source"] == {"filename": "demo.pdf", "sha256": job.sha256, "bytes": f.src.stat().st_size,
@@ -82,7 +82,7 @@ def test_package_contents(tmp_path):
     assert m["stats"]["labeled_by_type"] == {"heading": 2, "table": 1, "text": 3}
     assert m["stats"]["regions_by_type"] == {"heading": 2, "table": 2, "text": 2}
     assert m["stats"]["regions_by_status"] == {"excluded": 3, "extracted": 3} and m["stats"]["tables"] == 1
-    assert m["workflow"] == {"name": "default", "version": 1, "revision": 2, "approved_by": "peter",
+    assert m["workflow"] == {"name": "default", "version": 1, "approved_by": "peter",
                              "approved_at": job.approved_at}
     assert m["status"] == {"state": "confirmed", "confirmed_by": "anna", "confirmed_at": job.confirmed_at}
     assert set(m["engines"]["params"]) == {"label", "extract"}
@@ -231,10 +231,49 @@ def test_compare_snapshot_reads_v2_packages(tmp_path):
     (snap / "tables").mkdir(parents=True)
     (snap / "tables" / "t01_p1.csv").write_text('Item,2025\nLoans,"1,234"\n')
     (snap / "tables" / "t02_p2.csv").write_text('Overdue,2025\n90 days,"5,678"\n')
+    (snap / "tables" / "tables_check.json").write_text(json.dumps([{"idx": 1, "shape": [1, 2], "header_rows": 1},
+                                                                   {"idx": 2, "shape": [1, 2], "header_rows": 1}]))
+    (snap / "tables_extra").mkdir()
+    (snap / "tables_extra" / "tables_check.json").write_text("[]")
     script = Path(__file__).parent / "regression" / "compare_snapshot.py"
     res = subprocess.run([sys.executable, str(script), "--package", str(pkg), "--snapshot", str(snap)],
                          capture_output=True, text=True)
     out = json.loads(res.stdout)
-    assert [(t["snapshot"], t["ok"]) for t in out["tables"]] == [("t01_p1", True), ("t02_p2", True)]
+    assert [(t["snapshot"], t["numbers_ok"]) for t in out["tables"]] == [("t01_p1", True), ("t02_p2", True)]
+    assert out["tables"][0]["text_diffs"] == [] and out["tables"][0]["header_diffs"] == []
     assert out["tables"][1]["extract_method"] == "find_tables"
     assert res.returncode == 1 and out["p217_continues_p216"] is None       # the demo has no p106 / p216-217
+
+
+def test_delivery_refuses_work_files_that_do_not_match_the_review_record(tmp_path):
+    """The known crash window of review.apply: ops recorded, the work files not replaced."""
+    f = reviewed(tmp_path)
+    regions = read_jsonl(f.job.dir / "extract" / "regions.jsonl")
+    op = f.jobs.ops(f.job.id)[0]
+    rows = [{**r, "type": "text", "label_source": "model"} if r["region_id"] == op["region_id"] else r
+            for r in regions]
+    write_jsonl(f.job.dir / "extract" / "regions.jsonl", rows)      # as if the crash came before this write
+    with pytest.raises(deliver.DeliveryError, match="do not match the review record"):
+        deliver.confirm(f.jobs, f.job.id, "anna", f.cfg)
+    assert f.jobs.get(f.job.id).status == "confirmed" and not list(f.cfg.delivery_dir.glob("*@*"))
+
+
+def test_check_review_wants_the_last_op_of_each_region():
+    regions = [{"region_id": "a", "type": "table", "label_source": "user", "status": "extracted"},
+               {"region_id": "b", "type": "text", "label_source": "model", "status": "excluded"}]
+    ops = [{"action": "reclassify", "region_id": "a", "to": "text"}, {"action": "reclassify", "region_id": "a",
+                                                                       "to": "table"},
+           {"action": "exclude", "region_id": "b"}]
+    assert deliver.check_review(ops, regions) == []
+    assert deliver.check_review(ops[:1], regions) == ["a was reclassified to text, but is table (user)"]
+
+
+def test_a_delivered_file_cannot_start_a_new_job(tmp_path):
+    from kb_intake.jobs import AlreadyDelivered, Jobs
+    f = reviewed(tmp_path)
+    deliver.confirm(f.jobs, f.job.id, "anna", f.cfg)
+    with pytest.raises(AlreadyDelivered):
+        f.jobs.create(f.src, dict(f.job.declaration))                     # a delivered job of this sha256
+    other = Jobs(tmp_path / "other-work")                                 # another work dir, same delivery folder
+    with pytest.raises(AlreadyDelivered):
+        other.create(f.src, dict(f.job.declaration), f.cfg.delivery_dir)

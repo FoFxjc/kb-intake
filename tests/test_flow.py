@@ -106,7 +106,7 @@ def test_http_end_to_end(tmp_path):
                  delivery_dir=tmp_path / "delivery")
     app = create_app(cfg, engines={"label": engine(tmp_path, "label"), "extract": engine(tmp_path, "extract")})
     pdf = build_pdf(tmp_path / "report.pdf")
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         r = client.post("/v1/jobs", files={"file": ("report.pdf", pdf.read_bytes(), "application/pdf")},
                         data={"declaration": yaml.safe_dump(DECL)})
         assert r.status_code == 202, r.text

@@ -188,10 +188,6 @@
      "type": "integer",
      "minimum": 1
     },
-    "revision": {
-     "type": "integer",
-     "minimum": 1
-    },
     "approved_by": {
      "type": "string"
     },
@@ -202,7 +198,6 @@
    "required": [
     "name",
     "version",
-    "revision",
     "approved_by",
     "approved_at"
    ],

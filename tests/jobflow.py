@@ -54,14 +54,20 @@ def build_pdf(path):
     return path
 
 
-def engine(tmp_path, stage: str, behaviour: str = "ok") -> FakeEngine:
+P106_SPLIT = ((60, 390, 420, 445), (60, 455, 420, 510))     # OCBC p106 as Docling saw it: one text item per row
+
+
+def engine(tmp_path, stage: str, behaviour: str = "ok", p106_split: bool = False) -> FakeEngine:
+    """The fake Docling of this source. Page 2's table is one text item over P106_BOX, or with `p106_split` one
+    text item per table row (P106_SPLIT), the first of which gets the table_suspected gap."""
     doc, clusters = document(pages=2, stage=stage, table_page=1, table_box=TABLE_BOX)
-    ref = f"#/texts/{len(doc['texts'])}"            # the text item that swallows page 2's table
-    doc["texts"].append({"self_ref": ref, "label": "text", "content_layer": "body", "text": "docling (ignored)",
-                         "prov": [{"page_no": 2, "bbox": bl(*P106_BOX)}], "children": [],
-                         "parent": {"$ref": "#/body"}})
-    doc["body"]["children"].append({"$ref": ref})
-    clusters.setdefault("2", []).append([*P106_BOX, "text", 0.9])
+    for box in (P106_SPLIT if p106_split else (P106_BOX,)):     # the text item(s) that swallow page 2's table
+        ref = f"#/texts/{len(doc['texts'])}"
+        doc["texts"].append({"self_ref": ref, "label": "text", "content_layer": "body", "text": "docling (ignored)",
+                             "prov": [{"page_no": 2, "bbox": bl(*box)}], "children": [],
+                             "parent": {"$ref": "#/body"}})
+        doc["body"]["children"].append({"$ref": ref})
+        clusters.setdefault("2", []).append([*box, "text", 0.9])
     return FakeEngine(models_dir=tmp_path / "models", params=DoclingParams(), stage=stage, behaviour=behaviour,
                       doc=json.dumps([doc, clusters]), calls=str(tmp_path / "calls.txt"))
 
@@ -71,7 +77,7 @@ def config(tmp_path, work="work", delivery="delivery") -> Config:
                   delivery_dir=tmp_path / delivery)
 
 
-def in_review(tmp_path, work="work", delivery="delivery", workflow_text=None, source=None):
+def in_review(tmp_path, work="work", delivery="delivery", workflow_text=None, source=None, p106_split=False):
     """A job labelled, approved (optionally with `workflow_text`) and extracted: state `in_review`."""
     cfg = config(tmp_path, work, delivery)
     jobs = Jobs(cfg.work_dir)
@@ -79,11 +85,11 @@ def in_review(tmp_path, work="work", delivery="delivery", workflow_text=None, so
     if not src.exists():
         build_pdf(src)
     job, _ = jobs.create(src, dict(DECL))
-    label.run(jobs, job.id, cfg, engine=engine(tmp_path, "label"))
+    label.run(jobs, job.id, cfg, engine=engine(tmp_path, "label", p106_split=p106_split))
     if workflow_text is not None:
         jobs.save_workflow(job.id, workflow_text)
     jobs.approve(job.id, "peter")
-    extract.run(jobs, job.id, cfg, engine=engine(tmp_path, "extract"))
+    extract.run(jobs, job.id, cfg, engine=engine(tmp_path, "extract", p106_split=p106_split))
     return SimpleNamespace(jobs=jobs, job=jobs.get(job.id), cfg=cfg, src=src)
 
 

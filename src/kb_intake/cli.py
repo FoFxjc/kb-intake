@@ -68,7 +68,9 @@ def _step(name: str):
 def _jobs(args):
     from kb_intake.jobs import Jobs
     cfg = _config(args)
-    return cfg, Jobs(cfg.work_dir)
+    jobs = Jobs(cfg.work_dir)
+    jobs.recover()          # steps left by a process that died (only those: a live owner is left alone)
+    return cfg, jobs
 
 
 def _get(jobs, job_id: str):
@@ -96,11 +98,16 @@ def _stats(job) -> dict | None:
     return read_json(p) if p.is_file() else None
 
 
-def _label_result(jobs, job) -> dict:
+EXISTING_NOTE = ("this file already has a job that is not delivered; it is reported as it is, and the declaration "
+                 "given now was not used")
+
+
+def _label_result(jobs, job, existing: bool = False) -> dict:
     stats = _stats(job)
     wf = jobs.workflow(job.id)
-    return {"job_id": job.id, "status": job.status, "stats": stats, "workflow": wf["text"] if wf else None,
-            "notes": (stats or {}).get("workflow_notes", [])}
+    out = {"job_id": job.id, "status": job.status, "existing_job": existing, "stats": stats,
+           "workflow": wf["text"] if wf else None, "notes": (stats or {}).get("workflow_notes", [])}
+    return {**out, "existing_note": EXISTING_NOTE} if existing else out
 
 
 def _label(args) -> int:
@@ -118,11 +125,11 @@ def _label(args) -> int:
         decl = declaration.validate(declaration.for_file(raw, src.resolve(), src.resolve().parent, sha_file(src)))
     except declaration.DeclarationError as e:
         raise BadInput("declaration", str(e), param=e.param) from None
-    job, created = jobs.create(src, decl)
+    job, created = jobs.create(src, decl, cfg.delivery_dir)
     if job.status == "uploaded":                 # a new job, or the retry of a label step that failed
         _step("label").run(jobs, job.id, cfg, progress=_progress)
         job = jobs.get(job.id)
-    _out(_label_result(jobs, job))
+    _out(_label_result(jobs, job, existing=not created))
     return 0
 
 
@@ -238,7 +245,7 @@ def _serve(args) -> int:
               file=sys.stderr, flush=True)
     _out({"ok": True, "url": f"http://{args.host}:{args.port}/", "work_dir": str(cfg.work_dir),
           "delivery_dir": str(cfg.delivery_dir), "scan_roots": [str(r) for r in cfg.scan_roots]})
-    uvicorn.run(create_app(cfg), host=args.host, port=args.port, log_level="warning")
+    uvicorn.run(create_app(cfg, hosts=(args.host,)), host=args.host, port=args.port, log_level="warning")
     return 0
 
 

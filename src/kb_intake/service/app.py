@@ -45,7 +45,7 @@ from starlette.datastructures import UploadFile
 
 from kb_intake import CONTRACT_VERSION, __version__, config, contract, declaration, detect, vocab
 from kb_intake import workflow as workflow_mod
-from kb_intake.jobs import Busy, JobError, Jobs, WrongState
+from kb_intake.jobs import AlreadyDelivered, Busy, JobError, Jobs, WrongState
 from kb_intake.package import read_json, read_jsonl, sha_file
 from kb_intake.service.runner_thread import StepRunner
 
@@ -65,9 +65,23 @@ class _NotStarted(Exception):
     """prepare() found nothing to run (an upload of a source that already has a job past `uploaded`)."""
 
 
-def create_app(cfg: config.Config | None = None, engines: dict | None = None) -> FastAPI:
+LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
+
+
+def _hostname(netloc: str) -> str:
+    """The host of "host", "host:port", "[v6]" or "[v6]:port", lower case."""
+    netloc = netloc.strip().lower()
+    if netloc.startswith("["):
+        return netloc[1:netloc.find("]")] if "]" in netloc else netloc
+    return netloc.rsplit(":", 1)[0] if netloc.count(":") == 1 else netloc
+
+
+def create_app(cfg: config.Config | None = None, engines: dict | None = None, hosts: tuple = ()) -> FastAPI:
     """The app on the configuration's work and delivery directories. `engines` ({"label": ..., "extract": ...})
-    replaces the Docling engines (tests)."""
+    replaces the Docling engines (tests). Requests are only served for a Host of this machine (127.0.0.1,
+    localhost, ::1) or one of `hosts` (the address serve listens on), against DNS rebinding; a write whose Origin
+    names another host is refused, and JSON bodies must say application/json, against cross-site requests (a
+    browser sends a cross-site text/plain or multipart POST without asking first)."""
     cfg = cfg or config.load()
     engines = engines or {}
     jobs = Jobs(cfg.work_dir)
@@ -76,10 +90,21 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None) ->
     runner = StepRunner()
     app = FastAPI(title="kb-intake", version=__version__)
     app.state.jobs, app.state.runner, app.state.cfg = jobs, runner, cfg
+    allowed_hosts = {*LOCAL_HOSTS, *(_hostname(h) for h in hosts if h not in ("0.0.0.0", "::", ""))}
+
+    @app.middleware("http")
+    async def local_only(request: Request, call_next):
+        if _hostname(request.headers.get("host", "")) not in allowed_hosts:
+            return JSONResponse({"detail": "unknown Host"}, status_code=403)
+        origin = request.headers.get("origin")
+        if request.method not in ("GET", "HEAD", "OPTIONS") and origin is not None \
+                and _hostname(origin.split("://", 1)[-1]) not in allowed_hosts:
+            return JSONResponse({"detail": "cross-origin request refused"}, status_code=403)
+        return await call_next(request)
 
     @app.exception_handler(JobError)
     async def job_error(request: Request, e: JobError):
-        status = 409 if isinstance(e, (Busy, WrongState)) else 422
+        status = 409 if isinstance(e, (Busy, WrongState, AlreadyDelivered)) else 422
         return JSONResponse({"detail": str(e), "error": type(e).__name__}, status_code=status)
 
     # ---------- helpers ----------
@@ -91,6 +116,8 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None) ->
             raise HTTPException(404, f"no job {job_id}") from None
 
     async def body_of(request: Request) -> dict:
+        if not request.headers.get("content-type", "").startswith("application/json"):
+            raise HTTPException(415, "the body must be JSON (Content-Type: application/json)")
         try:
             body = await request.json()
         except ValueError:
@@ -169,8 +196,11 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None) ->
         result = {}
 
         def prepare():
-            job, created = jobs.create(src, decl)
-            result.update(job_id=job.id, created=created, status=job.status)
+            job, created = jobs.create(src, decl, cfg.delivery_dir)
+            result.update(job_id=job.id, created=created, existing_job=not created, status=job.status)
+            if not created:
+                result["existing_note"] = ("this file already has a job that is not delivered; the declaration sent "
+                                           "now was not used")
             if job.status != "uploaded" or job.running_op:
                 raise _NotStarted
             return job.id, run_label(job.id)
@@ -198,7 +228,8 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None) ->
                     raise HTTPException(422, "upload a file (multipart field `file`), or post {\"path\": ...} as JSON")
                 tmp = cfg.work_dir / "uploads" / uuid.uuid4().hex
                 tmp.mkdir(parents=True)
-                src = tmp / (Path(up.filename or "").name or "upload.pdf")
+                fname = Path(up.filename or "").name
+                src = tmp / (fname if fname not in ("", ".", "..") else "upload.pdf")
                 text, upload = form.get("declaration"), up.file
             return await run_in_threadpool(start_label, src, text, upload)
         finally:
@@ -286,7 +317,7 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None) ->
         need_page(job, n)
         try:
             return _step("review").page_view(jobs, job_id, n)
-        except FileNotFoundError:
+        except (FileNotFoundError, KeyError):
             raise HTTPException(409, f"job {job_id} is not labelled yet") from None
 
     @app.get("/v1/jobs/{job_id}/pages/{n}/image")

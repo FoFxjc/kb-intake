@@ -248,3 +248,69 @@ def test_review_is_a_step_of_the_job_store(tmp_path):
     assert j.jobs.get(j.job.id).status == "in_review" and j.jobs.ops(j.job.id) == []
     review.apply(j.jobs, j.job.id, [{"action": "exclude", "region_id": rid(1, 2)}], "peter", j.cfg)
     assert j.jobs.get(j.job.id).running_op is None and len(j.jobs.ops(j.job.id)) == 1
+
+
+# ---------- a suspected table split over several regions (OCBC p106, intake-design-v2 b543c5a) ----------
+
+def _p106(tmp_path):
+    j = in_review(tmp_path, p106_split=True)
+    regions = [r for r in files(j.job)["regions"] if r["page_no"] == 2 and r["type"] == "text"]
+    gaps = read_jsonl(j.job.dir / "label" / "gaps.jsonl")
+    [suspect] = [g for g in gaps if g["code"] == "table_suspected"]
+    return j, suspect, regions
+
+
+def test_reclassify_a_suspected_table_takes_the_find_tables_box_and_absorbs_the_rest(tmp_path):
+    j, suspect, before = _p106(tmp_path)
+    rows = [r for r in before if r["bbox"][1] >= 380]
+    assert len(rows) == 2 and suspect["region_id"] == rows[0]["region_id"]
+    review.apply(j.jobs, j.job.id, [{"action": "reclassify", "region_id": suspect["region_id"], "to": "table"}],
+                 "peter", j.cfg)
+    f = files(j.job)
+    [t] = [t for t in f["tables"] if t["page_no"] == 2]
+    assert (t["n_rows"], t["n_cols"], t["extract_method"]) == (2, 2, "find_tables")
+    assert [c["text"] for c in t["cells"]] == ["Overdue", "2025", "90 days", "5,678"]     # the whole table
+    table_region = region_of(j.job, suspect["region_id"])
+    assert table_region["bbox"] == review.union(rows[0]["bbox"], suspect["bbox"])
+    other = region_of(j.job, rows[1]["region_id"])
+    assert other["status"] == "absorbed" and other["absorbed_into"] == t["table_id"] and other["text"] is None
+    body = " ".join(r["text"] or "" for r in f["regions"] if r["page_no"] == 2 and r["type"] != "table")
+    assert "5,678" not in body                                         # not both in the table and in the text
+    gaps = review.all_gaps(j.job.dir)
+    [g] = [g for g in gaps if g["code"] == "table_suspected"]
+    assert g["resolved"] == {"action": "reclassify", "review_seq": 1}
+    assert_valid(j.job)
+
+
+def test_an_absorbed_region_cannot_be_reviewed_and_undoing_the_table_restores_it(tmp_path):
+    j, suspect, before = _p106(tmp_path)
+    second = [r for r in before if r["bbox"][1] >= 380][1]
+    review.apply(j.jobs, j.job.id, [{"action": "reclassify", "region_id": suspect["region_id"], "to": "table"}],
+                 "peter", j.cfg)
+    with pytest.raises(review.ReviewError, match="part of table"):
+        review.apply(j.jobs, j.job.id, [{"action": "exclude", "region_id": second["region_id"]}], "peter", j.cfg)
+    review.apply(j.jobs, j.job.id, [{"action": "reclassify", "region_id": suspect["region_id"], "to": "text"}],
+                 "peter", j.cfg)
+    restored = region_of(j.job, second["region_id"])
+    assert restored["status"] == "extracted" and restored["absorbed_into"] is None and "5,678" in restored["text"]
+    assert not [t for t in files(j.job)["tables"] if t["page_no"] == 2]
+    assert (j.job.dir / "review" / "absorbed.json").read_text().strip() == "{}"
+    assert_valid(j.job)
+
+
+def test_exclude_resolves_the_label_gaps_of_the_region(tmp_path):
+    j, suspect, _ = _p106(tmp_path)
+    review.apply(j.jobs, j.job.id, [{"action": "exclude", "region_id": suspect["region_id"]}], "peter", j.cfg)
+    [g] = [g for g in review.all_gaps(j.job.dir) if g["code"] == "table_suspected"]
+    assert g["resolved"] == {"action": "exclude", "review_seq": 1}
+    view = review.page_view(j.jobs, j.job.id, 2)
+    assert [g.get("resolved") for g in view["gaps"] if g["code"] == "table_suspected"] == [g["resolved"]]
+
+
+def test_reclassify_to_or_from_a_page_header_moves_the_layer(tmp_path):
+    j = in_review(tmp_path)
+    review.apply(j.jobs, j.job.id, [{"action": "reclassify", "region_id": rid(1, 2), "to": "page_header"}],
+                 "peter", j.cfg)
+    assert region_of(j.job, rid(1, 2))["layer"] == "furniture"
+    review.apply(j.jobs, j.job.id, [{"action": "reclassify", "region_id": rid(1, 2), "to": "text"}], "peter", j.cfg)
+    assert region_of(j.job, rid(1, 2))["layer"] == "body"

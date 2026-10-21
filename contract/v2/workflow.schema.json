@@ -250,10 +250,6 @@
    ],
    "additionalProperties": false
   },
-  "revision": {
-   "type": "integer",
-   "minimum": 1
-  },
   "approved_by": {
    "type": "string"
   },
@@ -263,7 +259,6 @@
  },
  "required": [
   "workflow",
-  "revision",
   "approved_by",
   "approved_at"
  ],

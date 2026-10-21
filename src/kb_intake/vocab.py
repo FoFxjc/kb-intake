@@ -11,7 +11,7 @@ REGION_TYPES = ("title", "heading", "text", "list", "caption", "footnote", "form
 HANDLERS = ("text", "table_structure", "record", "discard", "unhandled", "ocr")
 
 # region status after extraction (§5.4); "labeled" only exists in the work directory, before extraction
-STATUSES = ("extracted", "discarded", "recorded", "excluded", "unhandled")
+STATUSES = ("extracted", "discarded", "recorded", "excluded", "unhandled", "absorbed")
 
 LABEL_SOURCES = ("model", "user", "native")
 

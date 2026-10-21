@@ -77,7 +77,7 @@ function overlay(p, opts) {
   const out = [];
   for (const r of p.regions) {
     const c = TYPE_COLOR[r.type] || "#000";
-    out.push(rect(r.bbox, c, r.status === "excluded" ? "excluded" : "",
+    out.push(rect(r.bbox, c, ["excluded", "absorbed"].includes(r.status) ? "excluded" : "",
       `${r.region_id} ${r.type}${r.subtype ? "/" + r.subtype : ""}${r.status ? " [" + r.status + "]" : ""}`, r.region_id));
     out.push(`<text x="${r.bbox[0] + 1}" y="${r.bbox[1] + 8}" fill="${c}">${esc(r.type)}</text>`);
   }
@@ -174,6 +174,12 @@ function viewUpload() {
       } else if (path) {
         r = await post("/v1/jobs", { path, declaration: decl });
       } else throw new Error("choose a PDF or give a path");
+      if (r.existing_job) {
+        msg.className = "warn";
+        msg.innerHTML = `This file already has a job that is not delivered (<b>${esc(r.status)}</b>): ${esc(r.existing_note)}.
+          <a href="#/job/${esc(r.job_id)}/${NEXT_VIEW[r.status] || "progress"}">Open that job</a>`;
+        return;
+      }
       location.hash = `#/job/${r.job_id}/progress`;
     } catch (err) { msg.className = "bad"; msg.textContent = err.message; }
   };
@@ -336,7 +342,7 @@ async function viewReview(id, n) {
   const [p, w] = await Promise.all([api(`/v1/jobs/${id}/pages/${n}`), api(`/v1/jobs/${id}/workflow`)]);
   const open = j.status === "in_review" && !j.running_op;
   const count = d.stats && d.stats.pages;
-  const can = (r) => (open && r.status !== "excluded" ? "" : "disabled");
+  const can = (r) => (open && !["excluded", "absorbed"].includes(r.status) ? "" : "disabled");
   const typeSelect = (r) => `<select data-to="${esc(r.region_id)}" ${can(r)}>
     ${w.types.map((t) => `<option ${t === r.type ? "selected" : ""}>${t}</option>`).join("")}</select>`;
   $view.innerHTML = jobHeader(d, "review") + `
@@ -356,13 +362,13 @@ async function viewReview(id, n) {
             <td>${esc(r.region_id.split(":").pop())}<div class="excerpt">${esc(r.text || "")}</div></td>
             <td>${typeSelect(r)}${r.subtype ? ` <span class="muted">${esc(r.subtype)}</span>` : ""}
               <div class="muted">${esc(r.label_source || "")}${r.score != null ? " " + Number(r.score).toFixed(2) : ""}</div></td>
-            <td>${esc(r.status || "")}${r.table_id ? `<div class="muted">${esc(r.table_id.split(":").pop())}</div>` : ""}</td>
+            <td>${esc(r.status || "")}${r.table_id ? `<div class="muted">${esc(r.table_id.split(":").pop())}</div>` : ""}${r.absorbed_into ? `<div class="muted">in ${esc(r.absorbed_into.split(":").pop())}</div>` : ""}</td>
             <td><button class="small" data-reclassify="${esc(r.region_id)}" ${can(r)}>reclassify</button>
               <button class="small secondary" data-exclude="${esc(r.region_id)}" ${can(r)}>exclude</button></td></tr>`).join("")}
         </table></div></div>
         <div class="panel"><h2>Gaps on this page</h2>
           ${(p.gaps || []).length ? `<table>${p.gaps.map((g) => `<tr class="click" data-region="${esc(g.region_id || "")}">
-            <td>${esc(g.code)}</td><td>${esc(g.detail)}</td></tr>`).join("")}</table>` : '<p class="muted">none</p>'}</div>
+            <td>${esc(g.code)}${g.resolved ? " " + pill("resolved by review #" + g.resolved.review_seq, "ok") : ""}</td><td>${esc(g.detail)}</td></tr>`).join("")}</table>` : '<p class="muted">none</p>'}</div>
         <div class="panel"><h2>Tables</h2>
           ${(p.tables || []).map((t) => `<p><b>${esc(t.table_id)}</b> ${pill(t.extract_method)} ${t.n_rows} x ${t.n_cols}
             ${t.continued_hint ? pill("continues " + t.continued_hint.table_id.split(":").pop() + " (" + t.continued_hint.reason + ")") : ""}</p><pre>${esc(t.markdown || "")}</pre>`).join("")

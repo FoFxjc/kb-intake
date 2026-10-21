@@ -29,13 +29,15 @@ def svc(tmp_path, monkeypatch):
     cfg = make_cfg(tmp_path, roots=[tmp_path / "roots"])
     engines = {"label": fake_engine(tmp_path, stage="label"), "extract": fake_engine(tmp_path, stage="extract")}
     app = create_app(cfg, engines=engines)
-    with TestClient(app) as c:
+    with TestClient(app, base_url="http://127.0.0.1") as c:
         c.tmp, c.cfg, c.runner = tmp_path, cfg, app.state.runner
         yield c
 
 
 def upload(c, name="report.pdf", decl=None):
-    pdf = build_pdf(c.tmp / name)
+    pdf = c.tmp / name
+    if not pdf.exists():               # the same bytes on a second upload (a rebuilt PDF has a new creation date)
+        build_pdf(pdf)
     return c.post("/v1/jobs", files={"file": (name, pdf.read_bytes(), "application/pdf")},
                   data={"declaration": decl if decl is not None else decl_yaml()})
 
@@ -122,7 +124,7 @@ def test_directories_outside_scan_roots_are_403(svc):
 
 
 def test_directories_without_scan_roots_are_403(tmp_path, monkeypatch):
-    with TestClient(create_app(make_cfg(tmp_path))) as c:
+    with TestClient(create_app(make_cfg(tmp_path)), base_url="http://127.0.0.1") as c:
         assert c.get("/v1/directories").status_code == 403
         assert c.post("/v1/jobs", json={"path": str(tmp_path), "declaration": decl_yaml()}).status_code == 403
 
@@ -155,7 +157,7 @@ def test_recover_on_startup_clears_running_op(tmp_path, monkeypatch):
     cm = jobs.running(job.id, "label")
     cm.__enter__()                                   # a process that stopped in the middle of the label step
     assert jobs.get(job.id).running_op == "label"
-    with TestClient(create_app(cfg)) as c:
+    with TestClient(create_app(cfg), base_url="http://127.0.0.1") as c:
         j = c.get(f"/v1/jobs/{job.id}").json()["job"]
         assert j["running_op"] is None and "interrupted" in j["last_error"] and j["status"] == "uploaded"
 
@@ -285,3 +287,57 @@ def test_review_checks_the_state_itself(svc, monkeypatch):
     with jobs.running(job_id, "extract"):
         assert svc.post(f"/v1/jobs/{job_id}/review", json={"by": "b", "ops": []}).status_code == 409
     assert calls == []
+
+
+# ---------- whole-branch review findings ----------
+
+def test_only_local_hosts_and_same_origin_writes_are_served(svc):
+    assert svc.get("/v1/health").status_code == 200
+    assert svc.get("/v1/health", headers={"host": "evil.example:8700"}).status_code == 403     # DNS rebinding
+    assert svc.get("/v1/health", headers={"host": "[::1]:8700"}).status_code == 200
+    job_id = labelled(svc)
+    cross = svc.post(f"/v1/jobs/{job_id}/approve", json={"by": "x"}, headers={"origin": "https://evil.example"})
+    assert cross.status_code == 403
+    plain = svc.post(f"/v1/jobs/{job_id}/approve", content='{"by": "attacker"}', headers={"content-type": "text/plain"})
+    assert plain.status_code == 415                                   # a cross-site form post cannot pass a gate
+    assert svc.get(f"/v1/jobs/{job_id}").json()["job"]["status"] == "planned"
+    same = svc.post(f"/v1/jobs/{job_id}/approve", json={"by": "peter"}, headers={"origin": "http://127.0.0.1:8700"})
+    assert same.status_code == 202
+
+
+def test_a_served_address_is_allowed_as_host(tmp_path):
+    app = create_app(make_cfg(tmp_path), hosts=("192.168.1.20",))
+    with TestClient(app, base_url="http://192.168.1.20:8700") as c:
+        assert c.get("/v1/health").status_code == 200
+
+
+def test_upload_of_the_same_file_reports_the_existing_job(svc):
+    first = labelled(svc)
+    r = upload(svc, decl=decl_yaml(doc_id="another-id"))
+    assert r.status_code == 202 and r.json()["job_id"] == first
+    assert r.json()["existing_job"] is True and "not used" in r.json()["existing_note"]
+
+
+def test_upload_of_a_delivered_file_is_refused(svc):
+    job_id = labelled(svc)
+    svc.post(f"/v1/jobs/{job_id}/approve", json={"by": "peter"})
+    settle(svc, job_id)
+    assert svc.post(f"/v1/jobs/{job_id}/confirm", json={"by": "peter"}).status_code in (200, 202)
+    assert settle(svc, job_id)["job"]["status"] == "delivered"
+    r = upload(svc)
+    assert r.status_code == 409 and "already delivered" in r.text
+
+
+def test_upload_named_dot_dot_and_approval_of_an_unlabelled_job(svc, monkeypatch):
+    pdf = build_pdf(svc.tmp / "x.pdf")
+    r = svc.post("/v1/jobs", files={"file": ("..", pdf.read_bytes(), "application/pdf")},
+                 data={"declaration": decl_yaml()})
+    assert r.status_code == 202, r.text
+    job_id = r.json()["job_id"]
+    settle(svc, job_id)
+    jobs = Jobs(svc.cfg.work_dir)
+    other = svc.tmp / "y.pdf"
+    other.write_bytes(pdf.read_bytes() + b"\n%x")
+    job, _ = jobs.create(other, {**samples.DECL, "doc_id": "y"})              # uploaded, never labelled
+    assert svc.post(f"/v1/jobs/{job.id}/approve", json={"by": "peter"}).status_code == 409
+    assert svc.get(f"/v1/jobs/{job.id}/pages/1").status_code == 409

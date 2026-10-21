@@ -65,6 +65,10 @@ class Busy(JobError):
     pass
 
 
+class AlreadyDelivered(JobError):
+    pass
+
+
 def owner() -> str:
     return f"{socket.gethostname()}:{os.getpid()}"
 
@@ -169,14 +173,24 @@ class Jobs:
                 self.db.execute("rollback")
                 raise
 
-    def create(self, source: Path, declaration: dict) -> tuple[Job, bool]:
-        """(job, created). A file whose sha256 already has a job that is not delivered returns that job."""
+    def create(self, source: Path, declaration: dict, delivery_dir: Path | None = None) -> tuple[Job, bool]:
+        """(job, created). A file whose sha256 already has a job that is not delivered returns that job (and
+        `declaration` is not used). A file already delivered (a delivered job here, or a package of this sha256 in
+        `delivery_dir`) raises AlreadyDelivered: a delivered package is never replaced, so a new job could not end."""
         sha = sha_file(source)
         with self._lock:
             r = self.db.execute("select id from jobs where sha256 = ? and status != 'delivered' "
                                 "order by created_at limit 1", (sha,)).fetchone()
+            done = self.db.execute("select id, package from jobs where sha256 = ? and status = 'delivered' "
+                                   "limit 1", (sha,)).fetchone()
         if r is not None:
             return self.get(r["id"]), False
+        if done is not None:
+            raise AlreadyDelivered(f"this file was already delivered as {done['package']} (job {done['id']})")
+        if delivery_dir is not None:
+            for p in sorted(delivery_dir.glob(f"*@{sha[:12]}")):
+                if p.is_dir() and not p.name.startswith("."):
+                    raise AlreadyDelivered(f"this file was already delivered as {p.name}")
         job_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:6]
         d = self.work_dir / "jobs" / job_id
         d.mkdir(parents=True)
@@ -301,6 +315,8 @@ class Jobs:
     def approve(self, job_id: str, by: str, version: int | None = None) -> Job:
         if not by.strip():
             raise JobError("approval needs a name (by)")
+        if self.get(job_id).status != "planned":
+            raise WrongState(f"job {job_id} is {self.get(job_id).status}; approval needs planned")
         wf = self.workflow(job_id, version)
         if wf is None:
             raise JobError(f"job {job_id} has no workflow version {version or ''}".strip())

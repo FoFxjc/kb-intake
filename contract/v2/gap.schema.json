@@ -72,6 +72,27 @@
   "count": {
    "type": "integer",
    "minimum": 0
+  },
+  "resolved": {
+   "type": "object",
+   "title": "resolved",
+   "properties": {
+    "action": {
+     "enum": [
+      "reclassify",
+      "exclude"
+     ]
+    },
+    "review_seq": {
+     "type": "integer",
+     "minimum": 1
+    }
+   },
+   "required": [
+    "action",
+    "review_seq"
+   ],
+   "additionalProperties": false
   }
  },
  "required": [

@@ -101,9 +101,22 @@ def _own_package(final: Path, job: Job) -> bool:
 
 # ---------- the package ----------
 
-def _gaps(d: Path) -> list[dict]:
-    files = [d / "label" / "gaps.jsonl", d / "extract" / "gaps.jsonl", d / "review" / "gaps.jsonl"]
-    return sorted((g for f in files if f.is_file() for g in read_jsonl(f)), key=extract.gap_key)
+def check_review(ops: list[dict], regions: list[dict]) -> list[str]:
+    """Where the regions do not show what the review record says (the last op on each region wins): a reclassified
+    region must have the new type and label_source "user", an excluded one status "excluded". Guards the known crash
+    window of review.apply (ops recorded, work files not all replaced)."""
+    by_id = {r["region_id"]: r for r in regions}
+    last = {op["region_id"]: op for op in ops if op.get("region_id")}
+    errors = []
+    for rid, op in sorted(last.items()):
+        r = by_id.get(rid)
+        if r is None:
+            errors.append(f"review op on {rid}, which is not a region")
+        elif op["action"] == "reclassify" and (r["type"] != op["to"] or r["label_source"] != "user"):
+            errors.append(f"{rid} was reclassified to {op['to']}, but is {r['type']} ({r['label_source']})")
+        elif op["action"] == "exclude" and r["status"] != "excluded":
+            errors.append(f"{rid} was excluded, but its status is {r['status']}")
+    return errors
 
 
 def _counts(rows, key: str) -> dict:
@@ -130,7 +143,11 @@ def _build(jobs: Jobs, job: Job, pkg: Path, t0: float) -> None:
     shutil.copyfile(job.source, pkg / "source.pdf")
     pages = [{**p, "excluded": p["page_no"] in excluded} for p in read_jsonl(d / "label" / "pages.jsonl")]
     state = review.current(d)
-    regions, tables, gaps = state["regions"], state["tables"], _gaps(d)
+    regions, tables, gaps = state["regions"], state["tables"], review.all_gaps(d, state)
+    mismatch = check_review(jobs.ops(job.id), regions)
+    if mismatch:
+        raise DeliveryError("the work files do not match the review record (a review was interrupted?): "
+                            + "; ".join(mismatch[:5]))
     ops = jobs.ops(job.id) + [{"action": "confirm", "region_id": None, "from": None, "to": None,
                                "by": job.confirmed_by, "at": job.confirmed_at, "note": None}]
     write_jsonl(pkg / "pages.jsonl", pages)
@@ -139,7 +156,7 @@ def _build(jobs: Jobs, job: Job, pkg: Path, t0: float) -> None:
     shutil.copyfile(d / "label" / "layout.jsonl", pkg / "layout.jsonl")
     write_jsonl(pkg / "gaps.jsonl", gaps)
     write_jsonl(pkg / "review.jsonl", ops)
-    write_json(pkg / "workflow.json", {"workflow": wf, "revision": wf_row["version"], "approved_by": job.approved_by,
+    write_json(pkg / "workflow.json", {"workflow": wf, "approved_by": job.approved_by,
                                        "approved_at": job.approved_at})
     for src, dst in ((d / "label" / "docling.json", "raw/docling.json"),
                      (d / "extract" / "docling.extract.json", "raw/docling.extract.json")):
@@ -178,7 +195,7 @@ def _build(jobs: Jobs, job: Job, pkg: Path, t0: float) -> None:
                                          "failed_pages": le["failed_pages"]},
                                "extract": {"status": ee["status"], "cache_key": ee["cache_key"],
                                            "failed_pages": ee["failed_pages"]}}},
-        "workflow": {"name": wf["name"], "version": wf["version"], "revision": wf_row["version"],
+        "workflow": {"name": wf["name"], "version": wf["version"],
                      "approved_by": job.approved_by, "approved_at": job.approved_at},
         "status": {"state": "confirmed", "confirmed_by": job.confirmed_by, "confirmed_at": job.confirmed_at},
         "files": files,

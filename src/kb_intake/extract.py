@@ -163,7 +163,8 @@ def extract_region(region: dict, handler: str, ctx: Context) -> tuple[dict, dict
     page_no, rid = region["page_no"], region["region_id"]
     font = region["font"] if "font" in region else textlayer.font_of(ctx.spans(page_no), region["bbox"])
     row = {k: region[k] for k in REGION_KEYS}
-    row.update(text=None, text_source=None, font=font, status=None, handler=handler, table_id=None)
+    row.update(text=None, text_source=None, font=font, status=None, handler=handler, table_id=None,
+               absorbed_into=None)
     if page_no in ctx.excluded_pages:
         row.update(status="excluded", handler=None)
         return row, None, []
