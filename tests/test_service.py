@@ -58,6 +58,7 @@ def test_upload_run_review_download_and_check(client, tmp_path):
     page = client.get(f"/v1/jobs/{j['job_id']}/pages/2").json()
     assert page["page_no"] == 2 and {r["type"] for r in page["regions"]} >= {"table", "text"}
     (t,) = [t for t in page["tables"] if t["role"] == "primary"]
+    assert sorted(t["role"] for t in page["tables"]) == ["primary", "secondary"]   # secondary from its own file
     assert t["extract_method"] == "docling" and all(c["bbox_source"] in ("text", "words", "cell") for c in t["cells"]
                                                     if c["bbox"])
     assert page["words"] and page["image"].endswith("/pages/2/image")

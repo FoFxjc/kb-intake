@@ -37,7 +37,8 @@ def _rows(path: Path) -> list[dict]:
 def _load(pkg: str, mtime: float) -> dict:
     p = Path(pkg)
     return {"manifest": json.loads((p / "manifest.json").read_text(encoding="utf-8")),
-            **{k: _rows(p / f"{k}.jsonl") for k in ("pages", "layout", "regions", "tables", "headings", "gaps")}}
+            **{k: _rows(p / f"{k}.jsonl") for k in ("pages", "layout", "regions", "tables", "tables_secondary",
+                                                     "headings", "gaps")}}
 
 
 def load(pkg: Path) -> dict:
@@ -81,7 +82,7 @@ def page(pkg: Path, page_no: int) -> dict:
     prow = d["pages"][page_no - 1]
     table_ids = set()
     tables = []
-    for t in d["tables"]:
+    for t in [*d["tables"], *({**x, "role": "secondary"} for x in d["tables_secondary"])]:
         if page_no not in t["pages"]:
             continue
         table_ids.add(t["table_id"])
