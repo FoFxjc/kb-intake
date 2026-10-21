@@ -11,6 +11,9 @@ the approved workflow gives its type.
     for regions the model did not label (`label_source` user after a review reclassify, or native when the label
     stage itself degraded to find_tables).
 - Every text, region and cell alike, is read from the PDF text layer by box (kb_intake.textlayer).
+  A cell takes the words centred in its box, and a word centred in no cell joins the vertically adjacent cell of
+  the same column (within ADJACENT_LINES x its height): the wrapped second line of a label that Docling's cell box
+  leaves out ("Current tax" / "payables").
 - Words centred in a table's box but in none of its cells are counted in the table's `checks.unassigned_words`;
   numbers and nil signs among them (a cell TableFormer probably missed) are also reported (`table_words_unassigned`).
 - `finish_tables` gives table ids in reading order and the continued-table hints; review calls it again after every
@@ -219,12 +222,26 @@ def table_from_cells(region: dict, grid: dict, words: list[list], method: str) -
     else:
         raw = [(r, c, 1, 1, box, False) for r, row in enumerate(grid["rows"]) for c, box in enumerate(row)
                if box is not None]
+    raw = sorted(raw, key=lambda x: (x[0], x[1]))
+    own = {i: (textlayer.words_in(words, box) if box is not None else []) for i, (*_, box, _h) in enumerate(raw)}
+    taken = {id(w) for ws in own.values() for w in ws}
+    for w in textlayer.words_in(words, grid["bbox"]):      # a wrapped line just outside its cell's box
+        if id(w) not in taken:
+            i = _adjacent_cell(w, raw)
+            if i is not None:
+                own[i].append(w)
     cells, assigned = [], set()
-    for r, c, rs, cs, box, is_header in sorted(raw, key=lambda x: (x[0], x[1])):
-        ws = textlayer.words_in(words, box) if box is not None else []
+    for i, (r, c, rs, cs, box, is_header) in enumerate(raw):
+        ws = sorted(own[i], key=lambda w: (w[5], w[6], w[7]))
         assigned.update(id(w) for w in ws)
         text = textlayer.text_of(ws)
-        bbox, source = textlayer.text_box(words, box) if text is not None else (None, None)
+        if text is None:
+            bbox, source = None, None
+        elif len(ws) > len(textlayer.words_in(words, box)):            # it took in words outside its box
+            bbox, source = [min(w[0] for w in ws), min(w[1] for w in ws), max(w[2] for w in ws),
+                            max(w[3] for w in ws)], "text"
+        else:
+            bbox, source = textlayer.text_box(words, box)
         cells.append({"r": r, "c": c, "rs": rs, "cs": cs, "text": text, "bbox": bbox, "bbox_source": source,
                       "is_header": bool(is_header)})
     lost = [w for w in textlayer.words_in(words, grid["bbox"]) if id(w) not in assigned]
@@ -240,6 +257,23 @@ def table_from_cells(region: dict, grid: dict, words: list[list], method: str) -
                          f"{len(values)} number(s) or nil sign(s) in the table box but in no cell: {sample}",
                          region_id=region["region_id"], count=len(values)))
     return table, gaps
+
+
+ADJACENT_LINES = 1.2      # how far (in the word's own height) a word may sit above or below a cell to join it
+
+
+def _adjacent_cell(w: list, raw: list) -> int | None:
+    """The index of the cell a word centred in no cell joins: one that overlaps it horizontally and is vertically
+    nearest, closer than ADJACENT_LINES x the word's height; None when there is none (ties: first in row order)."""
+    h = w[3] - w[1]
+    best = None
+    for i, (*_, box, _h) in enumerate(raw):
+        if box is None or min(w[2], box[2]) - max(w[0], box[0]) <= 0:
+            continue
+        dy = max(box[1] - w[3], w[1] - box[3], 0.0)
+        if dy < ADJACENT_LINES * h and (best is None or dy < best[0]):
+            best = (dy, i)
+    return None if best is None else best[1]
 
 
 def markdown(n_rows: int, n_cols: int, cells: list[dict]) -> str:

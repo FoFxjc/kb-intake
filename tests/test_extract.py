@@ -575,3 +575,22 @@ def test_continued_hint_rows_validate_against_contract_v2():
     for t in tables:
         assert contract.schema_errors("table", t, "t") == []
     assert contract.schema_errors("table", {**tables[1], "continued_hint": f"{DOC}:t0001_01"}, "t")
+
+
+def test_a_wrapped_label_line_outside_the_cell_box_joins_the_adjacent_cell():
+    """OCBC p127 "Current tax payables": Docling's cell box holds the first line only; the second line's words are
+    centred just below it. They join the vertically adjacent cell of the same column (within 1.2 line heights);
+    words that fit no cell stay unassigned."""
+    w = lambda x0, y0, x1, text, line, n: [x0, y0, x1, y0 + 10, text, 0, line, n]  # noqa: E731
+    words = [w(80, 100, 120, "Current", 0, 0), w(125, 100, 145, "tax", 0, 1),
+             w(80, 114, 130, "payables", 1, 0), w(250, 100, 290, "1,234", 2, 0),
+             w(80, 160, 120, "Faraway", 3, 0)]
+    grid = {"bbox": [70, 95, 300, 175], "n_rows": 1, "n_cols": 2, "cells": [
+        {"r": 0, "c": 0, "rs": 1, "cs": 1, "bbox": [78, 98, 200, 112], "is_header": False},
+        {"r": 0, "c": 1, "rs": 1, "cs": 1, "bbox": [240, 98, 298, 112], "is_header": False}]}
+    reg = region(1, 3, [70, 95, 300, 175], "table", 2, "table")
+    table, gaps = extract.table_from_cells(reg, grid, words, "docling")
+    label_cell = table["cells"][0]
+    assert label_cell["text"] == "Current tax\npayables" and label_cell["bbox"] == [80, 100, 145, 124]
+    assert table["cells"][1]["text"] == "1,234"
+    assert table["checks"] == {"unassigned_words": 1} and gaps == []           # "Faraway" is text: counted only
