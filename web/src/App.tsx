@@ -1,12 +1,16 @@
+import type { JobDetail } from './api/client';
 import { Busy } from './components/Busy';
 import { ErrorBanner } from './components/ErrorBanner';
 import { Header } from './components/Header';
 import { StepBar } from './components/StepBar';
 import { HealthContext, useHealthOnce, useJob } from './lib/hooks';
 import { useRoute, type Tab } from './lib/route';
+import { DeliverPage } from './pages/Deliver';
 import { JobsPage } from './pages/Jobs';
 import { LabelsPage } from './pages/Labels';
 import { Placeholder } from './pages/Placeholder';
+import { ProgressPage } from './pages/Progress';
+import { WorkflowPage } from './pages/Workflow';
 
 const TITLES: Record<Tab, string> = {
   labels: 'Labels & inventory',
@@ -38,9 +42,24 @@ function JobShell({ jobId, tab }: { jobId: string; tab: Tab }) {
           )}
         </div>
       )}
-      {detail && (tab === 'labels' ? <LabelsPage detail={detail} /> : <Placeholder title={TITLES[tab]} />)}
+      {detail && <JobPage tab={tab} detail={detail} reload={reload} />}
     </div>
   );
+}
+
+function JobPage({ tab, detail, reload }: { tab: Tab; detail: JobDetail; reload: () => void }) {
+  switch (tab) {
+    case 'labels':
+      return <LabelsPage detail={detail} />;
+    case 'workflow':
+      return <WorkflowPage detail={detail} onChanged={reload} />;
+    case 'progress':
+      return <ProgressPage detail={detail} onChanged={reload} />;
+    case 'deliver':
+      return <DeliverPage detail={detail} onChanged={reload} />;
+    default:
+      return <Placeholder title={TITLES[tab]} />;
+  }
 }
 
 export function App() {
