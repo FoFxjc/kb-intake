@@ -115,3 +115,11 @@ def test_bad_filters_raise_value_error(flow):
     for kw in ({"types": ["nope"]}, {"statuses": ["nope"]}, {"gaps": ["nope"]}):
         with pytest.raises(ValueError):
             find(flow, **kw)
+
+
+def test_rows_are_reused_until_the_work_files_change(flow):
+    a = search.load_rows(flow.jobs, flow.job.id)
+    assert search.load_rows(flow.jobs, flow.job.id) is a
+    review.apply(flow.jobs, flow.job.id, [{"action": "exclude", "region_id": rid(1, 2)}], "cli", flow.cfg)
+    b = search.load_rows(flow.jobs, flow.job.id)
+    assert b is not a and next(r for r in b.regions if r["region_id"] == rid(1, 2))["status"] == "excluded"

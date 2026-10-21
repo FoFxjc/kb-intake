@@ -19,6 +19,7 @@ import hashlib
 import json
 import re
 import sqlite3
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -97,10 +98,32 @@ def _label_text(job_dir: Path, label_regions: list[dict]) -> dict[str, str | Non
     return out
 
 
+_ROWS: dict[tuple, Rows] = {}            # (job dir, status, signature) -> rows; the last few jobs only
+_ROWS_KEPT = 4
+_ROWS_LOCK = threading.Lock()
+
+
 def load_rows(jobs: Jobs, job_id: str) -> Rows:
-    """The searchable rows of a job. KeyError for an unknown job or one that is not labelled yet."""
-    from kb_intake import review           # review imports extract; keep this module light to import
+    """The searchable rows of a job, reused while its work files and state stay the same (callers must not change
+    them). KeyError for an unknown job or one that is not labelled yet."""
     job = jobs.get(job_id)
+    key = (str(job.dir), job.status, signature(job.dir))
+    with _ROWS_LOCK:
+        if key in _ROWS:
+            return _ROWS[key]
+    rows = _load_rows(job)
+    with _ROWS_LOCK:
+        for old in [k for k in _ROWS if k[0] == key[0]]:
+            del _ROWS[old]
+        _ROWS[key] = rows
+        while len(_ROWS) > _ROWS_KEPT:
+            del _ROWS[next(iter(_ROWS))]
+    return rows
+
+
+def _load_rows(job) -> Rows:
+    from kb_intake import review           # review imports extract; keep this module light to import
+    job_id = job.id
     d = job.dir
     if not (d / "label" / "regions.jsonl").is_file():
         raise KeyError(f"job {job_id} is not labelled yet")
