@@ -292,6 +292,14 @@ def finish_tables(regions: list[dict], tables: list[dict]) -> tuple[list[dict], 
     return out_regions, out_tables
 
 
+def tag_table_gaps(gaps: list[dict], tables: list[dict]) -> list[dict]:
+    """The gaps, with `table_id` set on table_words_unassigned gaps from their region's table (finish_tables gives
+    the ids). Call it after every finish_tables. The inputs are not changed."""
+    ids = {t["region_id"]: t["table_id"] for t in tables}
+    return [{**g, "table_id": ids[g["region_id"]]} if g["code"] == "table_words_unassigned"
+            and g.get("region_id") in ids else g for g in gaps]
+
+
 def gap_key(g: dict) -> tuple:
     return (g["page_no"] or 0, g["code"], g.get("region_id") or "", g.get("table_id") or "", g["detail"])
 
@@ -339,7 +347,7 @@ def run(jobs: Jobs, job_id: str, cfg: Config, engine=None, progress=None) -> dic
                              f"label table region (IoU >= {MATCH_IOU}); not delivered", side="extract",
                              bbox=list(t["bbox"])))
         rows, tables = finish_tables(rows, tables)
-        gaps.sort(key=gap_key)
+        gaps = sorted(tag_table_gaps(gaps, tables), key=gap_key)
         write_jsonl(out / "regions.jsonl", rows)
         write_jsonl(out / "tables.jsonl", tables)
         write_jsonl(out / "gaps.jsonl", gaps)

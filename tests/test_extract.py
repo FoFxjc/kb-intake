@@ -247,6 +247,16 @@ def test_table_cells_read_from_the_text_layer_and_unassigned_words_are_reported(
     assert row["status"] == "extracted"
 
 
+def test_table_gaps_get_the_table_id_of_their_region():
+    tables = [{"table_id": f"{DOC}:t0001_01", "region_id": f"{DOC}:p0001:r003"}]
+    gaps = [{"code": "table_words_unassigned", "page_no": 1, "region_id": f"{DOC}:p0001:r003", "count": 2,
+             "detail": "x"},
+            {"code": "no_text_layer", "page_no": 1, "region_id": f"{DOC}:p0001:r001", "detail": "y"}]
+    out = extract.tag_table_gaps(gaps, tables)
+    assert out[0]["table_id"] == f"{DOC}:t0001_01" and "table_id" not in out[1]
+    assert "table_id" not in gaps[0]                                      # the input is not changed
+
+
 def test_empty_cells_have_null_text_and_box(tmp_path):
     regs = standard_regions(table_pages=())
     regs.append(region(1, 3, TABLE_BOX, "table", 4, "table"))
