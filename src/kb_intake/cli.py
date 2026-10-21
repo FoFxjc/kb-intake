@@ -309,6 +309,8 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    from kb_intake.config import load_dotenv
+    load_dotenv(Path.cwd() / ".env")            # INTAKE_* only; the environment wins (the LLM key may live there)
     if args.cmd != "models":
         os.environ["HF_HUB_OFFLINE"] = "1"
         os.environ["TRANSFORMERS_OFFLINE"] = "1"

@@ -1,6 +1,8 @@
 """intake.yaml (intake-design-v2 §1, §6). Every key is optional.
 
-Precedence: command-line flag > INTAKE_* environment variable > intake.yaml > default. Unknown keys are refused, so
+Precedence: command-line flag > INTAKE_* environment variable > intake.yaml > default. The CLI (and so `serve`)
+first reads the INTAKE_* variables of a `.env` in the working directory that the environment does not set
+(load_dotenv); that is where the LLM key may live (`.env.example`; `.env` is never committed). Unknown keys are refused, so
 a setting that is not implemented can never look as if it took effect.
 
     models_dir:   ~/.kb-intake/models     # INTAKE_MODELS_DIR; pinned weights (kb-intake models download)
@@ -142,6 +144,31 @@ def public_llm_info(cfg: Config, env: dict | None = None) -> dict:
     return {"enabled": llm.enabled and key_present, "configured": llm.enabled, "key_present": key_present,
             "remote": llm.remote, "provider": llm.provider, "model": llm.model, "base_url": llm.base_url,
             "features": dict(llm.features)}
+
+
+def load_dotenv(path: Path, env: dict | None = None) -> list[str]:
+    """Set the INTAKE_* variables of a `.env` file (KEY=value lines; `#` comments, an `export ` prefix and quotes
+    around the value allowed) that `env` (default os.environ) does not set yet; a variable already set wins. Other
+    names are ignored, values are never printed. Returns the names it set; a missing file sets nothing."""
+    env = os.environ if env is None else env
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    added = []
+    for line in lines:
+        line = line.strip()
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        name, eq, value = line.partition("=")
+        name, value = name.strip(), value.strip()
+        if not eq or not name.startswith("INTAKE_") or not name.replace("_", "").isalnum() or name in env:
+            continue
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            value = value[1:-1]
+        env[name] = value
+        added.append(name)
+    return added
 
 
 ENV_PATHS = {"INTAKE_MODELS_DIR": "models_dir", "INTAKE_CACHE_DIR": "cache_dir", "INTAKE_WORK_DIR": "work_dir",

@@ -8,3 +8,4 @@ intake-data/
 packages/
 *.egg-info/
 dist/
+.env

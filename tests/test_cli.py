@@ -206,3 +206,17 @@ def test_label_runs_the_llm_summary_when_enabled(env, capsys, monkeypatch):
         assert len(fake.requests) == 1
     finally:
         fake.close()
+
+
+def test_the_cli_loads_dotenv_from_the_working_directory(env, capsys, monkeypatch):
+    tmp, cfg = env
+    monkeypatch.delenv("INTAKE_LLM_API_KEY", raising=False)
+    monkeypatch.chdir(tmp)
+    (tmp / ".env").write_text("INTAKE_LLM_API_KEY=sk-dotenv-SENTINEL\n")
+    raw = yaml.safe_load(Path(cfg).read_text())
+    Path(cfg).write_text(yaml.safe_dump({**raw, "llm": {"enabled": True}}))
+    code, out, _ = run(capsys, "engines", "--config", cfg)
+    import os
+    assert os.environ.get("INTAKE_LLM_API_KEY") == "sk-dotenv-SENTINEL"
+    monkeypatch.delenv("INTAKE_LLM_API_KEY")
+    assert "sk-dotenv-SENTINEL" not in json.dumps(out)

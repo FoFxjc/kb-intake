@@ -58,3 +58,26 @@ def test_llm_config_rejects_unknown_or_bad_values(tmp_path):
         p.write_text(text)
         with pytest.raises(config.ConfigError):
             config.load(p, env={})
+
+
+# ---------- .env (the key's file, gitignored) ----------
+
+def test_dotenv_sets_only_missing_intake_variables(tmp_path):
+    p = tmp_path / ".env"
+    p.write_text("# comment\n\nexport INTAKE_LLM_API_KEY='sk-file'\nINTAKE_WORK_DIR=\"/tmp/w x\"\n"
+                 "INTAKE_DELIVERY_DIR=/from/file\nOTHER_SECRET=nope\nnot a line\nINTAKE_EMPTY=\n")
+    env = {"INTAKE_DELIVERY_DIR": "/from/env"}
+    assert config.load_dotenv(p, env) == ["INTAKE_LLM_API_KEY", "INTAKE_WORK_DIR", "INTAKE_EMPTY"]
+    assert env == {"INTAKE_DELIVERY_DIR": "/from/env", "INTAKE_LLM_API_KEY": "sk-file", "INTAKE_WORK_DIR": "/tmp/w x",
+                   "INTAKE_EMPTY": ""}
+
+
+def test_dotenv_missing_file_is_nothing(tmp_path):
+    env = {}
+    assert config.load_dotenv(tmp_path / ".env", env) == [] and env == {}
+
+
+def test_the_example_env_file_has_no_value():
+    text = (ROOT / ".env.example").read_text()
+    assert "INTAKE_LLM_API_KEY=\n" in text
+    assert ".env" in (ROOT / ".gitignore").read_text().splitlines()

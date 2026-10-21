@@ -83,6 +83,13 @@ Extracted text cannot be edited: content comes from the file; a problem with it 
 stdout carries one JSON object per line; errors and progress go to stderr as JSON. Exit codes: 0 ok, 1 a step
 failed, 2 bad input (unknown job, wrong state, invalid declaration, workflow or ops).
 
+### Optional LLM help
+
+Off by default. To use it, copy `.env.example` to `.env` in the directory you run kb-intake from and fill in
+`INTAKE_LLM_API_KEY` (or set that variable in the environment), and set `llm: {enabled: true}` in `intake.yaml`
+(see `intake.example.yaml`). Region images and text are then sent to the configured endpoint (MiniMax by default);
+the outputs are kept apart in `llm.jsonl` and marked low weight. `.env` is gitignored; never commit a key.
+
 ### Web UI and HTTP API
 
 ```bash
