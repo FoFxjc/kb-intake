@@ -7,6 +7,7 @@ import { useRoute, type Tab } from './lib/route';
 import { JobsPage } from './pages/Jobs';
 import { LabelsPage } from './pages/Labels';
 import { Placeholder } from './pages/Placeholder';
+import { ReviewPage } from './pages/Review';
 
 const TITLES: Record<Tab, string> = {
   labels: 'Labels & inventory',
@@ -38,7 +39,14 @@ function JobShell({ jobId, tab }: { jobId: string; tab: Tab }) {
           )}
         </div>
       )}
-      {detail && (tab === 'labels' ? <LabelsPage detail={detail} /> : <Placeholder title={TITLES[tab]} />)}
+      {detail &&
+        (tab === 'labels' ? (
+          <LabelsPage detail={detail} />
+        ) : tab === 'review' ? (
+          <ReviewPage detail={detail} />
+        ) : (
+          <Placeholder title={TITLES[tab]} />
+        ))}
     </div>
   );
 }
