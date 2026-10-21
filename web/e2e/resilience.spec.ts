@@ -128,3 +128,20 @@ test.describe('the inventory and the job state', () => {
     await expect(rows(page)).toHaveCount(0);
   });
 });
+
+test.describe('review on a delivered job', () => {
+  test('no action and no Exclude all is offered; a read-only note says why', async ({ page, request }) => {
+    const jobId = await approvedJob(request);
+    const c = await request.post(`/v1/jobs/${jobId}/confirm`, { data: { by: 'E2E Tester' } });
+    expect(c.ok(), await c.text()).toBeTruthy();
+    await waitStatus(request, jobId, 'delivered');
+    await page.goto(`./#/job/${jobId}/review`);
+    await expect(page.getByTestId('issue-title')).not.toHaveText('Loading…');
+    await expect(page.getByTestId('cluster').first()).toBeVisible();
+    await expect(page.getByTestId('review-closed')).toContainText('delivered');
+    await expect(page.locator('[data-testid^="act-"]')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Exclude all' })).toHaveCount(0);
+    await expect(page.getByLabel('Reviewer')).toHaveCount(0);
+    await expect(page.getByLabel('Note')).toHaveCount(0);
+  });
+});

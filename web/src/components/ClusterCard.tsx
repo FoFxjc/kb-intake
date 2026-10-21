@@ -31,7 +31,8 @@ interface Props {
   /** Exclude all is shown but cannot be used (no reviewer name yet, or a request in flight) */
   excludeBlocked: boolean;
   open: boolean;
-  onExcludeAll: () => void;
+  /** null: Exclude all is not offered (the job is not in review) */
+  onExcludeAll: (() => void) | null;
   onOpen: () => void;
 }
 
@@ -50,7 +51,7 @@ export function ClusterCard({ cluster, result, busy, excludeBlocked, open, onExc
         {cluster.pages.length > 6 ? '…' : ''}
       </div>
       <div className="cluster-acts">
-        {!result && canExcludeAll(cluster) && (
+        {!result && onExcludeAll && canExcludeAll(cluster) && (
           <button type="button" className="btn btn-sm" disabled={busy || excludeBlocked} onClick={onExcludeAll}>
             Exclude all
           </button>
