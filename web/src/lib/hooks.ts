@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { api, ApiError, type Health, type JobDetail } from '../api/client';
+import { retryDelay } from './backoff';
 
 export function asApiError(e: unknown): ApiError {
   if (e instanceof ApiError) return e;
@@ -25,10 +26,12 @@ export function useHealthOnce(): { health: Health | null; error: ApiError | null
 
 export const BUSY_POLL_MS = 2000;
 
-/** GET /v1/jobs/{id}; polled every 2 s only while a step runs (running_op set). */
+/** GET /v1/jobs/{id}; polled every 2 s only while a step runs (running_op set). A failed poll is retried with
+ * backoff (lib/backoff.ts) while the last known state still has a step running. */
 export function useJob(jobId: string) {
   const [detail, setDetail] = useState<JobDetail | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
+  const [failures, setFailures] = useState(0);
   const [tick, setTick] = useState(0);
   const reload = useCallback(() => setTick((t) => t + 1), []);
   const current = useRef(jobId);
@@ -41,8 +44,13 @@ export function useJob(jobId: string) {
         if (current.current !== jobId) return;
         setDetail(d);
         setError(null);
+        setFailures(0);
       },
-      (e) => isAbort(e) || setError(asApiError(e)),
+      (e) => {
+        if (isAbort(e) || current.current !== jobId) return;
+        setError(asApiError(e));
+        setFailures((n) => n + 1);
+      },
     );
     return () => ac.abort();
   }, [jobId, tick]);
@@ -50,9 +58,9 @@ export function useJob(jobId: string) {
   const running = detail?.job.running_op ?? null;
   useEffect(() => {
     if (!running) return;
-    const t = window.setTimeout(reload, BUSY_POLL_MS);
+    const t = window.setTimeout(reload, failures ? retryDelay(failures) : BUSY_POLL_MS);
     return () => window.clearTimeout(t);
-  }, [running, detail, reload]);
+  }, [running, detail, failures, reload]);
 
   return { detail: detail && detail.job.id === jobId ? detail : null, error, reload };
 }

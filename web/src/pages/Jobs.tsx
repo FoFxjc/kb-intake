@@ -3,6 +3,7 @@ import { api, type ApiError, type CreateJobResult, type JobSummary } from '../ap
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Header } from '../components/Header';
 import { declarationYaml, slug, type Declaration } from '../lib/declaration';
+import { retryDelay } from '../lib/backoff';
 import { asApiError, BUSY_POLL_MS } from '../lib/hooks';
 import { jobHref, tabForStatus } from '../lib/route';
 
@@ -42,6 +43,7 @@ const EMPTY: Declaration = {
 export function JobsPage() {
   const [jobs, setJobs] = useState<JobSummary[] | null>(null);
   const [listError, setListError] = useState<ApiError | null>(null);
+  const [failures, setFailures] = useState(0);
   const [tick, setTick] = useState(0);
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
@@ -51,20 +53,24 @@ export function JobsPage() {
       (r) => {
         setJobs(r.jobs);
         setListError(null);
+        setFailures(0);
       },
       (e: unknown) => {
-        if (!(e instanceof DOMException && e.name === 'AbortError')) setListError(asApiError(e));
+        if (e instanceof DOMException && e.name === 'AbortError') return;
+        setListError(asApiError(e));
+        setFailures((n) => n + 1);
       },
     );
     return () => ac.abort();
   }, [tick]);
 
+  // polled while a job runs (as last seen); a failed poll is retried with backoff
   const anyRunning = !!jobs?.some((j) => j.running_op);
   useEffect(() => {
     if (!anyRunning) return;
-    const t = window.setTimeout(reload, BUSY_POLL_MS);
+    const t = window.setTimeout(reload, failures ? retryDelay(failures) : BUSY_POLL_MS);
     return () => window.clearTimeout(t);
-  }, [anyRunning, jobs, reload]);
+  }, [anyRunning, jobs, failures, reload]);
 
   return (
     <div className="app">

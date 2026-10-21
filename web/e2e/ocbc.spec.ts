@@ -75,6 +75,7 @@ test('OCBC end to end through the UI', async ({ page, request }) => {
 
   // ---------- review inbox ----------
   await page.goto(`./#/job/${encodeURIComponent(jobId)}/review`);
+  await page.getByLabel('Reviewer').fill(BY);
   const group = (key: string) => page.locator(`[data-testid="queue-group"][data-group="${key}"]`);
   await group('table_suspected').click();
   for (let i = 0; i < 5; i++) {                          // the p106 item: the find_tables table Docling missed
@@ -95,6 +96,7 @@ test('OCBC end to end through the UI', async ({ page, request }) => {
   await icons.getByRole('button', { name: 'Exclude all' }).click();
   await expect(page.getByTestId('cluster-result')).toContainText('3 excluded', { timeout: 120_000 });
   expect(reviewPosts).toHaveLength(1);
+  expect(JSON.parse(reviewPosts[0]).by).toBe(BY);
   expect(JSON.parse(reviewPosts[0]).ops.map((o: { action: string }) => o.action)).toEqual(['exclude', 'exclude', 'exclude']);
 
   await group('low_confidence').click();

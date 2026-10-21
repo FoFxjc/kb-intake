@@ -19,11 +19,10 @@ import { PdfPage } from '../components/PdfPage';
 import { asBox } from '../lib/boxes';
 import { gapLabel, groupDot } from '../lib/gaps';
 import { asApiError, useHealth } from '../lib/hooks';
+import { useName } from '../lib/name';
 import { usePdfDocument } from '../lib/pdf';
 import { REGION_TYPES, typeStyle } from '../lib/types';
 
-/** Who the review rows name (`by`): the reviewer at this machine's UI. */
-export const REVIEWER = 'ui';
 /** Shown items are reported in one POST /queue/seen per pause of this length. */
 const SEEN_FLUSH_MS = 400;
 
@@ -68,6 +67,9 @@ function itemTitle(item: QueueItem): string {
  * item on its page, the issue and the actions (reclassify, exclude, ack). */
 export function ReviewPage({ detail }: { detail: JobDetail }) {
   const jobId = detail.job.id;
+  const jobStatus = detail.job.status;
+  // the server takes review ops only in review: elsewhere the page is read-only (no action that must be refused)
+  const reviewOpen = jobStatus === 'in_review';
   const health = useHealth();
   const llmOn = health?.llm.enabled === true;
   const pdf = usePdfDocument(jobId);
@@ -196,8 +198,11 @@ export function ReviewPage({ detail }: { detail: JobDetail }) {
   }, [jobId, regionId, llmOn, tick]);
   const llmItems = llmOn && llm && llm.regionId === regionId ? llm.items : [];
 
-  // actions: every user action is one POST /review
+  // actions: every user action is one POST /review, by the reviewer named here (as "Approved by" on the workflow)
+  const [by, setBy, rememberBy] = useName();
+  const reviewer = by.trim();
   const [busy, setBusy] = useState(false);
+  const blocked = busy || !reviewer;
   const [note, setNote] = useState('');
   const [to, setTo] = useState('table');
   const [results, setResults] = useState<Record<string, { cluster: Cluster; text: string }>>({});
@@ -206,7 +211,8 @@ export function ReviewPage({ detail }: { detail: JobDetail }) {
   const send = async (opsToSend: ReviewOp[]): Promise<boolean> => {
     setBusy(true);
     try {
-      await api.review(jobId, REVIEWER, opsToSend);
+      await api.review(jobId, reviewer, opsToSend);
+      rememberBy();
       setError(null);
       reload();
       return true;
@@ -244,9 +250,10 @@ export function ReviewPage({ detail }: { detail: JobDetail }) {
       }
       await api.review(
         jobId,
-        REVIEWER,
+        reviewer,
         members.map((id) => ({ action: 'exclude', region_id: id, note: null })),
       );
+      rememberBy();
       setError(null);
       setResults((r) => ({ ...r, [c.cluster_id]: { cluster: c, text: `${members.length} excluded` } }));
       reload();
@@ -336,13 +343,14 @@ export function ReviewPage({ detail }: { detail: JobDetail }) {
               cluster={c}
               result={results[c.cluster_id]?.text}
               busy={busy}
+              excludeBlocked={blocked}
               open={mode?.kind === 'cluster' && mode.cluster.cluster_id === c.cluster_id}
-              onExcludeAll={() => void excludeAll(c)}
+              onExcludeAll={reviewOpen ? () => void excludeAll(c) : null}
               onOpen={() => setMode({ kind: 'cluster', cluster: c, index: 0 })}
             />
           ))}
           {doneClusters.map(([id, r]) => (
-            <ClusterCard key={id} cluster={r.cluster} result={r.text} busy={busy} open={false} onExcludeAll={() => {}} onOpen={() => {}} />
+            <ClusterCard key={id} cluster={r.cluster} result={r.text} busy={busy} excludeBlocked open={false} onExcludeAll={null} onOpen={() => {}} />
           ))}
           </div>
         </div>
@@ -395,6 +403,25 @@ export function ReviewPage({ detail }: { detail: JobDetail }) {
       </main>
 
       <aside className="rv-right">
+        {reviewOpen ? (
+          <div className="card card-pad" data-testid="reviewer">
+            <label className="field">
+              Reviewer
+              <input className="name" type="text" required value={by} onChange={(e) => setBy(e.target.value)} />
+            </label>
+            {!reviewer && (
+              <div className="muted" style={{ fontSize: 12 }}>
+                Enter your name to review; it is recorded with each action.
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="card card-pad muted" style={{ fontSize: 13 }} data-testid="review-closed">
+            {['confirmed', 'delivered'].includes(jobStatus)
+              ? `Read only: this job is ${jobStatus}, so review is closed.`
+              : 'Read only: review opens when extraction is done and the job is in review.'}
+          </div>
+        )}
         <div className="card card-pad" data-testid="issue">
           <div className="eyebrow">Issue</div>
           <div className="rv-title" data-testid="issue-title">
@@ -409,7 +436,7 @@ export function ReviewPage({ detail }: { detail: JobDetail }) {
           )}
         </div>
 
-        {(item || regionId) && (
+        {reviewOpen && (item || regionId) && (
           <div className="card card-pad" data-testid="actions">
             <div className="eyebrow">Actions</div>
             {!resolved && (
@@ -417,7 +444,7 @@ export function ReviewPage({ detail }: { detail: JobDetail }) {
                 item={item}
                 regionType={region?.type ?? null}
                 regionStatus={region?.status ?? null}
-                busy={busy}
+                busy={blocked}
                 onReclassify={(t) => regionId && void reclassify(regionId, t)}
                 onExclude={() => regionId && void exclude(regionId)}
                 onAck={(v) => item && void ack(item, v)}
@@ -435,7 +462,7 @@ export function ReviewPage({ detail }: { detail: JobDetail }) {
                     ))}
                   </select>
                 </label>
-                <button type="button" className="btn" disabled={busy || region?.type === to} onClick={() => regionId && void reclassify(regionId, to)}>
+                <button type="button" className="btn" disabled={blocked || region?.type === to} onClick={() => regionId && void reclassify(regionId, to)}>
                   Reclassify
                 </button>
               </div>

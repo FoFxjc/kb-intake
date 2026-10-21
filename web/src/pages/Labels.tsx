@@ -10,6 +10,7 @@ import { RegionList } from '../components/RegionList';
 import { asBox } from '../lib/boxes';
 import { useDebounced } from '../lib/debounce';
 import { flagInk, gapLabel } from '../lib/gaps';
+import { retryDelay } from '../lib/backoff';
 import { asApiError, useHealth } from '../lib/hooks';
 import { usePdfDocument } from '../lib/pdf';
 import { Sequencer } from '../lib/sequencer';
@@ -26,7 +27,14 @@ export function LabelsPage({ detail }: { detail: JobDetail }) {
   const jobId = detail.job.id;
   const health = useHealth();
   const llmOn = health?.llm.enabled === true;
-  const labelled = detail.stats !== null && !detail.job.running_op;
+  // the label output exists once labelling is done: from `labeled` on, also while later steps run
+  const jobStatus = detail.job.status;
+  const labelled = jobStatus !== 'uploaded';
+  const notLabelled = detail.job.running_op
+    ? 'Labelling is running; the regions appear when it is done.'
+    : detail.job.last_error
+      ? 'Labelling failed; the regions appear once it is retried and done.'
+      : 'The regions appear when labelling is done.';
 
   // filters: the search text (debounced), one type group or one gap code
   const [q, setQ] = useState('');
@@ -48,12 +56,15 @@ export function LabelsPage({ detail }: { detail: JobDetail }) {
   const [loading, setLoading] = useState(false);
   const [facets, setFacets] = useState<Facets | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
+  // a failed next page: no more automatic loading until the user retries (no request storm)
+  const [moreError, setMoreError] = useState<ApiError | null>(null);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
     if (!labelled) return;
     setLoading(true);
     setError(null);
+    setMoreError(null);
     const q = JSON.parse(queryKey) as RegionQuery;
     listSeq.current
       .run(
@@ -70,7 +81,7 @@ export function LabelsPage({ detail }: { detail: JobDetail }) {
         setError(asApiError(e));
       });
     facetSeq.current.run((signal) => api.facets(jobId, q, signal), setFacets).catch((e: unknown) => setError(asApiError(e)));
-  }, [jobId, queryKey, labelled, tick]);
+  }, [jobId, queryKey, labelled, jobStatus, tick]);
 
   useEffect(() => {
     const list = listSeq.current;
@@ -85,6 +96,7 @@ export function LabelsPage({ detail }: { detail: JobDetail }) {
     if (!cursor || loading) return;
     const t = listSeq.current.follow();
     setLoading(true);
+    setMoreError(null);
     const q = JSON.parse(queryKey) as RegionQuery;
     api.regions(jobId, { ...q, limit: PAGE_SIZE, cursor }, t.signal).then(
       (page) => {
@@ -96,7 +108,7 @@ export function LabelsPage({ detail }: { detail: JobDetail }) {
       (e: unknown) => {
         if (!t.isLatest() || isAbort(e)) return;
         setLoading(false);
-        setError(asApiError(e));
+        setMoreError(asApiError(e));
       },
     );
   }, [cursor, loading, jobId, queryKey]);
@@ -117,7 +129,7 @@ export function LabelsPage({ detail }: { detail: JobDetail }) {
     setViewError(null);
     api.page(jobId, pageNo, ac.signal).then(setView, (e: unknown) => isAbort(e) || setViewError(asApiError(e)));
     return () => ac.abort();
-  }, [jobId, pageNo, labelled, viewTick]);
+  }, [jobId, pageNo, labelled, jobStatus, viewTick]);
 
   const pick = (r: RegionRow) => {
     setSelected(r);
@@ -189,10 +201,18 @@ export function LabelsPage({ detail }: { detail: JobDetail }) {
               <ErrorBanner error={error} onRetry={() => setTick((t) => t + 1)} />
             </div>
           )}
-          {!labelled && <div className="inv-empty">The regions appear when labelling is done.</div>}
+          {!labelled && <div className="inv-empty">{notLabelled}</div>}
           {labelled && total === 0 && !loading && <div className="inv-empty">No matching regions</div>}
           {labelled && (
-            <RegionList rows={rows} hasMore={cursor !== null} loading={loading} selected={selId} onPick={pick} onMore={more} />
+            <RegionList
+              rows={rows}
+              hasMore={cursor !== null}
+              loading={loading}
+              moreError={moreError}
+              selected={selId}
+              onPick={pick}
+              onMore={more}
+            />
           )}
         </main>
 
@@ -316,6 +336,7 @@ function MetadataCard({ detail }: { detail: JobDetail }) {
 function SummaryCard({ jobId, jobStatus }: { jobId: string; jobStatus: string }) {
   const [s, setS] = useState<Summary | null>(null);
   const [error, setError] = useState<ApiError | null>(null);
+  const [failures, setFailures] = useState(0);
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const ac = new AbortController();
@@ -323,17 +344,23 @@ function SummaryCard({ jobId, jobStatus }: { jobId: string; jobStatus: string })
       (v) => {
         setS(v);
         setError(null);
+        setFailures(0);
       },
-      (e: unknown) => isAbort(e) || setError(asApiError(e)),
+      (e: unknown) => {
+        if (isAbort(e)) return;
+        setError(asApiError(e));
+        setFailures((n) => n + 1);
+      },
     );
     return () => ac.abort();
   }, [jobId, jobStatus, tick]);
+  // polled while pending (as last seen); a failed poll is retried with backoff
   const pending = s?.status === 'pending';
   useEffect(() => {
     if (!pending) return;
-    const t = window.setTimeout(() => setTick((n) => n + 1), SUMMARY_POLL_MS);
+    const t = window.setTimeout(() => setTick((n) => n + 1), failures ? retryDelay(failures) : SUMMARY_POLL_MS);
     return () => window.clearTimeout(t);
-  }, [pending, s]);
+  }, [pending, s, failures]);
 
   return (
     <div className="card card-pad summary-card" data-testid="summary-card">

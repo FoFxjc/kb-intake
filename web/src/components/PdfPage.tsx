@@ -1,5 +1,6 @@
-import { RenderingCancelledException, type PDFDocumentProxy, type RenderTask } from 'pdfjs-dist';
+import { RenderingCancelledException, type PDFDocumentProxy, type PDFPageProxy, type RenderTask } from 'pdfjs-dist';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ShownPage } from '../lib/shownPage';
 
 interface Props {
   doc: PDFDocumentProxy | null;
@@ -13,11 +14,13 @@ interface Props {
 }
 
 /** One PDF page on one canvas at the device pixel ratio. A page change cancels the render in flight before the
- * next one starts, so fast switching never draws a stale page or leaves a second canvas. */
+ * next one starts, so fast switching never draws a stale page or leaves a second canvas; the page shown before is
+ * cleaned up once that render is done or cancelled, so pdf.js does not keep every visited page in memory. */
 export function PdfPage({ doc, pageNo, width, height, children, error }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const task = useRef<RenderTask | null>(null);
+  const shown = useRef(new ShownPage<PDFPageProxy>());
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const [cssWidth, setCssWidth] = useState(0);
   const [failed, setFailed] = useState<string | null>(null);
@@ -33,6 +36,11 @@ export function PdfPage({ doc, pageNo, width, height, children, error }: Props) 
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  useEffect(() => {
+    const pages = shown.current;
+    return () => pages.release();
+  }, [doc]);
 
   useEffect(() => {
     if (!doc || !cssWidth || !canvas.current) return;
@@ -52,6 +60,8 @@ export function PdfPage({ doc, pageNo, width, height, children, error }: Props) 
       if (stale) return;
       const page = await doc.getPage(pageNo);
       if (stale) return;
+      // the render before is done or cancelled (awaited above): its page can go
+      shown.current.show(page);
       const base = page.getViewport({ scale: 1 });
       setSize({ w: base.width, h: base.height });
       const dpr = window.devicePixelRatio || 1;

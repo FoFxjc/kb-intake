@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, type ApiError, type Gap, type JobDetail } from '../api/client';
 import { flowApi, type Facets, type LlmView, type PackageEntry, type ReviewRow } from '../api/flow';
 import { ErrorBanner } from '../components/ErrorBanner';
+import { retryDelay } from '../lib/backoff';
 import { gapCounts, opLines, packageFiles } from '../lib/deliver';
 import { asApiError, useHealth } from '../lib/hooks';
 import { useName } from '../lib/name';
@@ -12,6 +13,8 @@ const READY = ['in_review', 'confirmed', 'delivered'];
 const STATUS_ORDER = ['extracted', 'discarded', 'recorded', 'excluded', 'unhandled', 'absorbed'];
 const fmt = (n: number) => n.toLocaleString('en-US');
 const isAbort = (e: unknown) => e instanceof DOMException && e.name === 'AbortError';
+/** After Confirm the job is watched this long for the delivery (the job may still read confirmed / idle). */
+export const DELIVERY_WATCH_MS = 10 * 60_000;
 
 interface Data {
   facets: Facets;
@@ -35,6 +38,23 @@ export function DeliverPage({ detail, onChanged }: { detail: JobDetail; onChange
   const [by, setBy, rememberBy] = useName();
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
+  // after a Confirm here: the job is asked again (with backoff) while it is confirmed, idle and without a package,
+  // so a reload that sees it before the delivery step starts does not leave the page on "not delivered yet"
+  const [watchSince, setWatchSince] = useState<number | null>(null);
+  const [watchTry, setWatchTry] = useState(0);
+  const awaitingDelivery = watchSince !== null && job.status === 'confirmed' && !job.running_op && !job.package && !job.last_error;
+  useEffect(() => {
+    if (!awaitingDelivery || watchSince === null) return;
+    if (Date.now() - watchSince > DELIVERY_WATCH_MS) {
+      setWatchSince(null);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      setWatchTry((n) => n + 1);
+      onChanged();
+    }, retryDelay(watchTry + 1));
+    return () => window.clearTimeout(t);
+  }, [awaitingDelivery, watchSince, watchTry, onChanged]);
 
   useEffect(() => {
     if (!ready || job.running_op) return;
@@ -67,6 +87,8 @@ export function DeliverPage({ detail, onChanged }: { detail: JobDetail; onChange
     try {
       await flowApi.confirm(jobId, by.trim());
       rememberBy();
+      setWatchSince(Date.now());
+      setWatchTry(0);
     } catch (e) {
       setError(asApiError(e));
     } finally {
@@ -229,7 +251,12 @@ export function DeliverPage({ detail, onChanged }: { detail: JobDetail; onChange
             {job.running_op === 'deliver' ? 'Writing and checking the package…' : `Waiting for ${job.running_op} to finish…`}
           </div>
         )}
-        {job.status === 'confirmed' && !job.running_op && (
+        {awaitingDelivery && (
+          <div className="card card-pad muted" style={{ fontSize: 13 }} data-testid="delivering">
+            Confirmed; waiting for the delivery to start…
+          </div>
+        )}
+        {job.status === 'confirmed' && !job.running_op && !awaitingDelivery && (
           <div className="card card-pad" style={{ fontSize: 13 }}>
             <div>Confirmed by {job.confirmed_by}; the package is not delivered yet.</div>
             <button type="button" className="btn" onClick={() => void retry()}>

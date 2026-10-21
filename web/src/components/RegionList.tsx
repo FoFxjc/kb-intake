@@ -1,6 +1,6 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useEffect, useRef } from 'react';
-import type { RegionRow } from '../api/client';
+import type { ApiError, RegionRow } from '../api/client';
 import { flagInk, gapFlag } from '../lib/gaps';
 import { typeStyle } from '../lib/types';
 import { Snippet } from './Snippet';
@@ -12,15 +12,17 @@ interface Props {
   /** more rows on the server (next_cursor) */
   hasMore: boolean;
   loading: boolean;
+  /** the last next-page request failed: shown in place of "Loading more…"; only Retry asks again */
+  moreError: ApiError | null;
   selected: string | null;
   onPick: (row: RegionRow) => void;
-  /** asked when the list scrolls near its end */
+  /** asked when the list scrolls near its end (not after a failed next page), and by Retry */
   onMore: () => void;
 }
 
 /** The region list (prototype Main): virtualised, so only the visible rows are in the DOM; the next page is asked
  * for when the list scrolls near its end. */
-export function RegionList({ rows, hasMore, loading, selected, onPick, onMore }: Props) {
+export function RegionList({ rows, hasMore, loading, moreError, selected, onPick, onMore }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const v = useVirtualizer({
     count: rows.length + (hasMore ? 1 : 0),
@@ -32,8 +34,8 @@ export function RegionList({ rows, hasMore, loading, selected, onPick, onMore }:
   const last = items.length ? items[items.length - 1].index : -1;
 
   useEffect(() => {
-    if (hasMore && !loading && last >= rows.length - 5) onMore();
-  }, [last, rows.length, hasMore, loading, onMore]);
+    if (hasMore && !loading && !moreError && last >= rows.length - 5) onMore();
+  }, [last, rows.length, hasMore, loading, moreError, onMore]);
 
   // a new list (other filters) starts at the top
   const first = rows[0]?.region_id;
@@ -46,6 +48,24 @@ export function RegionList({ rows, hasMore, loading, selected, onPick, onMore }:
       <div style={{ height: v.getTotalSize(), position: 'relative' }}>
         {items.map((it) => {
           const r = rows[it.index];
+          if (!r && moreError) {
+            return (
+              <div
+                key="more"
+                className="rrow rrow-more"
+                style={{ transform: `translateY(${it.start}px)` }}
+                role="alert"
+                data-testid="more-error"
+              >
+                <span className="err-text rrow-text">
+                  More regions could not be loaded{moreError.status ? ` (${moreError.status})` : ''}: {moreError.detail}
+                </span>
+                <button type="button" className="btn btn-sm" onClick={onMore}>
+                  Retry
+                </button>
+              </div>
+            );
+          }
           if (!r) {
             return (
               <div key="more" className="rrow rrow-more muted" style={{ transform: `translateY(${it.start}px)` }}>

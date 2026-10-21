@@ -25,6 +25,10 @@ function posts(page: Page): Posted[] {
 const reviewPosts = (all: Posted[]) => all.filter((p) => p.path.endsWith('/review'));
 const seenPosts = (all: Posted[]) => all.filter((p) => p.path.endsWith('/queue/seen'));
 
+/** The reviewer's name the specs give (the actions wait for one). */
+const NAME = 'E2E Reviewer';
+const named = (page: Page) => page.getByLabel('Reviewer').fill(NAME);
+
 const group = (page: Page, key: string) => page.locator(`[data-testid="queue-group"][data-group="${key}"]`);
 
 async function rendered(page: Page, n: number) {
@@ -63,13 +67,14 @@ test('reclassify the suspected table to table: one op, the absorbed region shown
   const job = await freshJob(request, { extract: true });
   const sent = posts(page);
   await page.goto(`./#/job/${job.jobId}/review`);
+  await named(page);
   await rendered(page, 2);
   await page.getByTestId('act-reclassify-table').click();
   const resolved = page.getByTestId('resolved');
   await expect(resolved).toContainText('Reclassified as table');
   await expect(resolved).toContainText(`1 region absorbed: ${job.rid(2, 4)}`);
   expect(reviewPosts(sent).map((p) => p.body)).toEqual([
-    { by: 'ui', ops: [{ action: 'reclassify', region_id: job.rid(2, 3), to: 'table', note: null }] },
+    { by: NAME, ops: [{ action: 'reclassify', region_id: job.rid(2, 3), to: 'table', note: null }] },
   ]);
   await expect(page.locator(`[data-testid="ov-region"][data-region="${job.rid(2, 4)}"]`)).toHaveAttribute('data-status', 'absorbed');
   await expect(page.locator(`[data-testid="ov-region"][data-region="${job.rid(2, 3)}"]`)).toHaveAttribute('data-type', 'table');
@@ -83,6 +88,7 @@ test('bulk exclude of a similar group: one request, one op per member not alread
   const job = await freshJob(request, { extract: true });
   const sent = posts(page);
   await page.goto(`./#/job/${job.jobId}/review`);
+  await named(page);
   const cluster = page.getByTestId('cluster');
   await expect(cluster).toContainText('×2');
   // meanwhile one member is excluded elsewhere (the CLI, another tab): the shown group is stale
@@ -93,7 +99,7 @@ test('bulk exclude of a similar group: one request, one op per member not alread
   await cluster.getByRole('button', { name: 'Exclude all' }).click();
   await expect(page.getByTestId('cluster-result')).toHaveText('1 excluded');
   expect(reviewPosts(sent).map((p) => p.body)).toEqual([
-    { by: 'ui', ops: [{ action: 'exclude', region_id: job.rid(1, 1), note: null }] },
+    { by: NAME, ops: [{ action: 'exclude', region_id: job.rid(1, 1), note: null }] },
   ]);
   const ops = (await (await request.get(`/v1/jobs/${job.jobId}/review`)).json()) as { ops: { action: string; region_id: string }[] };
   expect(ops.ops.map((o) => [o.action, o.region_id])).toEqual([
@@ -114,6 +120,7 @@ test('a refused bulk action shows the server message and changes nothing', async
     });
   });
   await page.goto(`./#/job/${job.jobId}/review`);
+  await named(page);
   const cluster = page.getByTestId('cluster');
   await cluster.getByRole('button', { name: 'Exclude all' }).click();
   const banner = page.getByTestId('error-banner');
@@ -129,6 +136,7 @@ test('ack ok and ack wrong (with a note) resolve items', async ({ page, request 
   const job = await freshJob(request, { extract: true });
   const sent = posts(page);
   await page.goto(`./#/job/${job.jobId}/review`);
+  await named(page);
   await group(page, 'no_text_layer').click();
   await expect(page.getByTestId('issue-title')).toHaveText('No text layer · p1');
   await page.getByTestId('act-ack-ok').click();
@@ -143,12 +151,34 @@ test('ack ok and ack wrong (with a note) resolve items', async ({ page, request 
   await expect(page.getByTestId('queue-done')).toHaveText('Done 2 / 2');
 
   expect(reviewPosts(sent).map((p) => p.body)).toEqual([
-    { by: 'ui', ops: [{ action: 'ack', item_id: `gap:no_text_layer:1:${job.rid(1, 4)}`, verdict: 'ok', note: null }] },
+    { by: NAME, ops: [{ action: 'ack', item_id: `gap:no_text_layer:1:${job.rid(1, 4)}`, verdict: 'ok', note: null }] },
     {
-      by: 'ui',
+      by: NAME,
       ops: [{ action: 'ack', item_id: `gap:table_suspected:2:${job.rid(2, 3)}`, verdict: 'wrong', note: 'an aligned list, not a table' }],
     },
   ]);
+});
+
+test('the actions wait for the reviewer name; the ops carry it and it is remembered', async ({ page, request }) => {
+  const job = await freshJob(request, { extract: true });
+  const sent = posts(page);
+  await page.goto(`./#/job/${job.jobId}/review`);
+  await group(page, 'no_text_layer').click();
+  await expect(page.getByTestId('issue-title')).toHaveText('No text layer · p1');
+  await expect(page.getByLabel('Reviewer')).toHaveValue('');
+  await expect(page.getByTestId('act-ack-ok')).toBeDisabled();
+  await expect(page.getByTestId('act-exclude')).toBeDisabled();
+  await expect(page.getByTestId('cluster').getByRole('button', { name: 'Exclude all' })).toBeDisabled();
+  await page.getByLabel('Reviewer').fill('Ada Reviewer');
+  await expect(page.getByTestId('act-ack-ok')).toBeEnabled();
+  await expect(page.getByTestId('cluster').getByRole('button', { name: 'Exclude all' })).toBeEnabled();
+  await page.getByTestId('act-ack-ok').click();
+  await expect(page.getByTestId('resolved')).toHaveText('Marked seen, no change.');
+  expect(reviewPosts(sent).map((p) => p.body.by)).toEqual(['Ada Reviewer']);
+  const ops = (await (await request.get(`/v1/jobs/${job.jobId}/review`)).json()) as { ops: { by: string }[] };
+  expect(ops.ops.map((o) => o.by)).toEqual(['Ada Reviewer']);
+  await page.reload();
+  await expect(page.getByLabel('Reviewer')).toHaveValue('Ada Reviewer');
 });
 
 test('prev / next with the keyboard through an opened group', async ({ page, request }) => {
@@ -201,6 +231,7 @@ test.describe('with the LLM enabled (fake model)', () => {
     const job = await freshJob(request, { extract: true });
     const sent = posts(page);
     await page.goto(`./#/job/${job.jobId}/review`);
+    await named(page);
     await expect(page.getByTestId('queue-done')).toHaveText('Done 0 / 3');
     await group(page, 'llm_check').click();
     await expect(page.getByTestId('issue-title')).toHaveText('Chart description to check · p1');
@@ -219,7 +250,7 @@ test.describe('with the LLM enabled (fake model)', () => {
     await page.getByTestId('act-ack-ok').click();
     await expect(page.getByTestId('resolved')).toHaveText('Description checked.');
     expect(reviewPosts(sent).map((p) => p.body)).toEqual([
-      { by: 'ui', ops: [{ action: 'ack', item_id: `llm:describe:${job.rid(1, 4)}`, verdict: 'ok', note: null }] },
+      { by: NAME, ops: [{ action: 'ack', item_id: `llm:describe:${job.rid(1, 4)}`, verdict: 'ok', note: null }] },
     ]);
     await expect(page.getByTestId('queue-done')).toHaveText('Done 1 / 3');
   });
