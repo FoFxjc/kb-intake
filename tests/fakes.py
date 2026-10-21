@@ -83,7 +83,7 @@ def document(pages: int = 2, stage: str = "label", table_page: int = 1, table_bo
 
 @dataclass(frozen=True)
 class FakeEngine(DoclingEngine):
-    behaviour: str = "ok"     # ok | failed_page | hang | crash | silent_exit | raise | not_ready
+    behaviour: str = "ok"     # ok | failed_page | hang | crash | silent_exit | raise | not_ready | unreadable
     doc: str = ""             # json of [document, clusters]
     calls: str = ""           # a file that gets one line per convert() call
 
@@ -106,6 +106,8 @@ class FakeEngine(DoclingEngine):
             os._exit(0)
         if self.behaviour == "raise":
             raise RuntimeError("model blew up")
+        if self.behaviour == "unreadable":
+            return RawResult("success", b"{not json")
         doc, clusters = json.loads(self.doc)
         if self.behaviour == "failed_page":
             return RawResult("partial_success", json.dumps(doc).encode(), failed_pages=[2],

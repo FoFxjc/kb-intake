@@ -383,6 +383,38 @@ def test_user_labelled_table_uses_find_tables(tmp_path, table_in):
     assert table["extract_method"] == "find_tables" and row["status"] == "extracted" and gaps == []
 
 
+def test_unreadable_docling_output_degrades_and_is_not_kept(tmp_path, table_in):
+    table_in.state["result"] = find_tables_table()
+    out = run(tmp_path, standard_regions(), behaviour="unreadable")
+    [t] = out.tables
+    assert t["extract_method"] == "find_tables" and out.job.status == "in_review"
+    [deg] = [g for g in out.gaps if g["code"] == "extractor_degraded"]
+    assert deg["extractor"] == "docling" and "unreadable Docling output" in deg["detail"]
+    assert out.run["engine"]["status"] == "error" and out.summary["engine_status"] == "error"
+    assert any("unreadable Docling output" in e for e in out.run["engine"]["errors"])
+    assert not (out.dir / "docling.extract.json").exists()
+    with extract.Context.load(out.jobs, out.job.id) as ctx:      # review re-extraction rebuilds the context
+        assert not ctx.docling_ok
+        row, table, _ = extract.extract_region(next(r for r in standard_regions() if r["type"] == "table"),
+                                               "table_structure", ctx)
+        assert table["extract_method"] == "find_tables" and row["status"] == "extracted"
+
+
+@pytest.mark.parametrize("behaviour, status", [("hang", "timeout"), ("crash", "crashed")])
+def test_docling_timeout_or_crash_falls_back_to_find_tables(tmp_path, table_in, behaviour, status):
+    from dataclasses import replace
+    table_in.state["result"] = find_tables_table()
+    jobs, job, cfg = approved_job(tmp_path, standard_regions())
+    cfg = replace(cfg, docling=replace(cfg.docling, wall_timeout=3.0))
+    extract.run(jobs, job.id, cfg, engine=fake_engine(tmp_path, behaviour, stage="extract"))
+    d = job.dir / "extract"
+    [t] = read_jsonl(d / "tables.jsonl")
+    assert t["extract_method"] == "find_tables" and table_in.calls == [(1, TABLE_BOX)]
+    [deg] = [g for g in read_jsonl(d / "gaps.jsonl") if g["code"] == "extractor_degraded"]
+    assert deg["extractor"] == "docling" and deg["page_no"] is None
+    assert read_json(d / "run.json")["engine"]["status"] == status and jobs.get(job.id).status == "in_review"
+
+
 def test_layout_disabled_degrades(tmp_path, table_in):
     from dataclasses import replace
     jobs, job, cfg = approved_job(tmp_path, standard_regions())

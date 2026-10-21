@@ -19,6 +19,7 @@ Work files: extract/regions.jsonl, tables.jsonl, gaps.jsonl, docling.extract.jso
 directory" section).
 """
 
+import dataclasses
 import resource
 import time
 from pathlib import Path
@@ -376,16 +377,19 @@ def _docling(job: Job, cfg: Config, engine, out: Path):
         params = info.params
         outcome = runner.run(engine, job.source, job.sha256, cfg.cache_dir, cfg.docling.wall_timeout, info=info)
     docling = None
-    errors = list(outcome.errors)
     if outcome.data is not None:
-        raw.write_bytes(outcome.data)
         try:
             docling = extract_tables(outcome.data)
         except Exception as e:  # noqa: BLE001 - output that cannot be read degrades like a failed conversion
-            errors.append(f"unreadable Docling output: {type(e).__name__}: {e}"[:300])
+            # Not kept: Context.load (review re-extraction) and delivery read docling.extract.json, and run.json
+            # must not report a success that the extractor_degraded gap contradicts.
+            outcome = dataclasses.replace(outcome, status="error", errors=[
+                *outcome.errors, f"unreadable Docling output: {type(e).__name__}: {e}"[:300]])
+        else:
+            raw.write_bytes(outcome.data)
     gaps = []
     if docling is None:
-        why = "; ".join(errors)[:300] or "no output"
+        why = "; ".join(outcome.errors)[:300] or "no output"
         gaps.append(_gap("extractor_degraded", None, f"extract: Docling {outcome.status} ({why}); table regions "
                          "fall back to find_tables", extractor="docling"))
     elif outcome.failed_pages:
