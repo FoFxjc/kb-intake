@@ -145,3 +145,33 @@ test.describe('review on a delivered job', () => {
     await expect(page.getByLabel('Note')).toHaveCount(0);
   });
 });
+
+test.describe('deliver', () => {
+  test('a reload right after Confirm that sees confirmed / idle keeps polling until delivered', async ({ page, request }) => {
+    const jobId = await approvedJob(request);
+    let posted = false;
+    let gets = 0;
+    await page.route(/\/confirm$/, async (route) => {
+      const r = await route.fetch();
+      posted = true;
+      await route.fulfill({ response: r });
+    });
+    await page.route(new RegExp(`/v1/jobs/${jobId}$`), async (route) => {
+      if (!posted) return route.fallback();
+      gets++;
+      if (gets > 1) return route.fallback();
+      return fulfillJob(route, (j) => {
+        j.status = 'confirmed';
+        j.running_op = null;
+        j.confirmed_by = 'E2E Tester';
+        j.package = null;
+      });
+    });
+    await page.goto(`./#/job/${jobId}/deliver`);
+    await page.getByLabel('Confirmed by').fill('E2E Tester');
+    await page.getByRole('button', { name: 'Confirm and deliver' }).click();
+    await expect(page.getByTestId('delivered')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('package-check')).toContainText('check passed');
+    expect(gets).toBeGreaterThanOrEqual(2);
+  });
+});
