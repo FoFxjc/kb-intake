@@ -81,7 +81,7 @@ exclude_pages: []         # 例如 [1, 2]
 
 | 操作 | 效果 |
 |---|---|
-| 改判类型 | 区块的类型改为用户指定的类型，`label_source = user`，按新类型重新抓取 |
+| 改判类型 | 区块的类型改为用户指定的类型，`label_source = user`，按新类型重新抓取。改判为表格且该区块有 `table_suspected` 时，表格框取区块框与 find_tables 框的并集；中心落在新表格框内的其他非表格区块状态改为 `absorbed`（`absorbed_into` 指向新表），避免同一段内容既在表里又在正文里 |
 | 排除区块 | 区块状态改为 `excluded`，不交付内容 |
 | 确认 | 包定稿 |
 
@@ -104,6 +104,7 @@ delivery/
     raw/docling.json
 ```
 
+- 交付前校验 review 记录与包内容一致：每条改判的区块在 `regions.jsonl` 里类型等于改判后的类型且 `label_source = user`，每条排除的区块状态为 `excluded`；不一致拒绝交付
 - 确认之前所有东西都在工作目录里。确认时先写到交付文件夹里的临时目录（`.tmp-…`），写完后整体改名为正式目录名，所以交付文件夹里出现的包一定是完整的
 - 坐标一律以左上角为原点，单位为 PDF 点，保留全精度
 - 同一份原文件、同一份 workflow、同样的人工操作，生成的包除 `manifest.run` 和人工操作的时间字段（`review.jsonl` 的 `at`、`workflow.json` 的批准时间、`manifest.status` 的确认时间）外逐字节相同
@@ -144,7 +145,7 @@ delivery/
 | `text` | 按框从文字层取的文字；`discard` / `record` / `excluded` 时为 null |
 | `text_source` | `native`（以后有 `ocr`） |
 | `font` | 区块内主要字体：`name`、`size`、`bold`（给使用方推断标题层级用） |
-| `status` | `extracted` / `discarded` / `recorded` / `excluded` / `unhandled` |
+| `status` | `extracted` / `discarded` / `recorded` / `excluded` / `unhandled` / `absorbed`（被 review 改判出的表格吸收，见 `absorbed_into`） |
 | `handler` | 按 workflow 的哪种处理方式 |
 | `table_id` | 表格区块对应的表，其他为 null |
 
@@ -164,7 +165,7 @@ delivery/
 `page_no`、`words`：`[x0, y0, x1, y1, text]`，取自文字层
 
 ### 5.7 `gaps.jsonl`（一个问题一行）
-`code`、`page_no`、`region_id`（可选）、`table_id`（可选）、`detail`
+`code`、`page_no`、`region_id`（可选）、`table_id`（可选）、`detail`、`resolved`（可选：review 已处理这个问题时为 `{action, review_seq}`，例如疑似漏表已改判为表格；gap 保留，供审计）
 
 | `code` | 含义 |
 |---|---|
@@ -260,3 +261,4 @@ kb-intake check   <包>
 - 2026-10-21 开工前决定（Peter）：确定性比较豁免人工操作时间字段；图形分类器映射（§5.11），图片形式的表记 `table_suspected`；`label_source` 增加 `native`；`low_confidence` 阈值 0.5；抓取阶段多出来的表记 `table_unmatched`（`side: extract`）；抓取阶段原始输出存为 `raw/docling.extract.json`
 - 2026-10-21 OCBC 试跑后：`continued_hint` 带 `reason`，区分强提示与“首行相同”的弱提示
 - 2026-10-21 OCBC 试跑抽查后：`table_suspected` 跳过落在已有表格或图形区块内的 find_tables 框（33 → 2，p106 保留）；`table_words_unassigned` 只报数字和无值符号
+- 2026-10-21 PR #5 代码审查后：改判为表格时吸收被覆盖的区块（`absorbed`）；review 处理过的 gap 标 `resolved`；交付前校验 review 记录与包内容一致
