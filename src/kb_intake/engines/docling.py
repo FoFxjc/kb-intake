@@ -207,7 +207,7 @@ def label_items(data: bytes, clusters: dict[str, list]) -> dict:
 def extract_tables(data: bytes) -> list[dict]:
     """The extract-stage tables in reading order: {"engine_ref", "page_no", "bbox", "n_rows", "n_cols", "cells"},
     cells {"r", "c", "rs", "cs", "bbox", "is_header"} with Docling's cell box (TOPLEFT). Docling's cell text is not
-    kept: cell text is read from the text layer (kb_intake.regiontext)."""
+    kept: cell text is read from the text layer (kb_intake.textlayer, in kb_intake.extract)."""
     doc = json.loads(data)
     heights = _heights(doc)
     tables = []

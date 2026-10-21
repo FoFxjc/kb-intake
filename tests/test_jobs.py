@@ -126,3 +126,24 @@ def test_events_are_ordered(jobs, src):
     jobs.event(job.id, "label", "done", {"seconds": 1.5})
     ev = jobs.events(job.id)
     assert [e["status"] for e in ev] == ["running", "done"] and jobs.events(job.id, after=1)[0]["info"]["seconds"] == 1.5
+
+
+def test_finish_label_and_multi_step_advance_are_one_transaction(jobs, src, monkeypatch):
+    job, _ = jobs.create(src, DECL)
+    with jobs.running(job.id, "label"):
+        j = jobs.finish_label(job.id, "name: default\n", {**DECL, "lang": "en"})
+    assert j.status == "planned" and j.declaration["lang"] == "en" and jobs.workflow(job.id)["version"] == 1
+    jobs.approve(job.id, "peter")
+    with pytest.raises(ValueError):
+        jobs.advance(job.id, ("extracted", "confirmed"), op="extract")     # not consecutive
+    with jobs.running(job.id, "extract"):
+        assert jobs.advance(job.id, ("extracted", "in_review"), op="extract").status == "in_review"
+
+
+def test_a_failing_finish_label_leaves_the_job_uploaded(jobs, src):
+    job, _ = jobs.create(src, DECL)
+    with pytest.raises(Exception):
+        with jobs.running(job.id, "label"):
+            jobs.finish_label(job.id, None)          # NOT NULL text: the insert fails after the status update
+    j = jobs.get(job.id)
+    assert j.status == "uploaded" and jobs.workflow(job.id) is None

@@ -311,13 +311,22 @@ def _cpu() -> tuple[float, float]:
     return self_.ru_utime + self_.ru_stime, children.ru_utime + children.ru_stime
 
 
-def _quiet(step: str, status: str, info: dict) -> None:
-    pass
-
-
 def run(jobs: Jobs, job_id: str, cfg: Config, engine=None, progress=None) -> dict:
-    """Extract an approved job: write extract/*, move it to `extracted` then `in_review`. Returns a summary."""
-    progress = progress or _quiet
+    """Extract an approved job: write extract/*, move it to `extracted` then `in_review`. Returns a summary.
+    Progress events are written to the job store; `progress` only mirrors them for live display."""
+    def emit(step: str, status: str, info: dict | None = None):
+        jobs.event(job_id, step, status, info)
+        if progress:
+            progress(step, status, info or {})
+
+    try:
+        return _run(jobs, job_id, cfg, engine, emit)
+    except Exception as e:
+        jobs.event(job_id, "extract", "failed", {"error": f"{type(e).__name__}: {e}"[:300]})
+        raise
+
+
+def _run(jobs: Jobs, job_id: str, cfg: Config, engine, progress) -> dict:
     t0, cpu0 = time.monotonic(), _cpu()
     with jobs.running(job_id, "extract") as job:
         wf = load_workflow(jobs, job)
@@ -362,8 +371,8 @@ def run(jobs: Jobs, job_id: str, cfg: Config, engine=None, progress=None) -> dic
                        "cache_key": outcome.cache_key, "failed_pages": list(outcome.failed_pages),
                        "errors": list(outcome.errors), "dropped_table_cells": None, "unscored": None},
             "params": {"extract": params}, "unmatched_extract_tables": len(extra)})
-        jobs.advance(job_id, "extracted", op="extract")
-        jobs.advance(job_id, "in_review", op="extract")
+        jobs.advance(job_id, ("extracted", "in_review"), op="extract")
+    progress("extract", "done", {"seconds": seconds})
     by_status: dict[str, int] = {}
     for r in rows:
         by_status[r["status"]] = by_status.get(r["status"], 0) + 1

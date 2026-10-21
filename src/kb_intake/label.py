@@ -23,7 +23,8 @@ Regions (label/regions.jsonl, one row per region, rows in reading order):
 Gaps (label/gaps.jsonl): low_confidence (layout score or classifier top score below cfg.low_confidence; for a
 picture classified `table` the classifier side gives table_suspected instead, never low_confidence), table_suspected (find_tables found a table that no table region
 matches with IoU >= 0.5; region_id = the non-table region overlapping it most), no_text_layer (one per page that
-is scanned or has no words), lang_mismatch, extractor_degraded (Docling, or find_tables on a page).
+is scanned, or has no words and is not blank), lang_mismatch, extractor_degraded (Docling: one gap for the
+document, with `pages` when only some pages failed; find_tables: one per page).
 
 Every text comes from the text layer; Docling's text is never read.
 """
@@ -229,11 +230,7 @@ def _run(jobs: Jobs, job, cfg: Config, engine, emit) -> dict:
                     "pymupdf": pkg_version("pymupdf"), "device": cfg.docling.device},
         "detection": detection, "declaration_filled": filled})
 
-    if filled:
-        jobs.update_declaration(job_id, decl)
-    jobs.advance(job_id, "labeled", op="label")
-    jobs.save_workflow(job_id, workflow.dump(wf), op="label")
-    jobs.advance(job_id, "planned", op="label")
+    jobs.finish_label(job_id, workflow.dump(wf), decl if filled else None)
     emit("label", "done", {"regions": len(regions), "gaps": len(gaps), "seconds": seconds})
     return stats
 
@@ -241,9 +238,7 @@ def _run(jobs: Jobs, job, cfg: Config, engine, emit) -> dict:
 def _estimate(engine, job, cfg: Config, page_count: int) -> int:
     """Seconds the extract stage will take: 0 when its Docling output is already cached."""
     try:
-        x_info = dataclasses.replace(engine, stage="extract").info()
-        key = runner.cache_key(job.sha256, x_info)
-        if runner.read_cache(cfg.cache_dir / x_info.name / key) is not None:
+        if runner.cached(dataclasses.replace(engine, stage="extract").info(), job.sha256, cfg.cache_dir):
             return 0
     except Exception:  # noqa: BLE001 - an engine without stages, unreadable cache: just estimate
         pass
@@ -262,6 +257,9 @@ def _label_pages(job, cfg: Config, items: list[dict], degraded: list[int] | None
         detail = "; ".join(outcome.errors)[:300] or "no output"
         gaps.append(gap("extractor_degraded", None, f"docling {outcome.status}: {detail}; regions come from the text "
                         "layer and find_tables", extractor="docling"))
+    elif degraded:
+        gaps.append(gap("extractor_degraded", None, f"docling did not complete {len(degraded)} page(s); their regions "
+                        "come from the text layer and find_tables", extractor="docling", pages=list(degraded)))
     by_page: dict[int, list] = {}
     for it in items:
         by_page.setdefault(it["page_no"], []).append(it)     # stable: Docling's reading order within the page
@@ -274,7 +272,7 @@ def _label_pages(job, cfg: Config, items: list[dict], degraded: list[int] | None
             kind = kinds.get(page_no)
             pages.append(textlayer.page_record(page, page_no, labels[i] if i < len(labels) else None, kind))
             layouts.append(textlayer.layout_record(page_no, words))
-            if kind == "scanned" or not words:
+            if kind == "scanned" or (not words and kind != "blank"):     # a blank page lacks nothing
                 gaps.append(gap("no_text_layer", page_no, f"page has no text layer (kind {kind})"))
             try:
                 found = findtables.tables_on(page)
@@ -283,9 +281,6 @@ def _label_pages(job, cfg: Config, items: list[dict], degraded: list[int] | None
                 gaps.append(gap("extractor_degraded", page_no, f"find_tables: {type(e).__name__}: {e}"[:300],
                                 extractor=findtables.METHOD))
             if degraded is None or page_no in degraded:
-                if degraded is not None:
-                    gaps.append(gap("extractor_degraded", page_no, "docling failed on this page; regions come from "
-                                    "the text layer and find_tables", extractor="docling"))
                 page_regions = _fallback_page(page_no, found, words, page_spans)
                 page_gaps: list[tuple[int, tuple]] = []
             else:

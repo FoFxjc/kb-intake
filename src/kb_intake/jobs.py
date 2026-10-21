@@ -10,6 +10,8 @@
   The state is unchanged, so the step can simply be run again; Docling results are cached, so a conversion that had
   completed is not redone.
 - Each job has a directory `work_dir/jobs/<job_id>/` with `source.pdf` and the outputs of each step.
+- Progress events: the step modules (label, extract, deliver) write them with `event()`; a caller's `progress`
+  callback is only for live display (the CLI) and must not write events again.
 """
 
 import json
@@ -192,20 +194,39 @@ class Jobs:
         with self._tx() as db:
             db.execute("update jobs set running_op = null, updated_at = ? where id = ?", (now(), job_id))
 
-    def advance(self, job_id: str, to: str, op: str | None = None, **fields) -> Job:
-        """Move the job to the next state `to` (only NEXT transitions), setting extra columns in the same write.
-        A running step passes its own `op`; any other running step makes this Busy."""
+    def advance(self, job_id: str, to: str | tuple[str, ...], op: str | None = None, **fields) -> Job:
+        """Move the job along NEXT to `to` (one state, or consecutive states passed through in one transaction, so a
+        failure can never leave the job in between), setting extra columns in the same write. A running step passes
+        its own `op`; any other running step makes this Busy."""
+        path = (to,) if isinstance(to, str) else tuple(to)
         allowed = {"approved_by", "approved_at", "workflow_version", "confirmed_by", "confirmed_at", "package"}
         if set(fields) - allowed:
             raise ValueError(f"unknown job fields {sorted(set(fields) - allowed)}")
-        frm = next(s for s, n in NEXT.items() if n == to)
         with self._tx() as db:
-            r = self._require(db, job_id, (frm,), idle=False)
-            if r["running_op"] and r["running_op"] != op:
-                raise Busy(f"job {job_id} is running {r['running_op']}")
-            sets = ", ".join(f"{k} = ?" for k in fields)
-            db.execute(f"update jobs set status = ?, updated_at = ?{', ' + sets if sets else ''} where id = ?",
-                       (to, now(), *fields.values(), job_id))
+            self._advance(db, job_id, path, op, fields)
+        return self.get(job_id)
+
+    def _advance(self, db, job_id: str, path: tuple[str, ...], op: str | None, fields: dict) -> None:
+        frm = next((s for s, n in NEXT.items() if n == path[0]), None)
+        if frm is None or any(NEXT.get(a) != b for a, b in zip(path, path[1:])):
+            raise ValueError(f"not a path of consecutive states: {path}")
+        r = self._require(db, job_id, (frm,), idle=False)
+        if r["running_op"] and r["running_op"] != op:
+            raise Busy(f"job {job_id} is running {r['running_op']}")
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        db.execute(f"update jobs set status = ?, updated_at = ?{', ' + sets if sets else ''} where id = ?",
+                   (path[-1], now(), *fields.values(), job_id))
+
+    def finish_label(self, job_id: str, workflow_text: str, declaration: dict | None = None) -> Job:
+        """The end of the label step in one transaction: the filled declaration (if any), uploaded -> labeled, the
+        suggested workflow as version 1 (or the next version), -> planned."""
+        with self._tx() as db:
+            self._advance(db, job_id, ("labeled", "planned"), "label", {})
+            if declaration is not None:
+                db.execute("update jobs set declaration = ? where id = ?", (json.dumps(declaration), job_id))
+            v = db.execute("select coalesce(max(version), 0) + 1 from workflows where job_id = ?",
+                           (job_id,)).fetchone()[0]
+            db.execute("insert into workflows values (?, ?, ?, ?)", (job_id, v, now(), workflow_text))
         return self.get(job_id)
 
     def recover(self) -> list[str]:

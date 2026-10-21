@@ -300,7 +300,7 @@ def test_failed_pages_degrade_alone(tmp_path, setup):
     jobs, job, cfg = setup(table_page=2)
     label.run(jobs, job.id, cfg, engine=fake_engine(tmp_path, "failed_page", table_page=2))
     [g] = gaps_of(job, "extractor_degraded")
-    assert g["page_no"] == 2 and g["extractor"] == "docling"
+    assert g["page_no"] is None and g["pages"] == [2] and g["extractor"] == "docling"
     regions = out(job, "regions.jsonl")
     assert {r["label_source"] for r in regions if r["page_no"] == 1} == {"model"}
     p2 = [r for r in regions if r["page_no"] == 2]

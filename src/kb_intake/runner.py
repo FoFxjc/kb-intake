@@ -50,8 +50,13 @@ def cache_key(source_sha256: str, info: EngineInfo) -> str:
     return hashlib.sha256(json.dumps(material, sort_keys=True).encode()).hexdigest()
 
 
-def _entry(cache_dir: Path, engine: str, key: str) -> Path:
+def entry(cache_dir: Path, engine: str, key: str) -> Path:
     return cache_dir / engine / key
+
+
+def cached(info: EngineInfo, source_sha256: str, cache_dir: Path) -> bool:
+    """Whether a complete result for this source and engine is in the cache (a read that would hit)."""
+    return read_cache(entry(cache_dir, info.name, cache_key(source_sha256, info))) is not None
 
 
 def read_cache(entry: Path) -> tuple[bytes, dict] | None:
@@ -134,8 +139,8 @@ def run(engine: LayoutEngine, pdf: Path, source_sha256: str, cache_dir: Path, wa
     key = cache_key(source_sha256, info)
     if not info.ready and not force:
         return Outcome("not_ready", None, key, False, None, errors=list(info.problems))
-    entry = _entry(cache_dir, info.name, key)
-    hit = read_cache(entry)
+    path = entry(cache_dir, info.name, key)
+    hit = read_cache(path)
     if hit:
         data, meta = hit
         raw = RawResult(**{**meta["raw"], "data": data})
@@ -149,5 +154,5 @@ def run(engine: LayoutEngine, pdf: Path, source_sha256: str, cache_dir: Path, wa
     out = Outcome(raw.status, raw.data, key, False, seconds, raw.failed_pages, raw.errors, raw.page_confidence,
                   clusters=raw.clusters)
     if out.complete and info.ready:
-        out.cache_written = write_cache(entry, raw.data, raw, seconds)
+        out.cache_written = write_cache(path, raw.data, raw, seconds)
     return out
