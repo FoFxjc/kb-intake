@@ -341,3 +341,27 @@ def test_upload_named_dot_dot_and_approval_of_an_unlabelled_job(svc, monkeypatch
     job, _ = jobs.create(other, {**samples.DECL, "doc_id": "y"})              # uploaded, never labelled
     assert svc.post(f"/v1/jobs/{job.id}/approve", json={"by": "peter"}).status_code == 409
     assert svc.get(f"/v1/jobs/{job.id}/pages/1").status_code == 409
+
+
+# ---------- intake-ui-llm-design-v1 §3.1 ----------
+
+def test_source_pdf_whole(svc):
+    job_id = labelled(svc)
+    r = svc.get(f"/v1/jobs/{job_id}/source.pdf")
+    assert r.status_code == 200 and r.headers["content-type"] == "application/pdf"
+    assert r.headers["accept-ranges"] == "bytes"
+    assert r.content == Jobs(svc.cfg.work_dir).get(job_id).source.read_bytes()
+
+
+def test_source_pdf_range(svc):
+    job_id = labelled(svc)
+    size = Jobs(svc.cfg.work_dir).get(job_id).source.stat().st_size
+    r = svc.get(f"/v1/jobs/{job_id}/source.pdf", headers={"range": "bytes=0-99"})
+    assert r.status_code == 206 and len(r.content) == 100
+    assert r.headers["content-range"] == f"bytes 0-99/{size}"
+
+
+def test_source_pdf_bad_range_and_unknown_job(svc):
+    job_id = labelled(svc)
+    assert svc.get(f"/v1/jobs/{job_id}/source.pdf", headers={"range": "bytes=999999999-"}).status_code == 416
+    assert svc.get("/v1/jobs/nope/source.pdf").status_code == 404

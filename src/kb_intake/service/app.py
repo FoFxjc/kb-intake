@@ -1,4 +1,5 @@
-"""The HTTP API of intake-design-v2 §6 and the static web UI (same process, no build step).
+"""The HTTP API of intake-design-v2 §6 and intake-ui-llm-design-v1 §3, and the web UI (same process).
+The API is frozen in contract/api/openapi-v1.json (kb_intake.service.openapi_snapshot).
 
     POST /v1/jobs                       multipart `file` + `declaration` (YAML text), or JSON {"path", "declaration"}
                                         for a file under scan_roots -> 202, starts label
@@ -6,6 +7,7 @@
     GET  /v1/jobs/{id}                  the job, its label stats, extract run summary and recent events
     GET  /v1/jobs/{id}/events?after=n   progress events after seq n
     GET  /v1/jobs/{id}/gaps             label, extract and review gaps of the work directory (each with `stage`)
+    GET  /v1/jobs/{id}/source.pdf       the source file, with HTTP Range
     GET  /v1/jobs/{id}/workflow         the latest (or ?version=) workflow: YAML text and parsed
     PUT  /v1/jobs/{id}/workflow         YAML text -> a new version (422 when invalid)
     POST /v1/jobs/{id}/approve          {"by", "version"?} -> 202, starts extract
@@ -295,6 +297,16 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
             if p.is_file():
                 out += [{**g, "stage": stage} for g in read_jsonl(p)]
         return {"gaps": out}
+
+    @app.get("/v1/jobs/{job_id}/source.pdf", response_class=FileResponse, responses={
+        200: {"content": {"application/pdf": {}}, "description": "the source file"},
+        206: {"content": {"application/pdf": {}}, "description": "the requested byte range (HTTP Range)"},
+        416: {"description": "range not satisfiable"}, **errors(404)})
+    def source_pdf(job_id: str):
+        """The job's source file, with HTTP Range (PDF.js loads pages on demand)."""
+        job = get_job(job_id)
+        return FileResponse(job.source, media_type="application/pdf",
+                            headers={"ETag": f'"{job.sha256}"', "Cache-Control": "private, max-age=0, must-revalidate"})
 
     # ---------- workflow and approval ----------
 

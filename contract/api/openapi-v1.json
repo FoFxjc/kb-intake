@@ -2484,6 +2484,61 @@
         "summary": "Review Ops"
       }
     },
+    "/v1/jobs/{job_id}/source.pdf": {
+      "get": {
+        "description": "The job's source file, with HTTP Range (PDF.js loads pages on demand).",
+        "operationId": "source_pdf_v1_jobs__job_id__source_pdf_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {}
+            },
+            "description": "the source file"
+          },
+          "206": {
+            "content": {
+              "application/pdf": {}
+            },
+            "description": "the requested byte range (HTTP Range)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "416": {
+            "description": "range not satisfiable"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Source Pdf"
+      }
+    },
     "/v1/jobs/{job_id}/workflow": {
       "get": {
         "operationId": "get_workflow_v1_jobs__job_id__workflow_get",
