@@ -13,7 +13,8 @@
     "unhandled",
     "no_text_layer",
     "lang_mismatch",
-    "extractor_degraded"
+    "extractor_degraded",
+    "llm_failed"
    ]
   },
   "page_no": {
@@ -94,6 +95,18 @@
     "review_seq"
    ],
    "additionalProperties": false
+  },
+  "kind": {
+   "enum": [
+    "summary",
+    "describe",
+    "chart_table"
+   ],
+   "title": "llm_failed: the LLM use that failed"
+  },
+  "reason": {
+   "type": "string",
+   "title": "llm_failed: why (timeout, network, http_<status>, quota, rate_limit, refused, auth, bad_response, empty, invalid_table)"
   }
  },
  "required": [

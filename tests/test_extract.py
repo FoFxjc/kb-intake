@@ -635,3 +635,16 @@ def test_a_line_start_outside_a_cell_goes_with_the_word_after_it():
         {"r": 0, "c": 1, "rs": 1, "cs": 1, "bbox": [268, 296, 300, 308], "is_header": False}]}
     table, _ = extract.table_from_cells(region(1, 3, grid["bbox"], "table", 2, "table"), grid, words, "docling")
     assert [c["text"] for c in table["cells"]] == ["FVOCI (1)", "(Note 39)"]
+
+
+def test_describe_extracts_like_text_and_keeps_its_handler(tmp_path):
+    """intake-ui-llm-design-v1 §4.2: the core row of a `describe` region is the `text` row; the LLM output lives in
+    llm.jsonl, not in regions.jsonl."""
+    regs = standard_regions()
+    regs.append(region(1, 4, [400, 600, 500, 700], "chart", 3, "picture", subtype="bar"))
+    ctx = context(tmp_path, regs, [docling_table()])
+    text_row, _, text_gaps = extract.extract_region(regs[-1], "text", ctx)
+    row, table, gaps = extract.extract_region(regs[-1], "describe", ctx)
+    assert table is None and gaps == text_gaps
+    assert row == {**text_row, "handler": "describe"}
+    assert contract.schema_errors("region", row, "row") == []

@@ -3,7 +3,10 @@
 A workflow is YAML text (what the user edits and approves) and, parsed, the dict
 
     {"name": str, "version": int >= 1, "handlers": {region type: handler, every type in vocab order},
-     "exclude_pages": [page_no, ...] sorted}
+     "exclude_pages": [page_no, ...] sorted, "llm"?: {"describe"?: bool, "chart_table"?: bool}}
+
+`describe` (text by box plus an LLM description) applies to chart, diagram and picture regions only. The optional
+`llm` block switches the LLM uses of this job (intake-ui-llm-design-v1 §4); absent, the configuration decides.
 
 `parse` refuses anything else: an unknown or missing region type, an unknown handler, `table_structure` on a type
 other than `table`, or exclude_pages that are not distinct positive integers. `dump` writes one fixed layout, so
@@ -19,10 +22,12 @@ from pathlib import Path
 
 import yaml
 
-from kb_intake.vocab import HANDLERS, REGION_TYPES
+from kb_intake.vocab import DESCRIBE_TYPES, HANDLERS, REGION_TYPES
 
 TEMPLATES = Path(__file__).with_name("workflows")
 KEYS = ("name", "version", "handlers", "exclude_pages")
+OPTIONAL_KEYS = ("llm",)
+LLM_SWITCHES = ("describe", "chart_table")
 TEMPLATE_NAME = re.compile(r"[a-z0-9][a-z0-9_-]*")
 
 
@@ -38,9 +43,9 @@ def validate(raw) -> dict:
     """The normalised workflow of an already loaded mapping (raises WorkflowError)."""
     if not isinstance(raw, dict):
         raise WorkflowError("a workflow must be a mapping with name, version, handlers and exclude_pages")
-    unknown = sorted(map(str, set(raw) - set(KEYS)))
+    unknown = sorted(map(str, set(raw) - set(KEYS) - set(OPTIONAL_KEYS)))
     if unknown:
-        raise WorkflowError(f"unknown workflow key(s) {unknown} (known: {list(KEYS)})")
+        raise WorkflowError(f"unknown workflow key(s) {unknown} (known: {list(KEYS + OPTIONAL_KEYS)})")
     missing = [k for k in KEYS if k not in raw]
     if missing:
         raise WorkflowError(f"workflow lacks {missing}")
@@ -64,13 +69,22 @@ def validate(raw) -> dict:
             raise WorkflowError(f"handler {h!r} for {t} is unknown (known: {list(HANDLERS)})")
         if h == "table_structure" and t != "table":
             raise WorkflowError(f"table_structure only applies to table regions, not to {t}")
+        if h == "describe" and t not in DESCRIBE_TYPES:
+            raise WorkflowError(f"describe only applies to {', '.join(DESCRIBE_TYPES)} regions, not to {t}")
     pages = raw["exclude_pages"]
     if not isinstance(pages, list) or not all(_int(p) and p >= 1 for p in pages):
         raise WorkflowError("exclude_pages must be a list of page numbers (integers >= 1)")
     if len(set(pages)) != len(pages):
         raise WorkflowError("exclude_pages lists a page more than once")
-    return {"name": name, "version": raw["version"], "handlers": {t: handlers[t] for t in REGION_TYPES},
-            "exclude_pages": sorted(pages)}
+    out = {"name": name, "version": raw["version"], "handlers": {t: handlers[t] for t in REGION_TYPES},
+           "exclude_pages": sorted(pages)}
+    if "llm" in raw:
+        llm = raw["llm"]
+        if not isinstance(llm, dict) or set(llm) - set(LLM_SWITCHES) or \
+                not all(isinstance(v, bool) for v in llm.values()):
+            raise WorkflowError(f"llm must map some of {list(LLM_SWITCHES)} to true or false")
+        out["llm"] = {k: llm[k] for k in LLM_SWITCHES if k in llm}
+    return out
 
 
 def parse(text: str) -> dict:
@@ -91,6 +105,8 @@ def dump(wf: dict) -> str:
     lines += [f"  {t}: {yaml.safe_dump(handlers[t], default_flow_style=True).strip().removesuffix('...').strip()}"
               for t in order]
     lines.append(f"exclude_pages: {json.dumps(wf['exclude_pages'])}")
+    if "llm" in wf:
+        lines.append("llm: {" + ", ".join(f"{k}: {json.dumps(v)}" for k, v in wf["llm"].items()) + "}")
     return "\n".join(lines) + "\n"
 
 
@@ -109,6 +125,12 @@ def handler_for(wf: dict, region_type: str) -> str:
         return wf["handlers"][region_type]
     except KeyError:
         raise WorkflowError(f"the workflow has no handler for region type {region_type!r}") from None
+
+
+def llm_switch(wf: dict, feature: str, default: bool) -> bool:
+    """The job's switch for an LLM feature (describe, chart_table): the workflow's `llm` block, else `default`
+    (the configuration's feature setting)."""
+    return wf.get("llm", {}).get(feature, default)
 
 
 def suggest(stats: dict) -> tuple[dict, list[str]]:

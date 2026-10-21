@@ -1,0 +1,181 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://github.com/FoFxjc/kb-intake/contract/v2/llm.schema.json",
+ "type": "object",
+ "title": "llm.jsonl row (intake-ui-llm-design-v1 §4.4): one LLM output, low weight; no time in the file",
+ "properties": {
+  "kind": {
+   "enum": [
+    "summary",
+    "describe",
+    "chart_table"
+   ]
+  },
+  "region_id": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "title": "null for the summary"
+  },
+  "provider": {
+   "type": "string"
+  },
+  "model": {
+   "type": "string"
+  },
+  "prompt_version": {
+   "type": "string"
+  },
+  "input_sha256": {
+   "type": "string",
+   "pattern": "^[0-9a-f]{64}$"
+  },
+  "output": {
+   "oneOf": [
+    {
+     "type": "object",
+     "properties": {
+      "text": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "text"
+     ],
+     "additionalProperties": false
+    },
+    {
+     "type": "object",
+     "properties": {
+      "table": {
+       "type": "object",
+       "properties": {
+        "title": {
+         "type": [
+          "string",
+          "null"
+         ]
+        },
+        "columns": {
+         "type": "array",
+         "items": {
+          "type": "string"
+         }
+        },
+        "rows": {
+         "type": "array",
+         "items": {
+          "type": "array",
+          "items": {
+           "type": [
+            "string",
+            "number",
+            "null"
+           ]
+          }
+         }
+        },
+        "units": {
+         "type": [
+          "string",
+          "null"
+         ]
+        },
+        "notes": {
+         "type": [
+          "string",
+          "null"
+         ]
+        }
+       },
+       "required": [
+        "title",
+        "columns",
+        "rows",
+        "units",
+        "notes"
+       ],
+       "additionalProperties": false
+      }
+     },
+     "required": [
+      "table"
+     ],
+     "additionalProperties": false
+    }
+   ]
+  },
+  "weight": {
+   "const": "low"
+  }
+ },
+ "required": [
+  "kind",
+  "region_id",
+  "provider",
+  "model",
+  "prompt_version",
+  "input_sha256",
+  "output",
+  "weight"
+ ],
+ "additionalProperties": false,
+ "allOf": [
+  {
+   "if": {
+    "properties": {
+     "kind": {
+      "const": "summary"
+     }
+    }
+   },
+   "then": {
+    "properties": {
+     "region_id": {
+      "type": "null"
+     },
+     "output": {
+      "required": [
+       "text"
+      ]
+     }
+    }
+   },
+   "else": {
+    "properties": {
+     "region_id": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  {
+   "if": {
+    "properties": {
+     "kind": {
+      "const": "chart_table"
+     }
+    }
+   },
+   "then": {
+    "properties": {
+     "output": {
+      "required": [
+       "table"
+      ]
+     }
+    }
+   },
+   "else": {
+    "properties": {
+     "output": {
+      "required": [
+       "text"
+      ]
+     }
+    }
+   }
+  }
+ ]
+}

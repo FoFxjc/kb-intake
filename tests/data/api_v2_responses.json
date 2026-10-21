@@ -1034,7 +1034,8 @@
         "record",
         "discard",
         "unhandled",
-        "ocr"
+        "ocr",
+        "describe"
       ],
       "llm": {
         "base_url": "https://api.minimax.io/v1",

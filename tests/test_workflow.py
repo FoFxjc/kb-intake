@@ -117,3 +117,31 @@ def test_suggest_notes_scanned_pages_suspected_tables_and_low_confidence():
     assert notes == workflow.suggest(_stats(pages_by_kind={"native": 7, "scanned": 2, "mixed": 1, "blank": 0},
                                             table_suspected=3, low_confidence=4,
                                             regions_by_type={"unknown": 2}))[1]
+
+
+# ---------- describe and the llm switches (intake-ui-llm-design-v1 §4) ----------
+
+def _with(**handlers) -> dict:
+    wf = workflow.load_template()
+    return {**wf, "handlers": {**wf["handlers"], **handlers}}
+
+
+def test_describe_applies_to_charts_diagrams_and_pictures_only():
+    wf = _with(chart="describe", diagram="describe", picture="describe")
+    assert workflow.parse(workflow.dump(wf)) == wf
+    for t in ("table", "text", "logo"):
+        with pytest.raises(workflow.WorkflowError, match="describe"):
+            workflow.validate(_with(**{t: "describe"}))
+
+
+def test_llm_switches_round_trip_and_are_optional():
+    wf = {**workflow.load_template(), "llm": {"describe": False, "chart_table": True}}
+    text = workflow.dump(wf)
+    assert text.endswith("llm: {describe: false, chart_table: true}\n")
+    assert workflow.parse(text) == wf
+    assert "llm" not in workflow.parse(workflow.dump(workflow.load_template()))
+    assert workflow.llm_switch(wf, "describe", True) is False
+    assert workflow.llm_switch(workflow.load_template(), "describe", True) is True
+    for bad in ({"ocr": True}, {"describe": "yes"}, []):
+        with pytest.raises(workflow.WorkflowError):
+            workflow.validate({**workflow.load_template(), "llm": bad})

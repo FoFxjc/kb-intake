@@ -116,7 +116,8 @@
         "record",
         "discard",
         "unhandled",
-        "ocr"
+        "ocr",
+        "describe"
        ]
       },
       "diagram": {
@@ -126,7 +127,8 @@
         "record",
         "discard",
         "unhandled",
-        "ocr"
+        "ocr",
+        "describe"
        ]
       },
       "picture": {
@@ -136,7 +138,8 @@
         "record",
         "discard",
         "unhandled",
-        "ocr"
+        "ocr",
+        "describe"
        ]
       },
       "logo": {
@@ -240,6 +243,19 @@
       "minimum": 1
      },
      "uniqueItems": true
+    },
+    "llm": {
+     "type": "object",
+     "title": "this job's LLM switches (intake-ui-llm-design-v1 §4); absent: the configuration decides",
+     "properties": {
+      "describe": {
+       "type": "boolean"
+      },
+      "chart_table": {
+       "type": "boolean"
+      }
+     },
+     "additionalProperties": false
     }
    },
    "required": [

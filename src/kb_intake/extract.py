@@ -184,7 +184,7 @@ def extract_region(region: dict, handler: str, ctx: Context) -> tuple[dict, dict
     gaps: list[dict] = []
     if text is None and words:          # a page with no words at all already has a page-level gap from label
         gaps.append(_gap("no_text_layer", page_no, "no text-layer words in the region", region_id=rid))
-    if handler == "text":
+    if handler in ("text", "describe"):        # describe: the LLM output goes to llm.jsonl (kb_intake.llm), not here
         row.update(status="extracted", text=text, text_source="native" if text is not None else None)
         return row, None, gaps
     if handler != "table_structure":

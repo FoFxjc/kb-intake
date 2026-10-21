@@ -259,6 +259,56 @@
   },
   "run": {
    "type": "object"
+  },
+  "llm": {
+   "type": "object",
+   "title": "LLM use of the package (intake-ui-llm-design-v1 §4.4); outputs in llm.jsonl, low weight",
+   "properties": {
+    "used": {
+     "type": "boolean"
+    },
+    "provider": {
+     "type": "string"
+    },
+    "model": {
+     "type": "string"
+    },
+    "remote": {
+     "type": "boolean"
+    },
+    "counts": {
+     "type": "object",
+     "properties": {
+      "summary": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "describe": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "chart_table": {
+       "type": "integer",
+       "minimum": 0
+      },
+      "failed": {
+       "type": "integer",
+       "minimum": 0
+      }
+     },
+     "required": [
+      "summary",
+      "describe",
+      "chart_table",
+      "failed"
+     ],
+     "additionalProperties": false
+    }
+   },
+   "required": [
+    "used"
+   ],
+   "additionalProperties": false
   }
  },
  "required": [

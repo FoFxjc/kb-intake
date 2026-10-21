@@ -1,4 +1,5 @@
-"""Contract v2 check of a delivered package (`kb-intake check`, intake-design-v2 §5).
+"""Contract v2 check of a delivered package (`kb-intake check`, intake-design-v2 §5; llm.jsonl, intake-ui-llm-design-v1
+§4.4).
 
 The JSON Schemas live in `contract/v2/` of this repository (shipped inside the wheel as kb_intake/contract).
 Besides the schemas, the check verifies what a schema cannot: the package name, the files and their hashes against
@@ -20,7 +21,8 @@ from kb_intake.package import sha_file
 ROWS = {"pages.jsonl": "page", "layout.jsonl": "layout", "regions.jsonl": "region", "tables.jsonl": "table",
         "gaps.jsonl": "gap", "review.jsonl": "review"}
 REQUIRED_FILES = ("source.pdf", *ROWS, "workflow.json")
-OPTIONAL_FILES = ("raw/docling.json", "raw/docling.extract.json")
+OPTIONAL_FILES = ("raw/docling.json", "raw/docling.extract.json", "llm.jsonl")
+OPTIONAL_ROWS = {"llm.jsonl": "llm"}
 NAME = re.compile(r"(?P<doc_id>[a-z0-9][a-z0-9._-]*)@(?P<sha>[0-9a-f]{12})")
 MAX_ERRORS = 50
 
@@ -111,7 +113,7 @@ def check(pkg: Path) -> dict:
         add(["source.pdf sha256 does not match manifest.source"])
 
     rows: dict[str, list] = {}
-    for f, kind in ROWS.items():
+    for f, kind in {**ROWS, **OPTIONAL_ROWS}.items():
         p = pkg / f
         if not p.is_file():
             continue
@@ -164,6 +166,10 @@ def _consistency(manifest: dict, rows: dict[str, list]) -> list[str]:
     for t in tables:
         if (by_region.get(t.get("region_id")) or {}).get("table_id") != t.get("table_id"):
             errs.append(f"tables.jsonl: {t.get('table_id')} belongs to a region that does not point back")
+    for row in rows.get("llm.jsonl", []):
+        if row.get("region_id") is not None and row.get("region_id") not in by_region:
+            errs.append(f"llm.jsonl: {row.get('kind')} names region {row.get('region_id')}, which is not in "
+                        "regions.jsonl")
     stats = manifest.get("stats") or {}
     if stats.get("regions_by_type") != dict(sorted(Counter(r.get("type") for r in regions).items())):
         errs.append("manifest.stats.regions_by_type does not match regions.jsonl")

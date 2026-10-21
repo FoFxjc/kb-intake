@@ -8,7 +8,11 @@ Every module takes these names from here; the JSON Schemas in contract/v2 list t
 REGION_TYPES = ("title", "heading", "text", "list", "caption", "footnote", "formula", "toc", "table", "chart",
                 "diagram", "picture", "logo", "icon", "signature", "stamp", "page_header", "page_footer", "unknown")
 
-HANDLERS = ("text", "table_structure", "record", "discard", "unhandled", "ocr")
+HANDLERS = ("text", "table_structure", "record", "discard", "unhandled", "ocr", "describe")
+
+# `describe` (intake-ui-llm-design-v1 §4.2): text by box plus an optional LLM description, for these types only
+DESCRIBE_TYPES = ("chart", "diagram", "picture")
+LLM_KINDS = ("summary", "describe", "chart_table")
 
 # region status after extraction (§5.4); "labeled" only exists in the work directory, before extraction
 STATUSES = ("extracted", "discarded", "recorded", "excluded", "unhandled", "absorbed")
@@ -16,7 +20,7 @@ STATUSES = ("extracted", "discarded", "recorded", "excluded", "unhandled", "abso
 LABEL_SOURCES = ("model", "user", "native")
 
 GAP_CODES = ("table_suspected", "low_confidence", "table_words_unassigned", "table_unmatched", "unhandled",
-             "no_text_layer", "lang_mismatch", "extractor_degraded")
+             "no_text_layer", "lang_mismatch", "extractor_degraded", "llm_failed")
 
 # what each gap code means to a reviewer (UI groups, cluster labels)
 GAP_LABELS = {
@@ -24,6 +28,7 @@ GAP_LABELS = {
     "table_words_unassigned": "Unassigned values in tables", "table_unmatched": "Tables not matched between stages",
     "unhandled": "Unhandled regions", "no_text_layer": "No text layer",
     "lang_mismatch": "Language differs from the declaration", "extractor_degraded": "Extractor degraded",
+    "llm_failed": "LLM calls that failed",
 }
 
 LOW_CONFIDENCE = 0.5          # default threshold for layout score and classifier top score (§5.7)
