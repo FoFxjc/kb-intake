@@ -14,10 +14,12 @@ experimental chart-to-table, through an OpenAI-compatible endpoint (MiniMax by d
 """
 
 import base64
+import fcntl
 import hashlib
 import json
 import os
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import pymupdf
@@ -244,6 +246,19 @@ def _order(job_dir: Path) -> dict[str, int]:
     return {r["region_id"]: r["reading_order"] for r in read_jsonl(p)} if p.is_file() else {}
 
 
+@contextmanager
+def _locked(job_dir: Path):
+    """Hold the job's LLM files: the background summary, the extract / review describe pass and a CLI process may
+    write them at the same time; each re-reads them under this lock before it saves (flock: across processes)."""
+    (job_dir / "llm").mkdir(exist_ok=True)
+    with open(job_dir / "llm" / ".lock", "w") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
 def _save(job_dir: Path, rows: list[dict], gaps: list[dict], runner: "Runner | None" = None) -> None:
     from kb_intake.package import read_json, write_json, write_jsonl
     d = job_dir / "llm"
@@ -272,16 +287,17 @@ def summarize(jobs, job_id: str, cfg: config.Config, chat=None, env=None) -> dic
     (d / "llm").mkdir(exist_ok=True)
     write_json(d / "llm" / "summary.json", {"status": "pending"})
     out = runner.summary(d, job.declaration)
-    rows = [r for r in rows_of(d) if r["kind"] != "summary"]
-    gaps = [g for g in gaps_of(d) if g["kind"] != "summary"]
-    if out.get("code") == "llm_failed":
-        gaps.append(out)
-        status = {"status": "failed", "reason": out["reason"]}
-    else:
-        rows.append(out)
-        status = {"status": "done"}
-    _save(d, rows, gaps, runner)
-    write_json(d / "llm" / "summary.json", status)
+    with _locked(d):
+        rows = [r for r in rows_of(d) if r["kind"] != "summary"]
+        gaps = [g for g in gaps_of(d) if g["kind"] != "summary"]
+        if out.get("code") == "llm_failed":
+            gaps.append(out)
+            status = {"status": "failed", "reason": out["reason"]}
+        else:
+            rows.append(out)
+            status = {"status": "done"}
+        _save(d, rows, gaps, runner)
+        write_json(d / "llm" / "summary.json", status)
     return out
 
 
@@ -297,15 +313,17 @@ def describe_regions(job_dir: Path, cfg: config.Config, wf: dict, regions: list[
             and (only is None or r["region_id"] in only)] if on else []
     keep = (lambda x: x["kind"] == "summary") if only is None else \
         (lambda x: x["kind"] == "summary" or x.get("region_id") not in only)
-    rows, gaps = [r for r in rows_of(job_dir) if keep(r)], [g for g in gaps_of(job_dir) if keep(g)]
     if not todo and not (job_dir / "llm").is_dir():
         return {"rows": 0, "failed": 0, "regions": 0}
     if progress and todo:
         progress("llm", "started", {"regions": len(todo)})
     calls = [c for r in todo for c in runner.describe_inputs(r, pdf[r["page_no"] - 1], wf)]
-    for out in runner.run_many(calls):
-        (gaps if out.get("code") == "llm_failed" else rows).append(out)
-    _save(job_dir, rows, gaps, runner if todo else None)
+    outs = runner.run_many(calls)
+    with _locked(job_dir):                     # read now, not before the calls: a summary may have been saved since
+        rows, gaps = [r for r in rows_of(job_dir) if keep(r)], [g for g in gaps_of(job_dir) if keep(g)]
+        for out in outs:
+            (gaps if out.get("code") == "llm_failed" else rows).append(out)
+        _save(job_dir, rows, gaps, runner if todo else None)
     done = {"rows": sum(1 for r in rows if r["kind"] != "summary"), "failed": runner.stats["failed"],
             "regions": len(todo)}
     if progress and todo:

@@ -192,3 +192,36 @@ def test_service_runs_the_summary_after_label_without_holding_the_step_slot(tmp_
         assert c.get(f"/v1/jobs/{job_id}").json()["job"]["status"] == "planned"
         assert app.state.summaries.wait(60)
         assert c.get(f"/v1/jobs/{job_id}/summary").json()["status"] == "done"
+
+
+
+def test_summary_and_descriptions_written_at_the_same_time_keep_both(tmp_path, fake, monkeypatch):
+    """earn-it, stage L: the background summary and the describe pass both rewrite llm/llm.jsonl. The describe pass
+    reads the files, waits seconds for the model, then saves: a summary saved in between must survive."""
+    import threading
+
+    import pymupdf
+    f = jobflow.in_review(tmp_path, chart=True, llm_url=fake.url)
+    (f.cfg.cache_dir / "llm").rename(f.cfg.cache_dir / "llm-old")      # the describe call goes to the model again
+    started, release = threading.Event(), threading.Event()
+    real = llm_client.chat
+
+    def slow_describe(*a, **kw):
+        if "PDF document" in a[3][-1]["text"]:
+            started.set()
+            release.wait(10)                         # the describe call is in flight while the summary saves
+        return real(*a, **kw)
+    monkeypatch.setattr(llm_client, "chat", slow_describe)
+    wf = workflow.parse(f.jobs.workflow(f.job.id)["text"])
+    regions = review.current(f.job.dir)["regions"]
+
+    def describe():
+        with pymupdf.open(f.job.source) as pdf:
+            llm.describe_regions(f.job.dir, f.cfg, wf, regions, pdf, only={chart_region(f)["region_id"]})
+    t = threading.Thread(target=describe)
+    t.start()
+    assert started.wait(10)
+    llm.summarize(f.jobs, f.job.id, f.cfg)           # saves while the describe pass waits
+    release.set()
+    t.join(10)
+    assert sorted(r["kind"] for r in read_jsonl(f.job.dir / "llm" / "llm.jsonl")) == ["describe", "summary"]
