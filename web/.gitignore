@@ -1,0 +1,5 @@
+node_modules/
+e2e/.fixtures/
+e2e/shots/
+test-results/
+playwright-report/
