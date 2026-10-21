@@ -224,10 +224,11 @@ def table_from_cells(region: dict, grid: dict, words: list[list], method: str) -
                if box is not None]
     raw = sorted(raw, key=lambda x: (x[0], x[1]))
     own: dict[int, list] = {i: [] for i in range(len(raw))}
-    for w in textlayer.words_in(words, grid["bbox"]) if raw else []:
-        i = _home_cell(w, raw)
-        if i is not None:
-            own[i].append(w)
+    in_table = textlayer.words_in(words, grid["bbox"]) if raw else []
+    homes = _homes(in_table, raw)
+    for w in in_table:
+        if id(w) in homes:
+            own[homes[id(w)]].append(w)
     taken = {id(w) for ws in own.values() for w in ws}
     for w in textlayer.words_in(words, grid["bbox"]):      # a wrapped line just outside its cell's box
         if id(w) not in taken:
@@ -263,13 +264,27 @@ def table_from_cells(region: dict, grid: dict, words: list[list], method: str) -
     return table, gaps
 
 
-def _home_cell(w: list, raw: list) -> int | None:
-    """The index of the cell a word is centred in; when TableFormer's boxes overlap and it is centred in several,
-    the one whose box centre is nearest (a word is read into one cell only)."""
-    cx, cy = (w[0] + w[2]) / 2, (w[1] + w[3]) / 2
-    homes = [((cx - (b[0] + b[2]) / 2) ** 2 + (cy - (b[1] + b[3]) / 2) ** 2, i)
-             for i, (*_, b, _h) in enumerate(raw) if b is not None and textlayer.centre_in(w, b)]
-    return min(homes)[1] if homes else None
+def _homes(words: list, raw: list) -> dict[int, int]:
+    """{id(word): index of its cell} for the words centred in some cell box. TableFormer's boxes can overlap or cut a
+    line; so the words of one text-layer line that fall in one column go together, to the cell (among those holding
+    any of them) whose box centre is nearest to the centre of those words: a line is read into one cell, once."""
+    groups: dict[tuple, list] = {}
+    cands: dict[int, list[int]] = {}
+    for w in words:
+        c = [i for i, (*_, b, _h) in enumerate(raw) if b is not None and textlayer.centre_in(w, b)]
+        if c:
+            cands[id(w)] = c
+            groups.setdefault((w[5], w[6], min(raw[i][1] for i in c)), []).append(w)
+    out = {}
+    for ws in groups.values():
+        x0, y0 = min(w[0] for w in ws), min(w[1] for w in ws)
+        x1, y1 = max(w[2] for w in ws), max(w[3] for w in ws)
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        pool = sorted({i for w in ws for i in cands[id(w)]})
+        best = min(pool, key=lambda i: ((cx - (raw[i][4][0] + raw[i][4][2]) / 2) ** 2
+                                       + (cy - (raw[i][4][1] + raw[i][4][3]) / 2) ** 2, i))
+        out.update((id(w), best) for w in ws)
+    return out
 
 
 ADJACENT_LINES = 1.2      # how far (in the word's own height) a word may sit above or below a cell to join it

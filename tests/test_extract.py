@@ -598,13 +598,14 @@ def test_a_wrapped_label_line_outside_the_cell_box_joins_the_adjacent_cell():
 
 def test_a_word_in_two_overlapping_cell_boxes_is_read_once():
     """OCBC p128: TableFormer's box of 'Total comprehensive income for the year' (a row without values) also
-    covers the next row's label 'Profit for the year'. A word belongs to one cell: the one whose box centre is
-    nearest to the word's centre."""
+    covers the next row's label 'Profit for the year', whose own box ends before "year". The words of one text line
+    in one column belong to one cell: the one whose box centre is nearest to the line's centre."""
     w = lambda x0, y0, x1, text, line, n: [x0, y0, x1, y0 + 9, text, 0, line, n]  # noqa: E731
-    words = [w(40, 158, 200, "Total", 0, 0), w(40, 170, 110, "Profit", 1, 0), w(277, 170, 282, "7,422", 2, 0)]
+    words = [w(40, 158, 200, "Total", 0, 0), w(40, 170, 70, "Profit", 1, 0), w(72, 170, 100, "for the", 1, 1),
+             w(112, 170, 128, "year", 1, 2), w(277, 170, 282, "7,422", 2, 0)]      # "year" is in the big box only
     grid = {"bbox": [38, 150, 300, 185], "n_rows": 2, "n_cols": 2, "cells": [
         {"r": 0, "c": 0, "rs": 1, "cs": 1, "bbox": [40, 157, 203, 177], "is_header": False},
         {"r": 1, "c": 0, "rs": 1, "cs": 1, "bbox": [40, 170, 110, 180], "is_header": False},
         {"r": 1, "c": 1, "rs": 1, "cs": 1, "bbox": [270, 170, 290, 180], "is_header": False}]}
     table, _ = extract.table_from_cells(region(1, 3, grid["bbox"], "table", 2, "table"), grid, words, "docling")
-    assert [c["text"] for c in table["cells"]] == ["Total", "Profit", "7,422"]
+    assert [c["text"] for c in table["cells"]] == ["Total", "Profit for the year", "7,422"]
