@@ -1,7 +1,5 @@
-"""Per-page classification (kb ocr-design §2, O-1): native / scanned / mixed / blank, plus routing of the
+"""Per-page classification (ocr-design §2): native / scanned / mixed / blank, plus routing of the
 image regions on a page. Deterministic rules, no model.
-
-Moved from kb `pipeline/pages.py` (kb #29) in the D49 split; logic and thresholds unchanged.
 
 Image regions (from PyMuPDF image info, clipped to the page; an image drawn twice at the same place counts once):
 - smaller than 3% of the page -> discarded (icons, logos, signatures), only counted;
@@ -14,7 +12,7 @@ Page kinds:
   "intentionally left blank" note;
 - mixed: native text plus pending regions;
 - native: everything else.
-Thresholds were measured in O-1 on the six annual reports and the synthetic scan set (kb docs/ocr-o1-report.md).
+Thresholds were measured in O-1 on the six annual reports and the synthetic scan set (ocr-design O-1).
 """
 
 import re

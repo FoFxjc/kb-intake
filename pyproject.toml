@@ -1,16 +1,17 @@
 [project]
 name = "kb-intake"
-version = "0.1.0"
-description = "Turn any file into a standard intake package that the knowledge base can read (contract v1)"
+version = "0.2.0"
+description = "Scan files, label their structure with Docling, and write versioned intake packages (contract v1)"
 requires-python = "==3.12.*"
 dependencies = [
     "docling==2.140.0",
     "docling-core==2.103.0",
     "docling-ibm-models==4.0.3",
     "docling-parse==7.22.3",
+    "huggingface-hub==1.33.0",
     "jsonschema==4.23.0",
-    # Same version as kb's uv.lock: step 2 byte-equality with the kb baseline depends on it.
-    # Upgrading must pass the regression gate (intake-design §9.3).
+    "packaging==26.3",
+    # Upgrading must pass the regression gate (intake-design §9.3): 24 snapshot tables + determinism.
     "pymupdf==1.28.2",
     "pyyaml==6.0.3",
 ]
@@ -27,6 +28,8 @@ packages = ["src/kb_intake"]
 # Ship the contract schemas inside the wheel so `kb-intake check` reads the same copy however it is installed
 [tool.hatch.build.targets.wheel.force-include]
 "contract" = "kb_intake/contract"
+# The pins of the inference dependencies, generated from uv.lock (intake-design §3.2); read at run time by deps.py
+"constraints.txt" = "kb_intake/constraints.txt"
 
 [dependency-groups]
 dev = [

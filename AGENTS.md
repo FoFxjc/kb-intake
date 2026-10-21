@@ -25,16 +25,15 @@ executable checks as stronger evidence than agent claims.
 Everything in this repository is written in English: code, comments, docstrings, UI text, tests, commit
 messages, README and reports. The design documents under `docs/*-v1.md` are kept as their author wrote them.
 
-### Boundaries (D49)
+### Boundaries
 
-- kb-intake never imports kb (FoFxjc/kb), and kb never imports kb-intake. The two repositories are siblings,
-  never nested, never a submodule or subtree. They meet only through intake packages written to a directory
-  or zip (`KB_PACKAGES_DIR` in development) and validated against `contract/v1/`.
-- `contract/v1/` is the single source of the package schemas. kb keeps a copy with the source commit noted;
-  contract v1 only gains fields, a changed field means v2.
-- Rule of thumb from intake-design §2: what needs only the file belongs here; what needs kb's type configuration
-  or domain packs belongs to kb.
-- The import ban is enforced with import-linter: `uv run lint-imports`.
+- kb-intake is a standalone component (intake-design §1). Consumers only read packages; kb-intake never imports or
+  calls a consumer (kb is one of them; the import ban is enforced with `uv run lint-imports`).
+- `contract/v1/` is the single source of the package schemas. Contract v1 only gains fields; a changed field
+  means v2.
+- What needs only the file belongs here; what needs a consumer's type configuration or domain knowledge does not.
+- No sample-specific logic in `src/`: rules for one document series live in font profiles, and the profiles used
+  by the regression tests live under `tests/regression/`.
 
 ### Delegation: subagents and workflows
 
@@ -56,8 +55,8 @@ messages, README and reports. The design documents under `docs/*-v1.md` are kept
 
 ### Stability
 
-- Pinned versions (`uv.lock`) are part of the output contract: `pymupdf` must stay at the version kb used for
-  its baseline; Docling packages are pinned as a set (intake-design §9.3). An upgrade goes through the regression
-  gate, never silently.
+- Pinned versions (`uv.lock`, and `constraints.txt` generated from it) are part of the output contract: Docling
+  packages, PyMuPDF and the inference libraries are pinned as a set (intake-design §9.3). An upgrade goes through
+  the regression gate (`tests/regression/`), never silently.
 - No generative model is called while building a package. Model artefacts are read from local files only.
 - Secrets (API keys) live in environment variables only, never in files.

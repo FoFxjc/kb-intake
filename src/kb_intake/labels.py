@@ -1,7 +1,4 @@
-"""Printed page labels: physical page <-> printed page number.
-
-Moved from kb `pipeline/tree.page_labels()` in the D49 split; logic unchanged.
-"""
+"""Printed page labels: physical page <-> printed page number."""
 
 import re
 from collections import Counter

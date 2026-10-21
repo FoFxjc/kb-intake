@@ -1,7 +1,7 @@
 """Contract v1 check of an intake package (`kb-intake check`).
 
 The JSON Schemas live in `contract/v1/` of this repository (shipped inside the wheel as kb_intake/contract);
-kb keeps a copy and compares it with a script. Besides the schemas, the check verifies what a schema cannot:
+consumers may keep a copy. Besides the schemas, the check verifies what a schema cannot:
 the package name, file hashes against the manifest, and page numbering.
 """
 
@@ -18,7 +18,7 @@ from kb_intake import CONTRACT_VERSION
 
 ROWS = {"pages.jsonl": "page", "layout.jsonl": "layout", "regions.jsonl": "region", "tables.jsonl": "table",
         "headings.jsonl": "heading", "gaps.jsonl": "gap"}
-NAME = re.compile(r"(?P<doc_id>[a-z0-9-]+_[a-z][a-z0-9_]*_\d{4}_(?:en|zh))@(?P<sha>[0-9a-f]{12})")
+NAME = re.compile(r"(?P<doc_id>[a-z0-9][a-z0-9._-]*)@(?P<sha>[0-9a-f]{12})")
 MAX_ERRORS = 50
 
 

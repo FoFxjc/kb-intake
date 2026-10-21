@@ -1,4 +1,4 @@
-"""Printed page labels (moved from kb tests/test_tree.py with page_labels())."""
+"""Printed page labels."""
 
 import pymupdf
 

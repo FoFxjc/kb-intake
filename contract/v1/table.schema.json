@@ -89,12 +89,16 @@
       "type": "boolean"
      },
      "bbox": {
-      "type": "array",
+      "type": [
+       "array",
+       "null"
+      ],
       "items": {
        "type": "number"
       },
       "minItems": 4,
-      "maxItems": 4
+      "maxItems": 4,
+      "description": "box of the text inside the cell (TOPLEFT, PDF points, full precision); null for an empty cell"
      },
      "is_header": {
       "type": "boolean"
@@ -103,6 +107,15 @@
       "type": "integer",
       "minimum": 1,
       "description": "page of this cell (merged cross-page tables have cells on several pages)"
+     },
+     "grid_bbox": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      },
+      "minItems": 4,
+      "maxItems": 4,
+      "description": "optional: the cell's grid box as the extractor drew it (find_tables)"
      }
     },
     "description": "One cell. rs/cs are row and column spans. extract_method=find_tables has no span information: every cell has rs = cs = 1 and grid positions covered by a merged neighbour have no cell (the owner's bbox spans them)."
@@ -139,6 +152,33 @@
     "secondary"
    ],
    "description": "primary = the table entered for downstream use; secondary = a candidate kept for cross-checking (e.g. find_tables next to Docling). Missing means primary."
+  },
+  "context_above": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "text",
+     "bbox"
+    ],
+    "properties": {
+     "text": {
+      "type": [
+       "string",
+       "null"
+      ]
+     },
+     "bbox": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      },
+      "minItems": 4,
+      "maxItems": 4
+     }
+    }
+   },
+   "description": "short lines right above the table in its columns (unit lines, notes), top to bottom; from the text layer"
   }
  },
  "required": [

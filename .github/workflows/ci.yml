@@ -1,0 +1,26 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.10.2"
+      - name: uv.lock is up to date
+        run: uv lock --check
+      - name: constraints.txt matches uv.lock
+        run: |
+          uv export --no-dev --no-hashes --no-emit-project --format requirements-txt -o constraints.txt -q
+          git diff --exit-code constraints.txt
+      - name: No CJK characters outside the design documents
+        run: |
+          ! grep -rnP '[\x{3000}-\x{303f}\x{4e00}-\x{9fff}\x{ff00}-\x{ffef}]' src tests scripts contract README.md AGENTS.md intake.example.yaml
+      - run: uv sync --locked
+      - run: uv run lint-imports
+      - run: uv run pytest -q

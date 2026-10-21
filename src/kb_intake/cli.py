@@ -1,47 +1,86 @@
-"""Command line: `kb-intake run` and `kb-intake check` (intake-design §3)."""
+"""Command line (intake-design §3.2):
+
+    kb-intake models download [--to DIR]       pinned weights into $INTAKE_MODELS_DIR (default ~/.kb-intake/models)
+    kb-intake models verify [--dir DIR]        check a models directory against the shipped lock
+    kb-intake engines                          engine versions, models, dependency check (ready or not)
+    kb-intake scan <file|dir> --decl d.yaml    one package per file into --out (default $INTAKE_PACKAGES_DIR or
+                                               ./packages); already packaged files are skipped
+    kb-intake check <package> ...              contract v1 check of packages (directories or zips)
+
+stdout carries JSON only (one object per line); errors are JSON on stderr. Hugging Face is put offline for every
+command except `models download`, so nothing but that command can reach the network.
+"""
 
 import argparse
 import json
 import os
 import sys
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import yaml
 
-from kb_intake import config as config_mod
-from kb_intake import contract, declaration, package
+
+def _err(**kw) -> None:
+    print(json.dumps({"ok": False, **kw}, ensure_ascii=False), file=sys.stderr)
 
 
-def _run(args) -> int:
-    out = args.out or os.environ.get("KB_PACKAGES_DIR")
-    if not out:
-        print("error: give --out or set KB_PACKAGES_DIR", file=sys.stderr)
-        return 2
+def _config(args):
+    from kb_intake import config
+    cfg = config.load(args.config)
+    if getattr(args, "no_layout", False):
+        cfg = replace(cfg, layout_enabled=False)
+    return cfg
+
+
+def _models(args) -> int:
+    from kb_intake import config, models
+    cfg = config.load(args.config)
+    target = Path(args.to or args.dir).expanduser() if (args.to or args.dir) else cfg.models_dir
     try:
-        decl = yaml.safe_load(Path(args.decl).read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError) as e:
-        print(json.dumps({"ok": False, "error": "declaration", "param": "decl", "message": f"{type(e).__name__}: {e}"}),
-              file=sys.stderr)
+        if args.action == "download":
+            pins = models.download(target, log=lambda m: print(m, file=sys.stderr))
+        else:
+            pins = models.verify(target)
+    except Exception as e:  # noqa: BLE001
+        _err(error="models", message=f"{type(e).__name__}: {e}")
         return 1
-    if not Path(args.file).is_file():
-        print(json.dumps({"ok": False, "error": "file", "message": f"no such file: {args.file}"}), file=sys.stderr)
-        return 1
-    try:
-        pkg = package.run(Path(args.file), decl, Path(out), replace=args.replace, config=config_mod.load(args.config))
-    except declaration.DeclarationError as e:
-        print(json.dumps({"ok": False, "error": "declaration", "param": e.param, "message": str(e)}), file=sys.stderr)
-        return 1
-    except package.IntakeError as e:
-        print(json.dumps({"ok": False, "error": "intake", "message": str(e)}), file=sys.stderr)
-        return 1
-    manifest = json.loads((pkg / "manifest.json").read_text(encoding="utf-8"))
-    print(json.dumps({"ok": True, "package": str(pkg), "pages": manifest["detection"]["page_count"],
-                      "rows": {f: m["rows"] for f, m in manifest["files"].items() if m["rows"] is not None},
-                      "duration_ms": manifest["run"]["duration_ms"]}, ensure_ascii=False))
+    print(json.dumps({"ok": True, "models_dir": str(target), "models": pins}))
     return 0
 
 
+def _engines(args) -> int:
+    from kb_intake.engines import LAYOUT
+    cfg = _config(args)
+    info = LAYOUT[cfg.primary](models_dir=cfg.models_dir, params=cfg.docling).info()
+    import pymupdf
+    print(json.dumps({"ok": info.ready, "layout": asdict(info), "models_dir": str(cfg.models_dir),
+                      "pymupdf": pymupdf.VersionBind, "secondary": cfg.secondary}, ensure_ascii=False))
+    return 0 if info.ready else 1
+
+
+def _scan(args) -> int:
+    from kb_intake import scan
+    target = Path(args.target)
+    if not target.exists():
+        _err(error="file", message=f"no such file or directory: {target}")
+        return 2
+    try:
+        decl = yaml.safe_load(Path(args.decl).read_text(encoding="utf-8")) if args.decl else None
+        cfg = _config(args)
+    except Exception as e:  # noqa: BLE001
+        _err(error="config" if not args.decl else "declaration", message=f"{type(e).__name__}: {e}")
+        return 2
+    out = Path(args.out or os.environ.get("INTAKE_PACKAGES_DIR") or "packages").expanduser()
+    worst = 0
+    for result in scan.scan(target, decl, out, cfg, replace=args.replace, recursive=args.recursive, force=args.force):
+        print(json.dumps(result, ensure_ascii=False), flush=True)
+        worst = max(worst, 1 if result["status"] == "failed" else 0)
+    return worst
+
+
 def _check(args) -> int:
+    from kb_intake import contract
     worst = 0
     for p in args.package:
         result = contract.check_path(Path(p))
@@ -51,20 +90,41 @@ def _check(args) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="kb-intake", description=__doc__)
+    ap = argparse.ArgumentParser(prog="kb-intake", description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    r = sub.add_parser("run", help="build the intake package of one file")
-    r.add_argument("file")
-    r.add_argument("--decl", required=True, help="declaration YAML (doc_id, issuer_id, doc_type, period_end, lang, "
-                                                 "source_url, completeness)")
-    r.add_argument("--out", help="directory that receives packages (default: $KB_PACKAGES_DIR)")
-    r.add_argument("--config", help="intake.yaml (default: $KB_INTAKE_CONFIG; none = find_tables only)")
-    r.add_argument("--replace", action="store_true", help="replace a package of the same doc_id built from another file")
-    r.set_defaults(fn=_run)
+
+    m = sub.add_parser("models", help="download or verify the pinned model weights")
+    m.add_argument("action", choices=["download", "verify"])
+    m.add_argument("--to", help="target directory for download (default: models_dir)")
+    m.add_argument("--dir", help="directory to verify (default: models_dir)")
+    m.add_argument("--config", help="intake.yaml (default: $INTAKE_CONFIG)")
+    m.set_defaults(fn=_models)
+
+    e = sub.add_parser("engines", help="engine versions, models and dependency check")
+    e.add_argument("--config", help="intake.yaml (default: $INTAKE_CONFIG)")
+    e.set_defaults(fn=_engines)
+
+    s = sub.add_parser("scan", help="build packages for a file or every supported file of a directory")
+    s.add_argument("target")
+    s.add_argument("--decl", help="declaration YAML (plain, or defaults + files for a directory)")
+    s.add_argument("--out", help="directory that receives packages (default: $INTAKE_PACKAGES_DIR or ./packages)")
+    s.add_argument("--config", help="intake.yaml (default: $INTAKE_CONFIG)")
+    s.add_argument("--replace", action="store_true", help="rebuild packages that already exist")
+    s.add_argument("--recursive", action="store_true", help="also scan subdirectories")
+    s.add_argument("--force", action="store_true",
+                   help="debugging: run the layout engine although it is not ready (recorded in the manifest)")
+    s.add_argument("--no-layout", action="store_true",
+                   help="debugging: skip the layout engine; the package is the fully degraded one")
+    s.set_defaults(fn=_scan)
+
     c = sub.add_parser("check", help="check packages (directory or zip) against contract v1")
     c.add_argument("package", nargs="+")
     c.set_defaults(fn=_check)
+
     args = ap.parse_args(argv)
+    if args.cmd != "models":
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
     return args.fn(args)
 
 

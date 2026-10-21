@@ -621,14 +621,16 @@ wheels = [
 
 [[package]]
 name = "kb-intake"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "docling" },
     { name = "docling-core" },
     { name = "docling-ibm-models" },
     { name = "docling-parse" },
+    { name = "huggingface-hub" },
     { name = "jsonschema" },
+    { name = "packaging" },
     { name = "pymupdf" },
     { name = "pyyaml" },
 ]
@@ -646,7 +648,9 @@ requires-dist = [
     { name = "docling-core", specifier = "==2.103.0" },
     { name = "docling-ibm-models", specifier = "==4.0.3" },
     { name = "docling-parse", specifier = "==7.22.3" },
+    { name = "huggingface-hub", specifier = "==1.33.0" },
     { name = "jsonschema", specifier = "==4.23.0" },
+    { name = "packaging", specifier = "==26.3" },
     { name = "pymupdf", specifier = "==1.28.2" },
     { name = "pyyaml", specifier = "==6.0.3" },
 ]

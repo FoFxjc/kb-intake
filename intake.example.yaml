@@ -1,14 +1,15 @@
-# Copy to intake.yaml (or point KB_INTAKE_CONFIG at it). Paths are machine specific.
+# kb-intake configuration (--config or $INTAKE_CONFIG). Every key is optional; unknown keys are refused.
+# INTAKE_MODELS_DIR and INTAKE_CACHE_DIR override models_dir and cache_dir.
+models_dir: ~/.kb-intake/models      # pinned weights (kb-intake models download)
+cache_dir: ~/.kb-intake/cache        # Docling output, keyed by source sha256 + versions + model revisions + params
 tables:
-  primary: docling
-  secondary: find_tables
+  primary: docling                   # the layout engine
+  secondary: find_tables             # cross-check and fallback extractor; "none" turns it off
 docling:
-  version: "2.140.0"            # informative; the real pin is uv.lock
-  table_mode: accurate
-  device: cpu
+  table_mode: accurate               # or fast
+  device: cpu                        # formal packages use cpu; mps only for debugging (recorded in the manifest)
   num_threads: 4
-  artifacts_path: ~/workspace/intake-data/models
-  cache_dir: ~/workspace/intake-data/cache
-  document_timeout: 1800
+  document_timeout: 1800             # Docling's own budget, seconds
+  wall_timeout: 2100                 # hard limit: the conversion process is killed after this many seconds
 headings:
-  font_profiles: profiles/fonts/
+  font_profiles: []                  # directories of font profiles (relative to this file); none -> inferred

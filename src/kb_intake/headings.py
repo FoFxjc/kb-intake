@@ -1,13 +1,14 @@
 """Heading candidates (intake-design §9.2 step 7): font + numbering rules first, Docling headings as corroboration.
 
-Only the file is used, so this belongs to intake; building the tree from the candidates stays in kb.
-- A font profile (profiles/fonts/*.yaml) maps (font, size) to heading levels for one document series. The profile is
-  chosen by the fonts the document uses; without a matching profile the levels are inferred from the font x size
-  distribution and the numbering ("N." / "N.N"), and the manifest says so.
+Only the file is used; building a tree from the candidates is the consumer's business.
+- A font profile (YAML, from the directories in `headings.font_profiles`) maps (font, size) to heading levels for one
+  document series. The package ships no profile. The profile is chosen by the fonts the document uses; without a
+  matching profile the levels are inferred from the font x size distribution and the numbering ("N." / "N.N"), and
+  the manifest says so.
 - A line's style is its dominant (font, size) by character count; consecutive lines of the same style in one text
   block are one heading (multi-line titles).
 - Furniture: a chapter title repeated on the following pages is a running header, and a "(continued)" title repeats
-  an earlier heading. Both are kept with furniture = true, so kb can drop them.
+  an earlier heading. Both are kept with furniture = true, so a consumer can drop them.
 """
 
 import re
@@ -20,7 +21,6 @@ import yaml
 NOTE = re.compile(r"^\d{1,3}\.\s+[^\d\s(]")             # "21. Debt Issued", not "1. 2. 3." or figures
 SUBNOTE = re.compile(r"^\d{1,3}\.\d{1,3}(?:\.\d+)*\s+[^\d\s(]")   # "21.1 Subordinated", not "1.07 1.22"
 CONTINUED = re.compile(r"\(continued\)|\uff08\u7eed\uff09", re.I)
-PROFILE_DIR = Path(__file__).resolve().parents[2] / "profiles" / "fonts"
 
 
 def _font(name: str) -> str:
@@ -55,24 +55,24 @@ def lines(pdf: pymupdf.Document) -> list[dict]:
 
 def _raw_lines(page: pymupdf.Page, page_no: int) -> list[dict]:
     out = []
-    if True:
-        for b_no, block in enumerate(page.get_text("dict")["blocks"]):
-            for line in block.get("lines", []):
-                spans = [s for s in line["spans"] if s["text"].strip()]
-                if not spans:
-                    continue
-                style = Counter()
-                for s in spans:
-                    style[(_font(s["font"]), round(s["size"], 1))] += len(s["text"].strip())
-                (font, size), _ = style.most_common(1)[0]
-                text = " ".join("".join(s["text"] for s in line["spans"]).replace("\x07", " ").replace("\x03", " ").split())
-                out.append({"page_no": page_no, "bbox": list(line["bbox"]), "text": text, "font": font, "size": size,
-                            "block": b_no})
+    for b_no, block in enumerate(page.get_text("dict")["blocks"]):
+        for line in block.get("lines", []):
+            spans = [s for s in line["spans"] if s["text"].strip()]
+            if not spans:
+                continue
+            style = Counter()
+            for s in spans:
+                style[(_font(s["font"]), round(s["size"], 1))] += len(s["text"].strip())
+            (font, size), _ = style.most_common(1)[0]
+            text = " ".join("".join(s["text"] for s in line["spans"]).replace("\x07", " ").replace("\x03", " ").split())
+            out.append({"page_no": page_no, "bbox": list(line["bbox"]), "text": text, "font": font, "size": size,
+                        "block": b_no})
     return out
 
 
-def load_profiles(directory: Path = PROFILE_DIR) -> list[dict]:
-    return [yaml.safe_load(p.read_text(encoding="utf-8")) for p in sorted(directory.glob("*.yaml"))]
+def load_profiles(directories) -> list[dict]:
+    """Every *.yaml profile in the given directories, in directory then file-name order."""
+    return [yaml.safe_load(p.read_text(encoding="utf-8")) for d in directories for p in sorted(Path(d).glob("*.yaml"))]
 
 
 def pick_profile(all_lines: list[dict], profiles: list[dict]) -> dict | None:
@@ -147,10 +147,10 @@ def mark_furniture(found: list[dict]) -> None:
             h["furniture"] = True                           # "(continued)" repeats an earlier heading
 
 
-def headings(pdf: pymupdf.Document, docling_heads: list[dict], profiles: list[dict] | None = None) -> tuple[list[dict], dict]:
-    """headings.jsonl rows and a summary for the manifest. docling_heads: regions of type title/heading."""
-    all_lines = lines(pdf)
-    profile = pick_profile(all_lines, load_profiles() if profiles is None else profiles)
+def headings(all_lines: list[dict], engine_heads: list[dict], profiles: list[dict]) -> tuple[list[dict], dict]:
+    """headings.jsonl rows and a summary for the manifest. all_lines: lines(pdf); engine_heads: regions of type
+    title/heading from the layout engine (corroboration only); profiles: load_profiles(...)."""
+    profile = pick_profile(all_lines, profiles)
     source = "profile"
     if profile is None:
         profile, source = infer_profile(all_lines), "auto"
@@ -159,7 +159,7 @@ def headings(pdf: pymupdf.Document, docling_heads: list[dict], profiles: list[di
     rows = []
     for h in found:
         box = h["bbox"]
-        match = next((r for r in docling_heads if r["page_no"] == h["page_no"] and _overlap(r["bbox"], box) >= 0.5), None)
+        match = next((r for r in engine_heads if r["page_no"] == h["page_no"] and _overlap(r["bbox"], box) >= 0.5), None)
         sources = ["font_rule"] + (["numbering"] if h["numbering"] else []) + (["docling"] if match else [])
         rows.append({"region_id": match["region_id"] if match else None, "page_no": h["page_no"], "bbox": box,
                      "text": h["text"], "level": h["level"], "kind": h["kind"], "numbering": h["numbering"],

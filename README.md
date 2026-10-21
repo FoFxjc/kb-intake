@@ -1,74 +1,148 @@
 # kb-intake
 
-Turns any file into a standard **intake package** that the knowledge base (FoFxjc/kb) can read. It only cares
-about file formats, not about knowledge: receiving a file and its declaration, scanning and classifying pages,
-taking text and word coordinates, finding table geometry, printed page labels. Everything that needs a type
-configuration or a domain pack stays in kb. The two repositories never import each other (D49); they meet only
-through packages that follow `contract/v1/`.
+Scans files, labels their structure with [Docling](https://github.com/docling-project/docling) and writes
+**intake packages**: versioned directories (contract v1) holding the text layer, word coordinates, page kinds,
+layout regions with types, tables with cells, and heading candidates. Any consumer that reads the contract can use
+the packages; kb-intake never calls a consumer.
 
-Design: [docs/intake-design-v1.md](docs/intake-design-v1.md) (main design), [docs/layout-design-v1.md](docs/layout-design-v1.md)
-(regions), [docs/docling-eval-v1.md](docs/docling-eval-v1.md) (Docling evaluation).
+- Docling is the core: regions, table structure and region types come from Docling (pinned version, pinned weights,
+  run offline). PyMuPDF `find_tables` is a secondary extractor for cross-checks, and the fallback when Docling fails.
+- No generative model is called. Every rule after Docling is deterministic, and the same file with the same
+  configuration gives byte-identical packages (outside `manifest.json` → `run`).
+- Runs natively on macOS arm64 and Linux x86_64. No Docker, no database, no external service.
 
-## Status
+Design: [docs/intake-design-v1.md](docs/intake-design-v1.md), [docs/layout-design-v1.md](docs/layout-design-v1.md),
+[docs/docling-eval-v1.md](docs/docling-eval-v1.md).
 
-| Flow | Input | State |
-|---|---|---|
-| A | native PDF | text layer, words, page kinds, page labels, tables with `find_tables` (step 2). Docling extraction comes in step 3b |
-| B–F | scans, PPTX, DOCX, XLSX, images | not yet |
+## Install
 
-Web UI, Docker image and OCR are later steps (intake-design §6).
+Requirements: Python 3.12 and [uv](https://docs.astral.sh/uv/) **0.10.2 or newer** (the version this is tested with;
+`uv tool install --torch-backend` is needed on Linux).
 
-## Install and run
+`uv tool install` does not read the project's lock file, so the pinned versions of the inference libraries (torch,
+transformers, pillow, numpy, torchvision, ...) come from `constraints.txt`, generated from `uv.lock`:
 
 ```bash
-uv sync
-export KB_PACKAGES_DIR=~/workspace/intake-packages     # where packages are written; kb imports from here
+curl -fsSLO https://raw.githubusercontent.com/FoFxjc/kb-intake/main/constraints.txt
 
-uv run kb-intake run report.pdf --decl report.yaml      # writes $KB_PACKAGES_DIR/<doc_id>@<sha256[:12]>/
-uv run kb-intake check $KB_PACKAGES_DIR/<doc_id>@<sha12>   # validates a package directory or zip against contract v1
+# macOS (arm64)
+uv tool install --python 3.12 --constraints constraints.txt git+https://github.com/FoFxjc/kb-intake
+
+# Linux (x86_64): the CPU build of torch (packages are built on CPU; avoids the multi-GB CUDA wheels)
+uv tool install --python 3.12 --constraints constraints.txt --torch-backend cpu git+https://github.com/FoFxjc/kb-intake
 ```
 
-A declaration is a YAML mapping:
+Then download the model weights once (about 510 MB, the Hugging Face revisions pinned in
+`src/kb_intake/models.lock.json`, every file checked against its sha256):
+
+```bash
+kb-intake models download          # into ~/.kb-intake/models, or $INTAKE_MODELS_DIR
+kb-intake engines                  # versions, weights, dependency check; "ok": true when ready
+```
+
+Without network access on the target machine, run `models download --to DIR` where Hugging Face is reachable,
+copy `DIR` over, point `INTAKE_MODELS_DIR` at it and run `kb-intake models verify`.
+
+After this, nothing goes to the network: Hugging Face is switched to offline mode for every command except
+`models download`, the weights are read from the local directory only, and files that do not match the lock are
+refused.
+
+## Scan files
+
+```bash
+kb-intake scan report.pdf --decl report.yaml --out ./packages       # one file
+kb-intake scan ./inbox   --decl inbox.yaml  --out ./packages       # every PDF in a directory
+kb-intake check ./packages/<doc_id>@<sha12>                         # contract check of a package (dir or zip)
+```
+
+- One JSON line per file on stdout: `ok`, `skipped_same_sha` (already packaged, under any doc_id),
+  `skipped_no_declaration` (its declaration lacks fields; listed with the missing fields) or `failed`. A failing
+  file does not stop the scan; the exit code is 1 when any file failed.
+- Files are recognised by content (`%PDF-`), not by extension; hidden files are ignored; `--recursive` also scans
+  subdirectories; `--replace` rebuilds packages that already exist.
+- `--out` defaults to `$INTAKE_PACKAGES_DIR`, else `./packages`.
+
+### Declarations
+
+For one file, a plain mapping:
 
 ```yaml
-doc_id: ocbc-group_ar_2025_en      # <issuer>_<type>_<year>_<lang>; kb recomputes and checks it at import
-issuer_id: ocbc-group
-doc_type: annual_report
-period_end: "2025-12-31"
-lang: en                           # en | zh
-source_url: https://www.ocbc.com/group/investors/annual-report-and-agm
+doc_id: acme_ar_2025_en          # file-name safe: ^[a-z0-9][a-z0-9._-]*$ (names the package)
+issuer_id: acme
+doc_type: annual_report          # [a-z][a-z0-9_]*
+period_end: 2025-12-31
+lang: en                         # ISO 639-1, optional: detected when omitted
+source_url: https://example.com/ar2025.pdf
 completeness: {full: true, sections: null}
 # optional: translation_of, publisher, published_at
 ```
 
-The same doc_id with the same file is idempotent; a different file for an existing doc_id is refused unless
-`--replace` is given.
+For a directory, defaults plus per-file overrides (keyed by the path relative to the directory). A field of an
+override replaces the default as a whole; `doc_id` defaults to the slug of the file name.
+
+```yaml
+defaults:
+  issuer_id: acme
+  doc_type: annual_report
+  source_url: https://example.com/reports
+  completeness: {full: true, sections: null}
+files:
+  AR 2025.pdf:    {period_end: 2025-12-31}                    # doc_id "ar-2025", lang detected
+  AR 2025 FR.pdf: {doc_id: acme_ar_2025_fr, period_end: 2025-12-31, lang: fr}
+```
+
+kb-intake only checks the format. A declared `lang` that differs from the detected one is recorded as a
+`decl_mismatch` gap; a consumer with its own naming rules re-checks `doc_id` when it imports a package.
+Language detection only recognises Chinese and English; for other languages declare `lang`.
+
+### Configuration
+
+Optional `intake.yaml` (`--config` or `$INTAKE_CONFIG`); every key has a default, unknown keys are refused, and
+`INTAKE_MODELS_DIR` / `INTAKE_CACHE_DIR` override the file. See [intake.example.yaml](intake.example.yaml).
 
 ## The package (contract v1)
 
 ```
 {doc_id}@{sha256[:12]}/
-  manifest.json   contract version, declaration, detection, flow, tools and versions, file hashes; `run` holds
-                  the only non-deterministic values (timestamps, host)
+  manifest.json   contract version, declaration, detection, flow; every step with tool, version and parameters
+                  (Docling version, model revisions, device, dependency versions, cache key); `run` holds the only
+                  values that vary between runs (timestamps, host, durations, cache hit)
   source.pdf      the original file
   working.pdf     the PDF with a text layer (for a native PDF, the original)
-  pages.jsonl     page_no, page_label, kind, text, text_source, width, height, image regions
-  layout.jsonl    words per page: [x0, y0, x1, y1, text, source, conf], full precision, TOPLEFT origin, PDF points
-  tables.jsonl    table candidates: bboxes, cells with r/c/rs/cs/text/value/nil/bbox, markdown, extract_method
-  regions.jsonl   layout regions (empty until step 3b)
-  headings.jsonl  heading candidates (empty until step 3b)
-  gaps.jsonl      what could not be read or did not match
+  pages.jsonl     page_no, page_label, kind (native|scanned|mixed|blank), text, size, image regions
+  layout.jsonl    words per page: [x0, y0, x1, y1, text, source, conf]
+  regions.jsonl   layout regions: bbox, type (layout-design §2), type_source (model|native|fused), reading order
+  tables.jsonl    tables: pages, bboxes, cells {r, c, rs, cs, text, value, nil, bbox, grid_bbox?, is_header},
+                  header_rows, markdown, extract_method (docling|find_tables|merged), role, checks, context_above
+  headings.jsonl  heading candidates: text, level, numbering, sources, furniture (running headers, "(continued)")
+  docling.json    the lossless DoclingDocument
+  gaps.jsonl      what could not be read or did not match (table_text_unaccounted, table_cross_mismatch,
+                  table_missed, table_header_suspect, extractor_degraded, decl_mismatch, ...)
   checks.json     the package's own contract check
 ```
 
-Schemas: [contract/v1/](contract/v1/). Rebuilding the same file with the same configuration gives byte-identical
-files except `manifest.json` → `run`.
+Coordinates are PDF points with a TOPLEFT origin, at full precision. A cell's `bbox` is the box of its text (null
+for an empty cell). Schemas: [contract/v1/](contract/v1/).
+
+When Docling cannot be used (weights missing, timeout, crash, a post-processing error) the file still gets a
+package: the tables come from `find_tables` alone and the document has one `extractor_degraded` gap. Pages Docling
+could not convert fall back the same way, page by page.
+
+Heading levels: without a font profile they are inferred from the document (font x size distribution and
+numbering). A profile maps fonts to levels for one document series (see
+[tests/regression/profiles/](tests/regression/profiles/) for an example); list profile directories under
+`headings.font_profiles`.
 
 ## Development
 
 ```bash
-uv run pytest -q
-uv run lint-imports          # kb-intake does not import kb
+uv sync
+uv run pytest -q                          # unit and pipeline tests (fake engine; no weights needed)
+uv run lint-imports
+uv export --no-dev --no-hashes --no-emit-project --format requirements-txt -o constraints.txt   # after uv lock
 ```
+
+CI checks that `constraints.txt` matches `uv.lock`. Upgrading Docling, PyMuPDF or any inference dependency goes
+through the regression gate in [tests/regression/](tests/regression/) (24 reference tables, determinism).
 
 Rules for contributors and agents: [AGENTS.md](AGENTS.md).

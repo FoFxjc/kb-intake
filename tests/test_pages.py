@@ -1,4 +1,4 @@
-"""Per-page classification (kb ocr-design §2, O-1): native, scanned, mixed, blank; image regions routed by area and
+"""Per-page classification (ocr-design §2): native, scanned, mixed, blank; image regions routed by area and
 native text. Unit tests on synthetic pages."""
 
 import io
