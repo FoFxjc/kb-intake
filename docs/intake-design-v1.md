@@ -6,13 +6,14 @@
 
 ## 1. 定位
 
-kb-intake 是一个**可插拔、可独立部署**的组件，负责把“任意文件”变成“知识库可以读的标准入件包”。它只关心文件格式，不关心知识。
+kb-intake 是一个**可插拔、可独立运行**的组件：**扫描原文件，用 Docling 识别并打上结构标签**（页类别、区域及类型、表格单元格、标题层级），连同文字层一起输出为“知识库可以读的标准入件包”。它只关心文件格式，不关心知识。
 
-- **可插拔**：每个处理阶段（检测、取文字、OCR、版面、表格、标题、检查）都是接口后面的插件，按配置选用和组合；装不装 Docling、用哪个 OCR，只改配置不改代码（§3.1）
-- **可独立部署**：一个容器、一条命令起服务，带 Web UI 和 HTTP API；不依赖 kb 仓库、kb 的数据库或任何 kb 代码；运行时可离线（§3.2、§7）
-- **kb 只是使用方之一**：kb 通过契约 v1 读包。任何能读契约的系统都可以接；OCBC 的 6 份年报只是测试样本，用来验证功能和 UI，不是组件的设计目标
+- **核心是 Docling**：版面、表格结构、区域类型都来自 Docling；find_tables 只作为副抽取器做交叉检查（§9）。Docling 是必需依赖，不是可选项
+- **可插拔指整个组件**：使用方只认契约 v1 的包，intake 可以整体接入或替换；kb 只是使用方之一。内部只在可能换引擎的地方留接口（版面/表格引擎、OCR 引擎），不做通用插件框架
+- **独立运行，不需要 Docker**：`uv tool install` 后在 Mac / Linux 本机直接运行（命令行 + Web UI）；模型权重下载到本地目录，运行时离线。Docker 只是可选的打包方式
+- **测试样本**：OCBC 的 6 份年报用来验证功能和 UI，不是设计目标；代码里不出现任何样本专属逻辑
 
-- 输入：一个文件 + 一份声明（声明里显式写 `doc_id`；intake 只校验格式并用它给包命名，kb 导入时按自己的类型配置复算，对不上就拒收）
+- 输入：一个文件或一个目录（扫描目录下所有支持的文件，按 sha256 跳过已出包的）+ 声明（目录时用一份默认声明 + 可选的逐文件覆盖；声明里显式写 `doc_id`；intake 只校验格式并用它给包命名，kb 导入时按自己的类型配置复算，对不上就拒收）
 - 输出：一个入件包（目录或 zip），带版本号的契约
 - 自带：Web UI、命令行、大模型 API 配置、本地状态
 - 不做：独立 worker 进程、任务队列、调用 kb、写 Doris、写 kb 的 Postgres
@@ -43,33 +44,24 @@ kb 只读入件包，不再碰原件，也不再 import 任何格式解析代码
 
 一个 Python 包，一个进程。`serve` 模式下作业在同一进程的后台线程里逐个执行（一次一份，不排队、不并发），这样 UI 能看到逐步进度。
 
-### 3.1 插件接口
+### 3.1 处理流程与引擎接口
 
-每个阶段一个接口（Python Protocol），插件通过 entry point 组 `kb_intake.plugins` 注册，配置按名字选用：
+```
+扫描原文件 → 格式检测与页分类 → 文字层（PyMuPDF）→ Docling 打标签（版面区域、表格结构、标题）
+          → find_tables 副抽取 → 后处理 → 三重检查 → 标题候选 → 写包
+```
 
-| 阶段 | 接口 | 输入 → 输出 | 内置插件 |
-|---|---|---|---|
-| 格式检测 | `Detector` | 文件 → 格式、逐页类别、语言 | `pdf`（魔数 + 页分类） |
-| 取文字 | `TextSource` | 页 → 文字、词坐标 | `pymupdf` |
-| OCR | `OcrEngine` | 页图或区域 → 词、坐标、置信度 | `rapidocr`、`tesseract`（流程 B 时实现） |
-| 版面 | `LayoutEngine` | 页 → 区域（layout-design §2 类型） | `docling` |
-| 表格 | `TableExtractor` | 页 / 区域 → 表格（单元格 + 框） | `docling`、`find_tables` |
-| 标题 | `HeadingDetector` | 文档 → 标题候选 | `font_numbering`（字体 + 编号，按 profile 或自动推断）、`docling` |
-| 检查 | `Check` | 包内产物 → checks / gaps | `text_conservation`、`table_cross`、`table_missed` |
-
-约定：
-- 每个插件声明 `name`、`version`、支持的格式、是否需要模型、所需 extra（如 `kb-intake[docling]`）；manifest 记录本次实际用了哪些插件及版本
-- 基础安装只依赖 PyMuPDF，不装 Docling 也能出合法包；可选插件没装或出错时降级并记 gap，不让整份失败
-- 流程（A–F）是配置里的插件组合，由检测结果选择；主副关系（如表格 Docling 主、find_tables 副）也写在配置里
-- 文档系列相关的规则（如 OCBC 的字体→层级映射）只能放在 profile 配置里，代码里不出现任何样本专属逻辑
-- 新格式（docx、pptx、xlsx、html……）只需新增 `Detector` + `TextSource`（或复用 Docling 后端）；目前只留接口，不实现
+- 只在可能换引擎的两处留接口：`LayoutEngine`（版面区域 + 表格结构，现为 Docling；以后可换 PP-StructureV3）和 `OcrEngine`（流程 B，rapidocr / tesseract）。接口是普通的 Python Protocol，配置里按名字选，不做 entry point 注册和第三方插件机制
+- Docling 打出的标签按 layout-design §2 的类型表映射，Docling 自己的类别名不外露到契约里
+- 文档系列相关的规则（如 OCBC 的字体→层级映射）只放在 profile 配置里；没有 profile 时按字体 × 字号分布 + 编号自动推断
+- 新格式（docx、pptx、xlsx、html）以后可直接用 Docling 的对应后端；目前只支持 PDF，不实现
 
 ### 3.2 HTTP API
 
 | 方法 | 路径 | 作用 |
 |---|---|---|
 | GET | `/v1/health` | 存活与版本 |
-| GET | `/v1/plugins` | 已安装插件、版本、是否可用（模型是否就位） |
+| GET | `/v1/engines` | 引擎与版本（Docling、模型 revision、PyMuPDF），模型是否就位 |
 | GET / PUT | `/v1/config` | 读取 / 修改当前配置（密钥只显示环境变量名） |
 | POST | `/v1/jobs` | 上传文件 + 声明，返回 job_id |
 | GET | `/v1/jobs/{id}` | 逐步状态、耗时、交叉验证结论、gaps 摘要 |
@@ -77,13 +69,16 @@ kb 只读入件包，不再碰原件，也不再 import 任何格式解析代码
 | GET | `/v1/packages`、`/v1/packages/{name}` | 包列表；下载 zip |
 | POST | `/v1/packages/check` | 上传一个包，按契约校验 |
 
-UI 只调这套 API；其他系统也可以直接调它来入件。和使用方之间仍然只交接文件（包），不调用使用方。
+UI 只调这套 API。和使用方之间仍然只交接文件（包），不调用使用方。
 
 ```
-kb-intake run  <file> --decl decl.yaml --out ./packages     # 命令行：跑完退出
-kb-intake serve --data ./intake-data --port 8700           # 启动 UI（同一进程内同步执行，一次一份）
-kb-intake check <package>                                  # 按契约校验一个入件包
+kb-intake models download --to ~/.kb-intake/models          # 一次性：按锁定的 revision 下载 Docling 权重（内网可拷贝此目录）
+kb-intake scan <file|dir> --decl decl.yaml --out ./packages  # 扫描原文件并出包；目录时逐个处理，已出包的跳过
+kb-intake serve --data ./intake-data --port 8700            # Web UI + HTTP API（同一进程，作业逐个执行）
+kb-intake check <package>                                   # 按契约校验一个入件包
 ```
+
+安装：`uv tool install git+https://github.com/FoFxjc/kb-intake`（Python 3.12，Mac arm64 / Linux x86_64）。不需要 Docker、数据库或任何外部服务；本地状态是一个 SQLite 文件。
 
 - Web 框架：FastAPI + 静态 HTML（无前端构建步骤）
 - 本地状态：SQLite 文件 `intake-data/intake.db`（登记、运行记录、证人缓存），不依赖外部数据库
@@ -188,14 +183,15 @@ UI 里有同样的配置页，可以测试连通性。
 
 第 0–3 步证明了“搬出来不改变结果”。这部分到此为止。
 
-### 6.2 接下来：做成组件（按顺序）
+### 6.2 接下来：做成独立运行的组件（按顺序）
 
 | 步 | 内容 | 验收 |
 |---|---|---|
-| C | 插件化（§3.1）：把现有 detect / native / 3b 代码重构到接口后面；注册表 + 配置选用；Docling 改为可选 extra；样本专属规则移进 profile | 三种配置都能出合法包且通过 `check`：①基础安装（无 Docling）②Docling 主 + find_tables 副 ③关闭表格抽取；切换只改配置。`examples/` 下一个最小第三方插件，安装后出现在 `/v1/plugins` 并能被选用。24 张基准表与确定性测试仍然通过 |
-| D | 服务与 UI：§3.2 的 API + 4 个视图（上传、运行进度、逐页核对、入件包）+ 配置页 | 浏览器里上传任意 PDF → 看到逐步进度 → 逐页核对看到区域框、表格单元格、gaps → 下载的包通过契约校验。用 OCBC 年报和至少一份非 OCBC 的 PDF 各走一遍 |
-| E | 独立部署：Dockerfile（基础镜像 + 带 Docling 权重的镜像两种）、`uv tool install` | 在一台没有 kb 仓库的机器上，一条 `docker run` 起服务；断网可用；数据目录挂载后重启不丢 |
-| F | 流程 B（扫描 PDF）：OCR 插件 | 合成扫描集出包；数字串一致率达标；分歧都有证人记录或缺口 |
+| C | 组件化：把 detect / native / 3b 代码整理成 §3.1 的流程；Docling 为必需依赖；`models download` 命令；`scan` 支持目录与按 sha256 跳过；OCBC 字体规则移进 profile；去掉所有 kb / OCBC 专属的东西（`KB_*` 环境变量改为 `INTAKE_*`） | 对一个目录 `scan` 出 6 个包，全部通过 `check`；再跑一次全部跳过；24 张基准表与确定性测试仍然通过；代码里搜不到 OCBC、kb 专属逻辑 |
+| D | 服务与 UI：§3.2 的 API + 4 个视图（上传或选目录、运行进度、逐页核对、入件包）+ 配置页 | 浏览器里提交一个 PDF 或一个目录 → 看到逐步进度 → 逐页核对看到 Docling 的区域框和类型、表格单元格、gaps → 下载的包通过契约校验。OCBC 年报和至少一份非 OCBC 的 PDF 各走一遍 |
+| E | 本机独立运行：在干净的 Mac 和 Linux 上，只按 README 用 `uv tool install` 安装，下载模型，跑 `scan` 和 `serve` | 没有 kb 仓库、没有 Docker；`models download` 之后断网可以运行；README 的步骤照做一次成功 |
+| E' | 可选：Dockerfile（带权重）| `docker run` 一条命令起 UI；不作为主要交付 |
+| F | 流程 B（扫描 PDF）：OCR 引擎 | 合成扫描集出包；数字串一致率达标；分歧都有证人记录或缺口 |
 
 ### 6.3 不在组件范围内（使用方各自的事）
 
@@ -203,12 +199,11 @@ UI 里有同样的配置页，可以测试连通性。
 - 某个文档系列的规则调优（如中文版年报的子附注识别）：写进对应 profile，按需做
 ## 7. 部署
 
-- 单容器：`docker run -p 8700:8700 -v ./intake-data:/data -e INTAKE_LLM_API_KEY=... kb-intake serve`
-- 两种镜像：`kb-intake:base`（只有 PyMuPDF）、`kb-intake:docling`（带按 revision 固定的模型权重）
-- 配置：挂载 `intake.yaml`，或用 `INTAKE_*` 环境变量覆盖；不读任何 `KB_*` 变量
-- 或本机：`uv tool install git+https://github.com/FoFxjc/kb-intake` 后 `kb-intake serve`
-- Docling 模型权重在构建镜像时用 `docling-tools models download` 按 Hugging Face revision 预下载，放在 `artifacts_path`；企业内网环境无需连 Hugging Face
-- kb 与 intake 之间只有文件交接：共享目录、手动上传 zip，或 kb 管理页“导入入件包”
+- **默认：本机安装**。`uv tool install git+https://github.com/FoFxjc/kb-intake`，然后 `kb-intake models download`，之后 `kb-intake scan …` 或 `kb-intake serve`
+- 模型权重：按 uv.lock 中 Docling 版本对应的 Hugging Face revision 下载到 `~/.kb-intake/models`（可用 `INTAKE_MODELS_DIR` 改）；运行时只读这个目录，不联网。企业内网连不上 Hugging Face 时，在能联网的机器上下载后整目录拷贝过去
+- 配置：`intake.yaml`，或 `INTAKE_*` 环境变量覆盖；不读任何 `KB_*` 变量
+- 可选：Docker 镜像（带权重），`docker run -p 8700:8700 -v ./intake-data:/data kb-intake serve`
+- 与使用方之间只有文件交接：共享目录、手动上传 zip，或使用方从 `/v1/packages` 下载
 
 ## 8. 不做
 
@@ -292,3 +287,8 @@ UI 里有同样的配置页，可以测试连通性。
   - 目标是可插拔、可独立部署的组件；现有文件只用来测试功能和 UI
   - 新增 §3.1 插件接口、§3.2 HTTP API；第 6 节改为实施计划：C 插件化 → D 服务与 UI → E 独立部署 → F 扫描件
   - kb 侧的 3b 重建与评测移出组件范围（§6.3）
+- 2026-10-21 再纠偏（Peter）：
+  - 目标明确为“扫描原文件，用 Docling 打标签”；Docling 是必需的核心依赖，不是可选插件
+  - 可插拔指整个组件可以接入或替换；删掉通用插件框架，只在版面/表格引擎和 OCR 引擎留接口
+  - 默认本机安装运行，不需要 Docker；Docker 降为可选
+  - 输入支持目录扫描，按 sha256 跳过已出包的文件
