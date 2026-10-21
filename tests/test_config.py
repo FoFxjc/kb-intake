@@ -116,3 +116,50 @@ def test_dotenv_comments_bom_and_bad_bytes(tmp_path, capsys):
     env = {}
     assert config.load_dotenv(p, env) == [] and env == {}
     assert "not UTF-8" in capsys.readouterr().err
+
+
+# ---------- the LLM and the directories from the environment (.env, setup.sh) ----------
+
+def test_llm_from_the_environment_needs_the_explicit_switch(tmp_path):
+    """INTAKE_LLM_BASE_URL / _MODEL / _API_KEY configure it; only INTAKE_LLM_ENABLED=true switches it on."""
+    env = {"INTAKE_LLM_BASE_URL": "https://llm.corp.example/v1", "INTAKE_LLM_MODEL": "qwen-72b",
+           "INTAKE_LLM_API_KEY": "k"}
+    cfg = config.load(None, env=env)
+    assert (cfg.llm.base_url, cfg.llm.model, cfg.llm.enabled) == ("https://llm.corp.example/v1", "qwen-72b", False)
+    assert config.public_llm_info(cfg, env)["enabled"] is False
+    on = config.load(None, env={**env, "INTAKE_LLM_ENABLED": "true"})
+    assert on.llm.enabled and config.public_llm_info(on, env)["enabled"] is True
+    assert on.llm.remote is True                                    # another host: data leaves this machine
+    with pytest.raises(config.ConfigError, match="INTAKE_LLM_ENABLED"):
+        config.load(None, env={**env, "INTAKE_LLM_ENABLED": "maybe"})
+
+
+def test_llm_describe_can_be_switched_off_from_the_environment():
+    cfg = config.load(None, env={"INTAKE_LLM_ENABLED": "true", "INTAKE_LLM_DESCRIBE": "false"})
+    assert cfg.llm.features["describe"] is False and cfg.llm.features["summary"] is True
+
+
+def test_a_localhost_endpoint_is_not_remote_and_http_elsewhere_needs_allow_http():
+    local = config.load(None, env={"INTAKE_LLM_BASE_URL": "http://127.0.0.1:8000/v1"})
+    assert local.llm.remote is False
+    with pytest.raises(config.ConfigError, match="INTAKE_LLM_ALLOW_HTTP"):
+        config.load(None, env={"INTAKE_LLM_BASE_URL": "http://llm.corp.example:8000/v1"})
+    ok = config.load(None, env={"INTAKE_LLM_BASE_URL": "http://llm.corp.example:8000/v1", "INTAKE_LLM_ALLOW_HTTP": "true"})
+    assert ok.llm.base_url.startswith("http://") and ok.llm.remote is True
+
+
+def test_data_dir_gives_cache_work_and_delivery_below_it(tmp_path):
+    cfg = config.load(None, env={"INTAKE_DATA_DIR": str(tmp_path / "d"), "INTAKE_WORK_DIR": str(tmp_path / "w")})
+    assert cfg.cache_dir == tmp_path / "d" / "cache" and cfg.delivery_dir == tmp_path / "d" / "delivery"
+    assert cfg.work_dir == tmp_path / "w"                          # a specific directory variable wins
+
+
+def test_dotenv_relative_paths_are_relative_to_the_file_and_network_variables_pass(tmp_path):
+    p = tmp_path / ".env"
+    p.write_text("INTAKE_MODELS_DIR=./models\nINTAKE_DATA_DIR=data\nSSL_CERT_FILE=certs/corp.pem\n"
+                 "HTTPS_PROXY=http://proxy:8080\nPIP_INDEX_URL=https://pypi.corp/simple\n")
+    env = {}
+    config.load_dotenv(p, env)
+    assert env["INTAKE_MODELS_DIR"] == str(tmp_path / "models") and env["INTAKE_DATA_DIR"] == str(tmp_path / "data")
+    assert env["SSL_CERT_FILE"] == str(tmp_path / "certs" / "corp.pem") and env["HTTPS_PROXY"] == "http://proxy:8080"
+    assert "PIP_INDEX_URL" not in env                              # setup.sh's business, not kb-intake's

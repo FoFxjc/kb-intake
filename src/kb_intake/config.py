@@ -42,7 +42,7 @@ STAGES = ("label", "extract")
 KEYS = {"models_dir": None, "cache_dir": None, "work_dir": None, "delivery_dir": None, "scan_roots": None,
         "low_confidence": None,
         "docling": {"table_mode", "device", "num_threads", "document_timeout", "wall_timeout"},
-        "llm": {"enabled", "provider", "base_url", "model", "api_key_env", "remote", "features"}}
+        "llm": {"enabled", "provider", "base_url", "model", "api_key_env", "remote", "allow_http", "features"}}
 LLM_FEATURES = ("summary", "describe", "chart_table")
 LLM_PROVIDERS = ("openai_compatible",)
 
@@ -79,7 +79,8 @@ class LlmConfig:
     base_url: str = "https://api.minimax.io/v1"
     model: str = "MiniMax-M3"
     api_key_env: str = "INTAKE_LLM_API_KEY"
-    remote: bool = True
+    remote: bool = True                 # derived from base_url when not configured: not localhost = remote
+    allow_http: bool = False
     features: dict = field(default_factory=lambda: {"summary": True, "describe": True, "chart_table": False})
 
 
@@ -113,9 +114,23 @@ def inside(path: Path, roots) -> bool:
     return any(real == r or real.is_relative_to(r) for r in roots)
 
 
-def _llm(raw: dict) -> LlmConfig:
+LOOPBACK = ("localhost", "127.0.0.1", "::1")
+# INTAKE_LLM_* variables (.env, setup.sh) over the llm block of intake.yaml
+LLM_ENV = {"INTAKE_LLM_ENABLED": "enabled", "INTAKE_LLM_BASE_URL": "base_url", "INTAKE_LLM_MODEL": "model",
+           "INTAKE_LLM_ALLOW_HTTP": "allow_http"}
+TRUE, FALSE = ("true", "1", "yes", "on"), ("false", "0", "no", "off", "")
+
+
+def _bool_env(env: dict, var: str) -> bool:
+    v = env[var].strip().lower()
+    if v not in TRUE + FALSE:
+        raise ConfigError(f"{var} must be true or false, not {env[var]!r}")
+    return v in TRUE
+
+
+def _llm(raw: dict, env: dict | None = None) -> LlmConfig:
     d = LlmConfig()
-    for key in ("enabled", "remote"):
+    for key in ("enabled", "remote", "allow_http"):
         if key in raw and not isinstance(raw[key], bool):
             raise ConfigError(f"llm.{key} must be true or false")
     for key in ("provider", "base_url", "model", "api_key_env"):
@@ -131,17 +146,34 @@ def _llm(raw: dict) -> LlmConfig:
         raise ConfigError(f"unknown llm feature(s) {bad} (known: {list(LLM_FEATURES)})")
     if not all(isinstance(v, bool) for v in features.values()):
         raise ConfigError("llm.features values must be true or false")
+    raw = dict(raw)
+    for var, key in LLM_ENV.items():
+        if (env or {}).get(var, "").strip():
+            raw[key] = _bool_env(env, var) if key in ("enabled", "allow_http") else env[var].strip()
+    features = dict(features)
+    if (env or {}).get("INTAKE_LLM_DESCRIBE", "").strip():    # kb-intake doctor sets it false when images fail
+        features["describe"] = _bool_env(env, "INTAKE_LLM_DESCRIBE")
     url = urllib.parse.urlsplit(raw.get("base_url", d.base_url))
-    loopback = url.hostname in ("localhost", "127.0.0.1", "::1")
-    if url.scheme not in ("https", "http") or not url.hostname or (url.scheme == "http" and not loopback):
-        raise ConfigError("llm.base_url must be an https URL (http only for localhost)")
+    loopback = url.hostname in LOOPBACK
+    allow_http = raw.get("allow_http", d.allow_http)
+    if url.scheme not in ("https", "http") or not url.hostname:
+        raise ConfigError(f"llm.base_url must be an http(s) URL, not {raw.get('base_url')!r}")
+    if url.scheme == "http" and not loopback and not allow_http:
+        raise ConfigError(f"llm.base_url is plain http on another host ({url.hostname}): the key would cross the "
+                          "network unencrypted. Use https, or set INTAKE_LLM_ALLOW_HTTP=true (llm.allow_http) "
+                          "to accept that")
     if raw.get("remote") is False and not loopback:
         raise ConfigError(f"llm.remote is false, but llm.base_url is on another host ({url.hostname}); "
                           "only a localhost endpoint is local")
     return LlmConfig(enabled=raw.get("enabled", d.enabled), provider=raw.get("provider", d.provider),
                      base_url=raw.get("base_url", d.base_url), model=raw.get("model", d.model),
-                     api_key_env=raw.get("api_key_env", d.api_key_env), remote=raw.get("remote", d.remote),
-                     features={**d.features, **features})
+                     api_key_env=raw.get("api_key_env", d.api_key_env), remote=raw.get("remote", not loopback),
+                     allow_http=allow_http, features={**d.features, **features})
+
+
+def llm_host(llm: LlmConfig) -> str:
+    """Where the LLM's data goes: the host (and port) of base_url."""
+    return urllib.parse.urlsplit(llm.base_url).netloc
 
 
 def public_llm_info(cfg: Config, env: dict | None = None) -> dict:
@@ -155,10 +187,19 @@ def public_llm_info(cfg: Config, env: dict | None = None) -> dict:
             "features": dict(llm.features)}
 
 
+# besides INTAKE_*: what the LLM client needs to reach a company endpoint (proxy, CA). PIP_* are setup.sh's.
+DOTENV_NETWORK = ("HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy", "SSL_CERT_FILE",
+                  "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE")
+# path values: a relative one is relative to the .env file, not to wherever kb-intake was started
+DOTENV_PATHS = ("INTAKE_MODELS_DIR", "INTAKE_DATA_DIR", "INTAKE_CACHE_DIR", "INTAKE_WORK_DIR", "INTAKE_DELIVERY_DIR",
+                "INTAKE_CONFIG", "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE")
+
+
 def load_dotenv(path: Path, env: dict | None = None) -> list[str]:
-    """Set the INTAKE_* variables of a `.env` file (KEY=value lines; `#` comments, an `export ` prefix and quotes
-    around the value allowed) that `env` (default os.environ) does not set yet; a variable already set wins. Other
-    names are ignored, values are never printed. Returns the names it set; a missing file sets nothing."""
+    """Set the INTAKE_* (and DOTENV_NETWORK) variables of a `.env` file (KEY=value lines; `#` comments, an `export `
+    prefix and quotes around the value allowed) that `env` (default os.environ) does not set yet; a variable already
+    set wins. Relative paths (DOTENV_PATHS) are made absolute against the file's directory. Other names are ignored,
+    values are never printed. Returns the names it set; a missing file sets nothing."""
     env = os.environ if env is None else env
     try:
         lines = path.read_text(encoding="utf-8-sig").splitlines()     # -sig: a BOM (Windows editors) is dropped
@@ -174,12 +215,16 @@ def load_dotenv(path: Path, env: dict | None = None) -> list[str]:
             line = line[len("export "):].lstrip()
         name, eq, value = line.partition("=")
         name, value = name.strip(), value.strip()
-        if not eq or not name.startswith("INTAKE_") or not name.replace("_", "").isalnum() or name in env:
+        if not eq or not (name.startswith("INTAKE_") or name in DOTENV_NETWORK) \
+                or not name.replace("_", "").isalnum() or name in env:
             continue
         if value[:1] in ("'", '"') and value[0] in value[1:]:          # quoted: up to the closing quote
             value = value[1:value.index(value[0], 1)]
         else:                                                           # unquoted: ' #' starts a comment
             value = value.split(" #", 1)[0].rstrip()
+        if name in DOTENV_PATHS and value:
+            p = Path(value).expanduser()
+            value = str(p if p.is_absolute() else (path.parent / p).resolve())
         env[name] = value
         added.append(name)
     return added
@@ -236,7 +281,10 @@ def load(path: str | os.PathLike | None = None, env: dict | None = None) -> Conf
     if not isinstance(roots, list):
         raise ConfigError("scan_roots must be a list of directories")
     scan_roots = tuple((p if p.is_absolute() else base / p).resolve() for p in map(_path, roots))
-    cfg = replace(cfg, docling=params, scan_roots=scan_roots, llm=_llm(raw.get("llm") or {}))
+    cfg = replace(cfg, docling=params, scan_roots=scan_roots, llm=_llm(raw.get("llm") or {}, env))
+    if env.get("INTAKE_DATA_DIR"):                     # one data directory: cache, work and delivery below it
+        data = _path(env["INTAKE_DATA_DIR"])
+        cfg = replace(cfg, cache_dir=data / "cache", work_dir=data / "work", delivery_dir=data / "delivery")
     for var, key in ENV_PATHS.items():
         if env.get(var):
             cfg = replace(cfg, **{key: _path(env[var])})
