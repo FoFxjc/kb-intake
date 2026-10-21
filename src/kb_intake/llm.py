@@ -254,7 +254,7 @@ def _order(job_dir: Path) -> dict[str, int]:
 
 
 @contextmanager
-def _locked(job_dir: Path):
+def locked(job_dir: Path):
     """Hold the job's LLM files: the background summary, the extract / review describe pass and a CLI process may
     write them at the same time; each re-reads them under this lock before it saves (flock: across processes)."""
     (job_dir / "llm").mkdir(exist_ok=True)
@@ -312,7 +312,7 @@ def summarize(jobs, job_id: str, cfg: config.Config, chat=None, env=None) -> dic
     except Exception as e:                     # not a call failure (those are gaps): the input could not be built
         write_json(d / "llm" / "summary.json", {"status": "failed", "reason": f"error_{type(e).__name__}"})
         raise
-    with _locked(d):
+    with locked(d):
         rows = [r for r in rows_of(d) if r["kind"] != "summary"]
         gaps = [g for g in gaps_of(d) if g["kind"] != "summary"]
         if out.get("code") == "llm_failed":
@@ -344,7 +344,7 @@ def describe_regions(job_dir: Path, cfg: config.Config, wf: dict, regions: list[
         progress("llm", "started", {"regions": len(todo)})
     calls = [c for r in todo for c in runner.describe_inputs(r, pdf[r["page_no"] - 1], wf)]
     outs = runner.run_many(calls)
-    with _locked(job_dir):                     # read now, not before the calls: a summary may have been saved since
+    with locked(job_dir):                     # read now, not before the calls: a summary may have been saved since
         rows, gaps = [r for r in rows_of(job_dir) if keep(r)], [g for g in gaps_of(job_dir) if keep(g)]
         for out in outs:
             (gaps if out.get("code") == "llm_failed" else rows).append(out)

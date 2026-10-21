@@ -33,9 +33,8 @@ The API is frozen in contract/api/openapi-v1.json (kb_intake.service.openapi_sna
 
 Steps run in one background thread (one step at a time across all jobs; 409 otherwise). A job busy with a step,
 here or in a CLI process sharing the work directory, or in the wrong state for a request, is 409 too. The step
-modules write the progress events; the server writes none. `jobs.recover()` runs when the app is created.
-`recover()` clears running_op on every job without checking that its owner is alive, so do not start `serve`
-while a CLI step runs on the same work_dir: the server could run that step a second time.
+modules write the progress events; the server writes none. `jobs.recover()` runs when the app is created
+and clears the running_op of a step whose owner process is gone.
 
 Directories on this machine are only reachable inside `scan_roots` (empty by default: uploads only). Paths are
 resolved (symlinks, ..) before the check.
@@ -550,8 +549,8 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
         def prepare():
             job = jobs.get(job_id)
             idle(job, "in_review", "confirmed")
-            if job.status == "in_review":
-                jobs.confirm(job_id, by)            # recorded now: a failed delivery is retried, not re-confirmed
+            if job.status == "in_review":         # recorded now: a failed delivery is retried, not re-confirmed
+                _step("deliver").confirm_review(jobs, job, by)
             return job_id, lambda: _step("deliver").confirm(jobs, job_id, by, cfg)
         runner.start("deliver", prepare)
         return {"job_id": job_id, "started": "deliver"}

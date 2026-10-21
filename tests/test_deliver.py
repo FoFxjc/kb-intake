@@ -245,17 +245,33 @@ def test_compare_snapshot_reads_v2_packages(tmp_path):
     assert res.returncode == 1 and out["p217_continues_p216"] is None       # the demo has no p106 / p216-217
 
 
-def test_delivery_refuses_work_files_that_do_not_match_the_review_record(tmp_path):
-    """The known crash window of review.apply: ops recorded, the work files not replaced."""
+def test_confirm_refuses_work_files_that_do_not_match_the_review_record(tmp_path):
+    """The known crash window of review.apply: ops recorded, the work files not replaced. Confirm refuses while the
+    job is still in review, where repeating the review action repairs the files; a confirmed job could not be."""
     f = reviewed(tmp_path)
     regions = read_jsonl(f.job.dir / "extract" / "regions.jsonl")
     op = f.jobs.ops(f.job.id)[0]
     rows = [{**r, "type": "text", "label_source": "model"} if r["region_id"] == op["region_id"] else r
             for r in regions]
     write_jsonl(f.job.dir / "extract" / "regions.jsonl", rows)      # as if the crash came before this write
-    with pytest.raises(deliver.DeliveryError, match="do not match the review record"):
+    with pytest.raises(WrongState, match="do not match the review record"):
         deliver.confirm(f.jobs, f.job.id, "anna", f.cfg)
-    assert f.jobs.get(f.job.id).status == "confirmed" and not list(f.cfg.delivery_dir.glob("*@*"))
+    assert f.jobs.get(f.job.id).status == "in_review" and not list(f.cfg.delivery_dir.glob("*@*"))
+    review.apply(f.jobs, f.job.id, [{"action": "reclassify", "region_id": op["region_id"], "to": op["to"]}],
+                 "peter", f.cfg)
+    assert deliver.confirm(f.jobs, f.job.id, "anna", f.cfg).is_dir()
+    assert f.jobs.get(f.job.id).status == "delivered"
+
+
+def test_delivery_of_a_confirmed_job_still_checks_the_review_record(tmp_path):
+    f = reviewed(tmp_path)
+    f.jobs.confirm(f.job.id, "anna")
+    op = f.jobs.ops(f.job.id)[0]
+    rows = [{**r, "type": "text", "label_source": "model"} if r["region_id"] == op["region_id"] else r
+            for r in read_jsonl(f.job.dir / "extract" / "regions.jsonl")]
+    write_jsonl(f.job.dir / "extract" / "regions.jsonl", rows)
+    with pytest.raises(deliver.DeliveryError, match="do not match the review record"):
+        deliver.deliver(f.jobs, f.job.id, f.cfg)
 
 
 def test_check_review_wants_the_last_op_of_each_region():
@@ -315,3 +331,32 @@ def test_ack_of_a_gap_that_a_later_reclassify_removed_does_not_block_delivery(tm
     review.apply(f.jobs, f.job.id, [{"action": "reclassify", "region_id": rid(1, 2), "to": "picture"}], "peter", f.cfg)
     pkg = deliver.confirm(f.jobs, f.job.id, "anna", f.cfg)
     assert contract.check(pkg)["ok"]
+
+
+def test_the_package_reads_the_llm_files_under_their_lock(tmp_path, monkeypatch):
+    """A summary saved by the background thread during delivery must not land between the reads of gaps.jsonl,
+    llm.jsonl and manifest.llm: the package reads them all while holding the job's LLM lock."""
+    import fcntl
+
+    from kb_intake import llm
+    f = reviewed(tmp_path)
+    held = []
+
+    def probe(real):
+        def wrapped(*a, **kw):
+            with open(f.job.dir / "llm" / ".lock", "w") as fh:
+                try:
+                    fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntl.flock(fh, fcntl.LOCK_UN)
+                    held.append(False)
+                except BlockingIOError:
+                    held.append(True)
+            return real(*a, **kw)
+        return wrapped
+    (f.job.dir / "llm").mkdir(exist_ok=True)
+    f.jobs.confirm(f.job.id, "anna")
+    monkeypatch.setattr(review, "all_gaps", probe(review.all_gaps))
+    monkeypatch.setattr(llm, "rows_of", probe(llm.rows_of))
+    monkeypatch.setattr(llm, "manifest_entry", probe(llm.manifest_entry))
+    deliver.deliver(f.jobs, f.job.id, f.cfg)
+    assert held and all(held)

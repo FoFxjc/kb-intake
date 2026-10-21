@@ -195,6 +195,22 @@ def test_the_whole_flow(svc):
     assert svc.post(f"/v1/jobs/{job_id}/confirm", json={"by": "carol"}).status_code == 409
 
 
+def test_confirm_with_work_files_out_of_step_is_409_and_the_job_stays_in_review(svc):
+    from kb_intake.package import read_jsonl, write_jsonl
+    job_id = labelled(svc)
+    assert svc.post(f"/v1/jobs/{job_id}/approve", json={"by": "alice"}).status_code == 202
+    settle(svc, job_id)
+    rid = f"{DOC}:p0001:r002"
+    regions_file = svc.cfg.work_dir / "jobs" / job_id / "extract" / "regions.jsonl"
+    before = read_jsonl(regions_file)
+    assert svc.post(f"/v1/jobs/{job_id}/review", json={"by": "bob", "ops": [{"action": "exclude", "region_id": rid}]}
+                    ).status_code == 200
+    write_jsonl(regions_file, before)             # the crash window of a review: op recorded, files not written
+    r = svc.post(f"/v1/jobs/{job_id}/confirm", json={"by": "carol"})
+    assert r.status_code == 409 and "do not match the review record" in r.text
+    assert svc.get(f"/v1/jobs/{job_id}").json()["job"]["status"] == "in_review"
+
+
 def test_packages_lists_the_contract_check(svc, monkeypatch):
     (svc.cfg.delivery_dir / f"{DOC}@0123456789ab").mkdir(parents=True)
     (svc.cfg.delivery_dir / ".tmp-x").mkdir()

@@ -44,10 +44,28 @@ def confirm(jobs: Jobs, job_id: str, by: str, cfg: Config) -> Path:
     """Confirm a job in review and deliver it; a job already confirmed (a failed delivery) is only delivered."""
     job = jobs.get(job_id)
     if job.status == "in_review":
-        jobs.confirm(job_id, by)                 # Busy while a review step of the job is running
+        confirm_review(jobs, job, by)
     elif job.status != "confirmed":
         raise WrongState(f"job {job_id} is {job.status}; confirm needs in_review (or confirmed, to retry delivery)")
     return deliver(jobs, job_id, cfg)
+
+
+def confirm_review(jobs: Jobs, job: Job, by: str) -> None:
+    """Confirm a job in review, if its work files show what the review record says. A mismatch (the crash window of
+    review.apply) is refused while the job is still in review, where repeating the review action repairs it."""
+    mismatch = review_mismatch(jobs, job)
+    if mismatch:
+        raise WrongState(f"{MISMATCH}; repeat the review action on these regions, then confirm: "
+                         + "; ".join(mismatch[:5]))
+    jobs.confirm(job.id, by)                     # Busy while a review step of the job is running
+
+
+MISMATCH = "the work files do not match the review record (a review was interrupted?)"
+
+
+def review_mismatch(jobs: Jobs, job: Job) -> list[str]:
+    state = review.current(job.dir)
+    return check_review(jobs.ops(job.id), state["regions"], review.all_gaps(job.dir, state))
 
 
 def deliver(jobs: Jobs, job_id: str, cfg: Config) -> Path:
@@ -80,7 +98,8 @@ def _deliver(jobs: Jobs, job: Job, cfg: Config, name: str, t0: float) -> Path:
     try:
         pkg = tmp / name
         pkg.mkdir(parents=True)
-        _build(jobs, job, pkg, t0, cfg)          # confirmed: no review can change the files any more
+        with llm.locked(job.dir):                 # confirmed: no review changes the files; a summary may still land
+            _build(jobs, job, pkg, t0, cfg)
         result = contract.check(pkg)
         if not result["ok"]:
             raise DeliveryError("the package fails the contract v2 check: " + "; ".join(result["errors"][:5]))
@@ -156,8 +175,7 @@ def _build(jobs: Jobs, job: Job, pkg: Path, t0: float, cfg: Config) -> None:
     regions, tables, gaps = state["regions"], state["tables"], review.all_gaps(d, state)
     mismatch = check_review(jobs.ops(job.id), regions, gaps)
     if mismatch:
-        raise DeliveryError("the work files do not match the review record (a review was interrupted?): "
-                            + "; ".join(mismatch[:5]))
+        raise DeliveryError(f"{MISMATCH}: " + "; ".join(mismatch[:5]))
     ops = jobs.ops(job.id) + [{"action": "confirm", "region_id": None, "from": None, "to": None,
                                "by": job.confirmed_by, "at": job.confirmed_at, "note": None}]
     write_jsonl(pkg / "pages.jsonl", pages)
