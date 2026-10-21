@@ -38,6 +38,7 @@ from pathlib import Path
 import pymupdf
 import yaml
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
@@ -47,6 +48,7 @@ from kb_intake import CONTRACT_VERSION, __version__, config, contract, declarati
 from kb_intake import workflow as workflow_mod
 from kb_intake.jobs import AlreadyDelivered, Busy, JobError, Jobs, WrongState
 from kb_intake.package import read_json, read_jsonl, sha_file
+from kb_intake.service import api_models as m
 from kb_intake.service.runner_thread import StepRunner
 
 STATIC = Path(__file__).with_name("static")
@@ -54,6 +56,28 @@ STAGES = ("label", "extract")
 GAP_FILES = (("label", "label/gaps.jsonl"), ("extract", "extract/gaps.jsonl"), ("review", "review/gaps.jsonl"))
 # the step that a job resting in this state runs again on /retry
 RETRY = {"uploaded": "label", "approved": "extract", "confirmed": "deliver"}
+# request bodies are parsed by the routes; these models only document them (added to the OpenAPI components)
+BODY_MODELS = (m.CreateJobJson, m.CreateJobUpload, m.ApproveBody, m.ReviewBody, m.ConfirmBody)
+
+
+def errors(*codes: int) -> dict:
+    """OpenAPI `responses` for the error codes a route can answer with."""
+    return {c: {"model": m.ErrorBody} for c in codes}
+
+
+def json_body(model, required: bool = True) -> dict:
+    return {"requestBody": {"required": required, "content": {
+        "application/json": {"schema": {"$ref": f"#/components/schemas/{model.__name__}"}}}}}
+
+
+def route(model=None, *codes: int, body: dict | None = None, **kw) -> dict:
+    """Keyword arguments of a route: its response model (unset fields left out), error codes and documented body."""
+    out = {"responses": errors(*codes), "response_model_exclude_unset": True, **kw}
+    if model is not None:
+        out["response_model"] = model
+    if body is not None:
+        out["openapi_extra"] = body
+    return out
 
 
 def _step(name: str):
@@ -211,7 +235,10 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
             started = False
         return {**result, "started": started}
 
-    @app.post("/v1/jobs", status_code=202)
+    @app.post("/v1/jobs", status_code=202, **route(m.CreateJobResult, 403, 409, 415, 422, body={"requestBody": {
+        "required": True, "content": {
+            "multipart/form-data": {"schema": {"$ref": "#/components/schemas/CreateJobUpload"}},
+            "application/json": {"schema": {"$ref": "#/components/schemas/CreateJobJson"}}}}}))
     async def create_job(request: Request):
         tmp = None
         try:
@@ -241,11 +268,11 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
                 "source_name": j.source_name, "created_at": j.created_at, "updated_at": j.updated_at,
                 "last_error": j.last_error, "package": j.package}
 
-    @app.get("/v1/jobs")
+    @app.get("/v1/jobs", **route(m.JobList))
     def list_jobs():
         return {"jobs": [summary(j) for j in jobs.recent()]}
 
-    @app.get("/v1/jobs/{job_id}")
+    @app.get("/v1/jobs/{job_id}", **route(m.JobDetail, 404))
     def job_detail(job_id: str):
         job = get_job(job_id)
         stats = job.dir / "label" / "stats.json"
@@ -254,12 +281,12 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
                 "extract": read_json(run) if run.is_file() else None, "events": jobs.events(job_id)[-50:],
                 "busy": (runner.busy() or {}).get("job_id") == job_id}
 
-    @app.get("/v1/jobs/{job_id}/events")
+    @app.get("/v1/jobs/{job_id}/events", **route(m.EventList, 404))
     def job_events(job_id: str, after: int = 0):
         get_job(job_id)
         return {"events": jobs.events(job_id, after)}
 
-    @app.get("/v1/jobs/{job_id}/gaps")
+    @app.get("/v1/jobs/{job_id}/gaps", **route(m.GapList, 404))
     def job_gaps(job_id: str):
         job = get_job(job_id)
         out = []
@@ -271,7 +298,7 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
 
     # ---------- workflow and approval ----------
 
-    @app.get("/v1/jobs/{job_id}/workflow")
+    @app.get("/v1/jobs/{job_id}/workflow", **route(m.WorkflowView, 404))
     def get_workflow(job_id: str, version: int | None = None):
         job = get_job(job_id)
         wf = jobs.workflow(job_id, version)
@@ -286,7 +313,8 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
         return {**wf, "workflow": parsed, "error": error, "approved_version": job.workflow_version,
                 "types": list(vocab.REGION_TYPES), "handlers": list(vocab.HANDLERS), "notes": notes}
 
-    @app.put("/v1/jobs/{job_id}/workflow")
+    @app.put("/v1/jobs/{job_id}/workflow", **route(m.WorkflowSaved, 404, 409, 422, body={"requestBody": {
+        "required": True, "content": {"application/yaml": {"schema": {"type": "string"}}}}}))
     async def put_workflow(job_id: str, request: Request):
         get_job(job_id)
         text = (await request.body()).decode("utf-8", errors="replace")
@@ -296,7 +324,7 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
             raise HTTPException(422, str(e)) from None
         return {"version": jobs.save_workflow(job_id, workflow_mod.dump(wf))}
 
-    @app.post("/v1/jobs/{job_id}/approve", status_code=202)
+    @app.post("/v1/jobs/{job_id}/approve", status_code=202, **route(m.Started, 404, 409, 415, 422, body=json_body(m.ApproveBody)))
     async def approve(job_id: str, request: Request):
         get_job(job_id)
         body = await body_of(request)
@@ -311,7 +339,7 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
 
     # ---------- review ----------
 
-    @app.get("/v1/jobs/{job_id}/pages/{n}")
+    @app.get("/v1/jobs/{job_id}/pages/{n}", **route(m.PageView, 404, 409))
     def page(job_id: str, n: int):
         job = get_job(job_id)
         need_page(job, n)
@@ -320,7 +348,8 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
         except (FileNotFoundError, KeyError):
             raise HTTPException(409, f"job {job_id} is not labelled yet") from None
 
-    @app.get("/v1/jobs/{job_id}/pages/{n}/image")
+    @app.get("/v1/jobs/{job_id}/pages/{n}/image", response_class=FileResponse, responses={
+        200: {"content": {"image/png": {}}, "description": "the page as PNG"}, **errors(404)})
     def page_image(job_id: str, n: int, dpi: int = 110):
         job = get_job(job_id)
         need_page(job, n)
@@ -335,7 +364,7 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
             tmp.replace(out)
         return FileResponse(out, media_type="image/png")
 
-    @app.post("/v1/jobs/{job_id}/review")
+    @app.post("/v1/jobs/{job_id}/review", **route(m.ReviewResult, 400, 404, 409, 415, 422, body=json_body(m.ReviewBody)))
     async def review_ops(job_id: str, request: Request):
         get_job(job_id)
         body = await body_of(request)
@@ -351,7 +380,7 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
             raise HTTPException(400, str(e)) from None
         return {"applied": applied, "status": jobs.get(job_id).status}
 
-    @app.post("/v1/jobs/{job_id}/confirm", status_code=202)
+    @app.post("/v1/jobs/{job_id}/confirm", status_code=202, **route(m.Started, 404, 409, 415, 422, body=json_body(m.ConfirmBody)))
     async def confirm(job_id: str, request: Request):
         get_job(job_id)
         by = need_name(await body_of(request), "confirmation")
@@ -365,7 +394,7 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
         runner.start("deliver", prepare)
         return {"job_id": job_id, "started": "deliver"}
 
-    @app.post("/v1/jobs/{job_id}/retry", status_code=202)
+    @app.post("/v1/jobs/{job_id}/retry", status_code=202, **route(m.Started, 404, 409))
     def retry(job_id: str):
         get_job(job_id)
         works = {"label": run_label, "extract": run_extract, "deliver": run_deliver}
@@ -384,7 +413,7 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
 
     # ---------- packages, engines, directories, health ----------
 
-    @app.get("/v1/packages")
+    @app.get("/v1/packages", **route(m.PackagesView))
     def packages():
         by_package = {j.package: j.id for j in jobs.recent(10000) if j.package}
         out = []
@@ -394,7 +423,7 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
             out.append({"package": p.name, "job_id": by_package.get(p.name), "check": contract.check(p)})
         return {"delivery_dir": str(cfg.delivery_dir), "packages": out}
 
-    @app.get("/v1/engines")
+    @app.get("/v1/engines", **route(m.EnginesView))
     def engines_info():
         from kb_intake.engines import DoclingEngine
         infos = {s: (engines.get(s) or DoclingEngine(cfg.models_dir, cfg.docling, stage=s)).info() for s in STAGES}
@@ -402,7 +431,7 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
                 "models_dir": str(cfg.models_dir), "pymupdf": pymupdf.VersionBind,
                 "layout_enabled": cfg.layout_enabled}
 
-    @app.get("/v1/directories")
+    @app.get("/v1/directories", **route(m.DirectoriesView, 403, 422))
     def directories(path: str | None = None):
         roots = cfg.scan_roots
         if path is None:
@@ -424,14 +453,27 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
                         entries.append({"name": e.name, "path": str(e.resolve()), "kind": "pdf"})
         return {"path": str(p), "roots": [str(r) for r in roots], "entries": entries}
 
-    @app.get("/v1/health")
+    @app.get("/v1/health", **route(m.Health))
     def health():
         return {"ok": True, "version": __version__, "contract_version": CONTRACT_VERSION, "busy": runner.busy(),
                 "last": runner.last}
 
-    @app.get("/")
+    @app.get("/", include_in_schema=False)
     def root():
         return RedirectResponse("/ui/")
 
     app.mount("/ui", StaticFiles(directory=STATIC, html=True), name="ui")
+
+    def openapi() -> dict:
+        if app.openapi_schema is None:
+            doc = get_openapi(title=app.title, version=app.version, routes=app.routes)
+            schemas = doc.setdefault("components", {}).setdefault("schemas", {})
+            for model in BODY_MODELS:
+                schema = model.model_json_schema(ref_template="#/components/schemas/{model}")
+                for name, sub in schema.pop("$defs", {}).items():
+                    schemas.setdefault(name, sub)
+                schemas.setdefault(model.__name__, schema)
+            app.openapi_schema = doc
+        return app.openapi_schema
+    app.openapi = openapi
     return app
