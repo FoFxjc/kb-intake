@@ -214,3 +214,33 @@ def test_summary_input_covers_every_page_of_a_long_document(tmp_path):
     assert len(text) <= llm.SUMMARY_MAX_CHARS
     assert all(f"\np{n}: " in text for n in range(1, 277))
     assert "\np1: word000 word001" in text
+
+
+# ---------- independent review of stage L ----------
+
+def test_any_exception_from_the_call_becomes_a_gap(tmp_path, page):
+    import http.client
+    r = llm.Runner(enabled_cfg(tmp_path), chat=Chat(describe=http.client.IncompleteRead(b"x")), cache=DictCache(),
+                   env=ENV)
+    [gap] = r.run_many(r.describe_inputs(REGION, page, None))
+    assert gap["code"] == "llm_failed" and gap["reason"] == "error_IncompleteRead"
+
+
+def test_non_finite_numbers_are_not_a_table():
+    for bad in ("NaN", "Infinity", "-Infinity"):
+        with pytest.raises(llm.TableError):
+            llm.parse_table('{"title": null, "columns": ["a", "b"], "rows": [["x", %s]], "units": null, '
+                            '"notes": null}' % bad)
+
+
+def test_manifest_entry_names_the_model_that_answered_and_that_it_was_remote(tmp_path, page):
+    import dataclasses as dc
+    job = tmp_path / "job"
+    (job / "label").mkdir(parents=True)
+    cfg = enabled_cfg(tmp_path)
+    r = llm.Runner(cfg, chat=Chat(), cache=DictCache(), env=ENV)
+    rows = r.run_many(r.describe_inputs(REGION, page, None))
+    llm._save(job, rows, [], r)
+    later = dc.replace(cfg, llm=dc.replace(cfg.llm, model="other-model", remote=False, enabled=False))
+    entry, run = llm.manifest_entry(job, later)
+    assert entry["model"] == "MiniMax-M3" and entry["remote"] is True and run["calls"] == 1

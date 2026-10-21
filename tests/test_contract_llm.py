@@ -43,3 +43,11 @@ def test_llm_failed_gap_and_manifest_llm():
                                                                                "chart_table": 0, "failed": 1}}}, "m")
     assert not [e for e in m if "llm" in e]
     assert [e for e in contract.schema_errors("manifest", {"llm": {"used": "yes"}}, "m") if "llm" in e]
+
+
+def test_llm_failed_needs_kind_and_reason_and_used_manifest_needs_its_fields():
+    assert contract.schema_errors("gap", {"code": "llm_failed", "page_no": None, "detail": "x"}, "g") != []
+    assert contract.schema_errors("gap", {"code": "low_confidence", "page_no": 1, "detail": "x", "kind": "describe"},
+                                  "g") != []
+    assert [e for e in contract.schema_errors("manifest", {"llm": {"used": True}}, "m") if "llm" in e]
+    assert not [e for e in contract.schema_errors("manifest", {"llm": {"used": False}}, "m") if "llm" in e]

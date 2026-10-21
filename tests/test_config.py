@@ -81,3 +81,15 @@ def test_the_example_env_file_has_no_value():
     text = (ROOT / ".env.example").read_text()
     assert "INTAKE_LLM_API_KEY=\n" in text
     assert ".env" in (ROOT / ".gitignore").read_text().splitlines()
+
+
+def test_dotenv_comments_bom_and_bad_bytes(tmp_path, capsys):
+    p = tmp_path / ".env"
+    p.write_bytes("﻿INTAKE_A=sk-abc # my key\nINTAKE_B=\"sk-q\" # c\nINTAKE_C=a#b\n".encode("utf-8"))
+    env = {}
+    config.load_dotenv(p, env)
+    assert env == {"INTAKE_A": "sk-abc", "INTAKE_B": "sk-q", "INTAKE_C": "a#b"}
+    p.write_bytes(b"INTAKE_A=\xff\xfe\n")
+    env = {}
+    assert config.load_dotenv(p, env) == [] and env == {}
+    assert "not UTF-8" in capsys.readouterr().err

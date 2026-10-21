@@ -308,7 +308,26 @@
    "required": [
     "used"
    ],
-   "additionalProperties": false
+   "additionalProperties": false,
+   "allOf": [
+    {
+     "if": {
+      "properties": {
+       "used": {
+        "const": true
+       }
+      }
+     },
+     "then": {
+      "required": [
+       "provider",
+       "model",
+       "remote",
+       "counts"
+      ]
+     }
+    }
+   ]
   }
  },
  "required": [

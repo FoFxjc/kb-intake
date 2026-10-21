@@ -67,7 +67,7 @@ class Background:
         def run():
             try:
                 work()
-            except Exception:  # noqa: BLE001 - recorded by the work itself (llm/summary.json)
+            except Exception:  # noqa: BLE001 - the summary marks itself failed in llm/summary.json before raising
                 traceback.print_exc()
         t = threading.Thread(target=run, daemon=True, name=f"kb-intake-{name}")
         self._threads.append(t)

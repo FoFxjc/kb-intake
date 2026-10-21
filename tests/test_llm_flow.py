@@ -225,3 +225,22 @@ def test_summary_and_descriptions_written_at_the_same_time_keep_both(tmp_path, f
     release.set()
     t.join(10)
     assert sorted(r["kind"] for r in read_jsonl(f.job.dir / "llm" / "llm.jsonl")) == ["describe", "summary"]
+
+
+def test_a_summary_left_pending_by_a_crash_is_failed_at_start(tmp_path, fake):
+    from kb_intake.service.app import create_app
+    f = jobflow.in_review(tmp_path, chart=True, llm_url=fake.url)
+    (f.job.dir / "llm" / "summary.json").write_text('{"status": "pending"}')
+    with TestClient(create_app(f.cfg), base_url="http://127.0.0.1") as c:
+        assert c.get(f"/v1/jobs/{f.job.id}/summary").json()["status"] == "failed"
+    assert json.loads((f.job.dir / "llm" / "summary.json").read_text()) == {"status": "failed",
+                                                                             "reason": "interrupted"}
+
+
+def test_an_unexpected_error_in_the_summary_does_not_leave_it_pending(tmp_path, fake, monkeypatch):
+    f = jobflow.in_review(tmp_path, chart=True, llm_url=fake.url)
+    monkeypatch.setattr(llm, "summary_input", lambda *a: (_ for _ in ()).throw(RuntimeError("boom")))
+    with pytest.raises(RuntimeError):
+        llm.summarize(f.jobs, f.job.id, f.cfg)
+    assert json.loads((f.job.dir / "llm" / "summary.json").read_text()) == {"status": "failed",
+                                                                             "reason": "error_RuntimeError"}

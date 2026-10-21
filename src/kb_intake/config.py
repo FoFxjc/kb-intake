@@ -28,6 +28,7 @@ a setting that is not implemented can never look as if it took effect.
 """
 
 import os
+import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -152,8 +153,11 @@ def load_dotenv(path: Path, env: dict | None = None) -> list[str]:
     names are ignored, values are never printed. Returns the names it set; a missing file sets nothing."""
     env = os.environ if env is None else env
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = path.read_text(encoding="utf-8-sig").splitlines()     # -sig: a BOM (Windows editors) is dropped
     except OSError:
+        return []
+    except UnicodeDecodeError:
+        print(f"warning: {path} is not UTF-8; it was not read", file=sys.stderr)
         return []
     added = []
     for line in lines:
@@ -164,8 +168,10 @@ def load_dotenv(path: Path, env: dict | None = None) -> list[str]:
         name, value = name.strip(), value.strip()
         if not eq or not name.startswith("INTAKE_") or not name.replace("_", "").isalnum() or name in env:
             continue
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
-            value = value[1:-1]
+        if value[:1] in ("'", '"') and value[0] in value[1:]:          # quoted: up to the closing quote
+            value = value[1:value.index(value[0], 1)]
+        else:                                                           # unquoted: ' #' starts a comment
+            value = value.split(" #", 1)[0].rstrip()
         env[name] = value
         added.append(name)
     return added

@@ -8,6 +8,7 @@ its headers or the response body, and it is raised outside any `except` block, s
 __context__ through which the API key could leak.
 """
 
+import http.client
 import json
 import re
 import socket
@@ -54,6 +55,8 @@ def chat(base_url: str, model: str, key: str, content: list[dict], *, max_tokens
     body = json.dumps({"model": model, "messages": [{"role": "user", "content": content}],
                        "max_completion_tokens": max_tokens}).encode("utf-8")
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    if not key.isascii():                      # urllib would raise UnicodeEncodeError carrying the key in .object
+        raise LlmError("auth", "the key contains characters that cannot be sent (check for quotes or spaces)")
     error = None
     for attempt in range(retries + 1):
         if attempt:
@@ -85,7 +88,7 @@ def _attempt(opener, req, timeout: float, model: str) -> "Completion | tuple[Llm
             err = (LlmError("timeout", f"no answer within {timeout:g} s"), True)
         else:
             err = (LlmError("network", f"connection failed ({type(e.reason).__name__})"), True)
-    except OSError as e:  # ConnectionError and other socket failures
+    except (OSError, http.client.HTTPException) as e:  # sockets; a cut or malformed answer (IncompleteRead, ...)
         err = (LlmError("network", f"connection failed ({type(e).__name__})"), True)
     if err:
         return err

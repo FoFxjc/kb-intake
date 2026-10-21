@@ -129,6 +129,7 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
                            "(the uv-managed CPython has it)")
     jobs = Jobs(cfg.work_dir)
     jobs.recover()
+    _step("llm").recover(cfg.work_dir)          # a summary a stopped server left pending is failed (interrupted)
     cfg.delivery_dir.mkdir(parents=True, exist_ok=True)
     runner = StepRunner()
     summaries = Background()

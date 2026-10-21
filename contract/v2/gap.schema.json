@@ -114,5 +114,38 @@
   "page_no",
   "detail"
  ],
- "additionalProperties": false
+ "additionalProperties": false,
+ "allOf": [
+  {
+   "if": {
+    "properties": {
+     "code": {
+      "const": "llm_failed"
+     }
+    }
+   },
+   "then": {
+    "required": [
+     "kind",
+     "reason"
+    ]
+   },
+   "else": {
+    "not": {
+     "anyOf": [
+      {
+       "required": [
+        "kind"
+       ]
+      },
+      {
+       "required": [
+        "reason"
+       ]
+      }
+     ]
+    }
+   }
+  }
+ ]
 }

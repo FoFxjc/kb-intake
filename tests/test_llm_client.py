@@ -271,3 +271,28 @@ def test_an_answer_cut_at_the_token_limit_is_truncated():
         with pytest.raises(LlmError) as e:
             chat(s.url, "M", KEY, CONTENT)
     assert e.value.code == "truncated" and len(s.requests) == 1
+
+
+def test_a_broken_answer_stream_is_a_network_error():
+    import http.client
+
+    class Broken:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            raise http.client.IncompleteRead(b"partial")
+    with pytest.raises(LlmError) as e:
+        chat("http://127.0.0.1:9/v1", "m", KEY, CONTENT, retries=0, opener=lambda req, timeout: Broken())
+    assert e.value.code == "network"
+
+
+def test_a_key_that_cannot_be_sent_is_auth_and_never_shown():
+    key = "“sk-SENTINEL”"
+    with pytest.raises(LlmError) as e:
+        chat("http://127.0.0.1:9/v1", "m", key, CONTENT, retries=0)
+    assert e.value.code == "auth" and "sk-SENTINEL" not in str(e.value) + repr(e.value)
+    assert e.value.__cause__ is None and e.value.__context__ is None

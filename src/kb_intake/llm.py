@@ -7,7 +7,8 @@ experimental chart-to-table, through an OpenAI-compatible endpoint (MiniMax by d
 - Every call goes through the cache (`cache_dir/llm`, kb_intake.llm_cache) keyed by provider, model, prompt
   version and the sha256 of the input; a re-run with the same input makes no call. The model gives different
   answers to the same request (MiniMax ignores temperature and has no seed), so the cache is what makes a package
-  reproducible. Failed calls are not cached.
+  reproducible. A call that failed (no answer, an empty or cut answer) is not cached; an answer that came back
+  but cannot be used (a chart table that is not valid) is, so a re-run reproduces the same package.
 - An output is an llm.jsonl row (contract/v2/llm.schema.json): low weight, no time. A failure is an `llm_failed`
   gap; the step goes on.
 - The key is read when a call is made and never written anywhere.
@@ -99,8 +100,10 @@ def parse_table(text: str) -> dict:
     start = text.find("{")
     if start < 0:
         raise TableError("no JSON object in the answer")
+    def no_constant(name):                     # NaN / Infinity are not JSON: strict consumers could not read them
+        raise TableError(f"the table holds {name}, which is not a JSON number")
     try:
-        obj, _ = json.JSONDecoder().raw_decode(text[start:])
+        obj, _ = json.JSONDecoder(parse_constant=no_constant).raw_decode(text[start:])
     except json.JSONDecodeError as e:
         raise TableError(f"the answer is not JSON ({e.msg})") from None
     keys = ("title", "columns", "rows", "units", "notes")
@@ -198,6 +201,8 @@ class Runner:
             reason = getattr(e, "code", "error")
         except TableError as e:
             reason = "empty" if str(e) == "empty" else "invalid_table"
+        except Exception as e:  # noqa: BLE001 - any failure of an LLM use is a gap, never a failed step (§4.4)
+            reason = f"error_{type(e).__name__}"
         self.by_kind[kind]["failed"] += 1
         return self._gap(kind, page_no, region_id, reason)
 
@@ -272,6 +277,8 @@ def _save(job_dir: Path, rows: list[dict], gaps: list[dict], runner: "Runner | N
         for kind, st in runner.by_kind.items():
             old = run.get(kind, {})
             run[kind] = {k: round(old.get(k, 0) + v, 3) for k, v in st.items()}
+        if runner.stats["calls"]:                # whether data left the machine: the endpoint used, not today's config
+            run["remote"] = bool(run.get("remote")) or runner.llm.remote
         write_json(d / "run.json", run)
 
 
@@ -286,7 +293,11 @@ def summarize(jobs, job_id: str, cfg: config.Config, chat=None, env=None) -> dic
     d = job.dir
     (d / "llm").mkdir(exist_ok=True)
     write_json(d / "llm" / "summary.json", {"status": "pending"})
-    out = runner.summary(d, job.declaration)
+    try:
+        out = runner.summary(d, job.declaration)
+    except Exception as e:                     # not a call failure (those are gaps): the input could not be built
+        write_json(d / "llm" / "summary.json", {"status": "failed", "reason": f"error_{type(e).__name__}"})
+        raise
     with _locked(d):
         rows = [r for r in rows_of(d) if r["kind"] != "summary"]
         gaps = [g for g in gaps_of(d) if g["kind"] != "summary"]
@@ -339,9 +350,28 @@ def manifest_entry(job_dir: Path, cfg: config.Config) -> tuple[dict, dict | None
     if not rows and not gaps:
         return {"used": False}, None
     counts = {k: sum(r["kind"] == k for r in rows) for k in PROMPTS}
-    entry = {"used": True, "provider": cfg.llm.provider, "model": cfg.llm.model, "remote": cfg.llm.remote,
-             "counts": {**counts, "failed": len(gaps)}}
     by_kind = read_json(run) if run.is_file() else {}
-    totals = {k: round(sum(v.get(k, 0) for v in by_kind.values()), 3)
+    first = rows[0] if rows else {}
+    # the model that answered (from the rows) and whether data was sent out (from the runs), not the configuration
+    # of the day of delivery; unknown counts as remote
+    entry = {"used": True, "provider": first.get("provider", cfg.llm.provider), "model": first.get("model", cfg.llm.model),
+             "remote": by_kind.get("remote", True), "counts": {**counts, "failed": len(gaps)}}
+    totals = {k: round(sum(v.get(k, 0) for v in by_kind.values() if isinstance(v, dict)), 3)
               for k in ("calls", "cached", "failed", "seconds", "tokens")}
     return entry, totals
+
+
+def recover(work_dir: Path) -> list[str]:
+    """Mark summaries left `pending` by a stopped process as failed (reason interrupted); the job ids. Call at
+    server start, when no summary of this server can be running."""
+    from kb_intake.package import read_json, write_json
+    out = []
+    for state in sorted((work_dir / "jobs").glob("*/llm/summary.json")):
+        try:
+            pending = read_json(state).get("status") == "pending"
+        except (OSError, ValueError):
+            continue
+        if pending:
+            write_json(state, {"status": "failed", "reason": "interrupted"})
+            out.append(state.parent.parent.name)
+    return out
