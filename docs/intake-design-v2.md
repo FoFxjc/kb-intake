@@ -158,7 +158,7 @@ delivery/
 | `cells` | `r`、`c`、`rs`、`cs`、`text`（按框从文字层取）、`bbox`（单元格内文字的外接框）、`bbox_source`（`text` / `words` / `cell`）、`is_header`；空单元格的 `text`、`bbox` 为 null |
 | `markdown` | 方便阅读的表格文本 |
 | `extract_method` | `docling`（TableFormer）/ `find_tables`（用户改判后补抽） |
-| `continued_hint` | 可能是哪张表的续表（`table_id`），只做提示，不合并 |
+| `continued_hint` | 可能是哪张表的续表：`{table_id, reason}`，`reason` 为 `continued_heading`（前表在上一页末、本表在页首，中间只有“(continued)”类标题）或 `same_first_row`（相邻页、列数相同、首行文字相同）；只做提示，不合并，使用方可以按 `reason` 过滤 |
 
 ### 5.6 `layout.jsonl`（一页一行）
 `page_no`、`words`：`[x0, y0, x1, y1, text]`，取自文字层
@@ -258,3 +258,4 @@ kb-intake check   <包>
 ## 修订记录
 
 - 2026-10-21 开工前决定（Peter）：确定性比较豁免人工操作时间字段；图形分类器映射（§5.11），图片形式的表记 `table_suspected`；`label_source` 增加 `native`；`low_confidence` 阈值 0.5；抓取阶段多出来的表记 `table_unmatched`（`side: extract`）；抓取阶段原始输出存为 `raw/docling.extract.json`
+- 2026-10-21 OCBC 试跑后：`continued_hint` 带 `reason`，区分强提示与“首行相同”的弱提示
