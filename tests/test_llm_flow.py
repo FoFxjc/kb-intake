@@ -124,8 +124,9 @@ def test_package_carries_llm_jsonl_and_manifest_llm(tmp_path, fake):
     assert check["ok"], check["errors"]
     assert [r["kind"] for r in read_jsonl(pkg / "llm.jsonl")] == ["summary", "describe"]
     manifest = json.loads((pkg / "manifest.json").read_text())
+    host = fake.url.split("//", 1)[1].split("/", 1)[0]
     assert manifest["llm"] == {"used": True, "provider": "openai_compatible", "model": "MiniMax-M3", "remote": True,
-                               "counts": {"summary": 1, "describe": 1, "chart_table": 0, "failed": 0}}
+                               "sent_to": [host], "counts": {"summary": 1, "describe": 1, "chart_table": 0, "failed": 0}}
     assert manifest["run"]["llm"]["calls"] == 2 and KEY not in (pkg / "manifest.json").read_text()
 
 

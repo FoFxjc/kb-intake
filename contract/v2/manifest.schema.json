@@ -276,6 +276,13 @@
     "remote": {
      "type": "boolean"
     },
+    "sent_to": {
+     "type": "array",
+     "items": {
+      "type": "string"
+     },
+     "title": "the hosts (host:port of base_url) the data was sent to; empty when only localhost was used"
+    },
     "counts": {
      "type": "object",
      "properties": {

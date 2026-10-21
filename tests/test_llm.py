@@ -297,3 +297,23 @@ def test_only_unavailable_gaps_mean_the_llm_was_not_used(tmp_path):
     llm.describe_regions(job_dir, cfg, {"handlers": {}}, [{**REGION, "handler": "describe", "status": "extracted"}],
                          doc, chat=Chat(), env={})
     assert llm.manifest_entry(job_dir, cfg) == ({"used": False}, None)
+
+
+def test_manifest_names_the_host_the_data_went_to(tmp_path, page):
+    """Not "an external service": the host of base_url at the time of the calls (an intranet host is named too)."""
+    import dataclasses as dc
+    job = tmp_path / "job"
+    (job / "label").mkdir(parents=True)
+    cfg = enabled_cfg(tmp_path)
+    cfg = dc.replace(cfg, llm=dc.replace(cfg.llm, base_url="https://llm.corp.example:8443/v1"))
+    r = llm.Runner(cfg, chat=Chat(), cache=DictCache(), env=ENV)
+    llm._save(job, r.run_many(r.describe_inputs(REGION, page, None)), [], r)
+    entry, _ = llm.manifest_entry(job, cfg)
+    assert entry["remote"] is True and entry["sent_to"] == ["llm.corp.example:8443"]
+    local = dc.replace(cfg, llm=dc.replace(cfg.llm, base_url="http://127.0.0.1:8000/v1", remote=False))
+    job2 = tmp_path / "job2"
+    (job2 / "label").mkdir(parents=True)
+    r2 = llm.Runner(local, chat=Chat(), cache=DictCache(), env=ENV)
+    llm._save(job2, r2.run_many(r2.describe_inputs(REGION, page, None)), [], r2)
+    entry2, _ = llm.manifest_entry(job2, local)
+    assert entry2["remote"] is False and entry2["sent_to"] == []

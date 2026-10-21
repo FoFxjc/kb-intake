@@ -104,7 +104,8 @@ test.describe('LLM enabled (fake model on 127.0.0.1)', () => {
     const panel = page.getByTestId('llm-panel');
     await expect(panel).toBeVisible();
     await expect(page.getByTestId('llm-notice')).toContainText(`sent to ${new URL(LLM_BASE).hostname}:`);
-    await expect(panel).toContainText('remote');
+    await expect(panel.locator('.llm-chip')).toContainText('127.0.0.1:');   // the fake model's host, not 'remote'
+    await expect(panel).not.toContainText('remote service');
 
     // the suggestion sets charts to describe; describe is offered for chart, diagram and picture only
     await expect(page.getByTestId('wf-row-chart').getByRole('button', { name: 'LLM describe' })).toHaveAttribute('aria-pressed', 'true');
@@ -148,5 +149,23 @@ test.describe('LLM enabled (fake model on 127.0.0.1)', () => {
     const llm = (await (await request.get(`/v1/jobs/${jobId}/llm`)).json()) as { items: { kind: string }[] };
     expect(llm.items.filter((i) => i.kind === 'describe')).toHaveLength(1);
     expect(llm.items.filter((i) => i.kind === 'chart_table')).toHaveLength(0);
+  });
+
+  test('describe switched off in the configuration (kb-intake doctor: images fail) is not offered', async ({ page, request }) => {
+    const jobId = await plannedJob(request);
+    await page.route('**/v1/health', async (route) => {
+      const r = await route.fetch();
+      const j = await r.json();
+      j.llm.features.describe = false;
+      return route.fulfill({ response: r, json: j });
+    });
+    await page.goto(`./#/job/${jobId}/workflow`);
+    await expect(page.getByTestId('llm-panel')).toBeVisible();
+    const chart = page.getByTestId('wf-row-chart');
+    // this server suggested describe before the switch went off; the current handler always stays visible, so
+    // move the row to text first: describe is then no longer among the options
+    await chart.getByRole('button', { name: 'Text by box' }).click();
+    await expect(chart.getByRole('button', { name: 'Text by box' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(chart.getByRole('button', { name: 'LLM describe' })).toHaveCount(0);
   });
 });

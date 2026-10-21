@@ -168,7 +168,7 @@ export function WorkflowPage({ detail, onChanged }: { detail: JobDetail; onChang
                       {counts ? (n ? fmt(n) : '—') : ''}
                     </div>
                     <div className="wf-opts" role="cell">
-                      {rowOptions(row, wf, llmEnabled).map((o) => (
+                      {rowOptions(row, wf, llmEnabled && !!llm?.features.describe).map((o) => (
                         <button
                           key={o}
                           type="button"
@@ -236,12 +236,12 @@ export function WorkflowPage({ detail, onChanged }: { detail: JobDetail; onChang
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <div className="flow-title">LLM</div>
               <span className="llm-chip">
-                {llm.model} · {llm.remote ? 'remote' : 'local'}
+                {llm.model} · {llm.remote ? hostOf(llm.base_url) : 'this machine'}
               </span>
             </div>
             <div className="llm-notice" data-testid="llm-notice">
-              Data is sent to {hostOf(llm.base_url)}
-              {llm.remote ? ' (a remote service)' : ''}: the document summary sends {SUMMARY_SENDS}, after labeling;
+              {llm.remote ? `Data is sent to ${hostOf(llm.base_url)}` : `Data stays on this machine (${hostOf(llm.base_url)})`}
+              : the document summary sends {SUMMARY_SENDS}, after labeling;
               descriptions and chart tables send each region's image and its text. Results are kept separately in
               llm.jsonl and marked low weight.
             </div>

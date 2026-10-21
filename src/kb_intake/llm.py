@@ -279,8 +279,12 @@ def _save(job_dir: Path, rows: list[dict], gaps: list[dict], runner: "Runner | N
         for kind, st in runner.by_kind.items():
             old = run.get(kind, {})
             run[kind] = {k: round(old.get(k, 0) + v, 3) for k, v in st.items()}
-        if runner.stats["calls"]:                # whether data left the machine: the endpoint used, not today's config
+        # whether data left the machine and for which host: the endpoint used, not today's config. A cached answer
+        # counts too (it was obtained by sending this input there), so a re-run from the cache gives the same package
+        if runner.stats["calls"] or runner.stats["cached"]:
             run["remote"] = bool(run.get("remote")) or runner.llm.remote
+            if runner.llm.remote:
+                run["sent_to"] = sorted(set(run.get("sent_to", [])) | {config.llm_host(runner.llm)})
         write_json(d / "run.json", run)
 
 
@@ -375,7 +379,8 @@ def manifest_entry(job_dir: Path, cfg: config.Config) -> tuple[dict, dict | None
     # the model that answered (from the rows) and whether data was sent out (from the runs), not the configuration
     # of the day of delivery; unknown counts as remote
     entry = {"used": True, "provider": first.get("provider", cfg.llm.provider), "model": first.get("model", cfg.llm.model),
-             "remote": by_kind.get("remote", True), "counts": {**counts, "failed": len(gaps)}}
+             "remote": by_kind.get("remote", True), "sent_to": by_kind.get("sent_to", []),
+             "counts": {**counts, "failed": len(gaps)}}
     totals = {k: round(sum(v.get(k, 0) for v in by_kind.values() if isinstance(v, dict)), 3)
               for k in ("calls", "cached", "failed", "seconds", "tokens")}
     return entry, totals

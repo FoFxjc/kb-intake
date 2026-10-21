@@ -219,8 +219,7 @@ function UploadCard({ onUploaded }: { onUploaded: () => void }) {
       </label>
       {llm?.enabled && llm.features.summary && (
         <div className="llm-notice" data-testid="upload-llm-notice">
-          LLM on: after labeling, {SUMMARY_SENDS} is sent to {hostOf(llm.base_url)}
-          {llm.remote ? ' (a remote service)' : ''} for a document summary.
+          LLM on: after labeling, {SUMMARY_SENDS} is sent to {hostOf(llm.base_url)} for a document summary.
         </div>
       )}
       {error && <ErrorBanner error={error} onDismiss={() => setError(null)} />}

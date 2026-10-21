@@ -876,7 +876,7 @@ export interface components {
             provider: string;
             /**
              * Remote
-             * @description region images and text are sent to an external service
+             * @description data is sent to another host: llm.base_url is not localhost (its host is in base_url)
              */
             remote: boolean;
         };

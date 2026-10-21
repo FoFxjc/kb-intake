@@ -467,7 +467,7 @@ class LlmInfo(BaseModel):
     enabled: bool = Field(description="configured and the key's environment variable is set")
     configured: bool = Field(description="llm.enabled in the configuration")
     key_present: bool
-    remote: bool = Field(description="region images and text are sent to an external service")
+    remote: bool = Field(description="data is sent to another host: llm.base_url is not localhost (its host is in base_url)")
     provider: str
     model: str
     base_url: str

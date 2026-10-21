@@ -1191,7 +1191,7 @@
             "type": "string"
           },
           "remote": {
-            "description": "region images and text are sent to an external service",
+            "description": "data is sent to another host: llm.base_url is not localhost (its host is in base_url)",
             "title": "Remote",
             "type": "boolean"
           }
