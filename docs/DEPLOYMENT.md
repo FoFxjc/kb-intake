@@ -163,7 +163,8 @@ cat "$(python3 -c 'import certifi; print(certifi.where())')" corp-root-ca.pem > 
 | Python urllib | the optional LLM client | `SSL_CERT_FILE=~/corp-bundle.pem` (or `SSL_CERT_DIR`) |
 | requests | not used by kb-intake itself; installed as a dependency of others | `REQUESTS_CA_BUNDLE=~/corp-bundle.pem` (requests ignores `SSL_CERT_FILE`) |
 
-Set both variables to be safe:
+The `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE` rows were checked against a local HTTPS server signed by a test CA:
+each client failed without its setting and succeeded with it. Set both variables to be safe:
 
 ```bash
 export SSL_CERT_FILE=~/corp-bundle.pem
