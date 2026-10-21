@@ -8,6 +8,13 @@ import tempfile
 from pathlib import Path
 
 
+# mkstemp creates its file 0600; the written file gets the mode open() would give it (0666 less the umask), so a
+# consumer running as another user can read the package. Read once: os.umask is process-wide, not thread-safe.
+_UMASK = os.umask(0)
+os.umask(_UMASK)
+FILE_MODE = 0o666 & ~_UMASK
+
+
 def name(doc_id: str, sha256: str) -> str:
     """The package directory name: {doc_id}@{first 12 hex digits of the source sha256}."""
     return f"{doc_id}@{sha256[:12]}"
@@ -22,6 +29,7 @@ def write_jsonl(path: Path, rows) -> int:
     n = 0
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    os.fchmod(fd, FILE_MODE)
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
             for r in rows:
@@ -43,6 +51,7 @@ def write_json(path: Path, obj) -> None:
     """Indented JSON, written atomically."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    os.fchmod(fd, FILE_MODE)
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
             f.write(json.dumps(obj, ensure_ascii=False, indent=1) + "\n")
