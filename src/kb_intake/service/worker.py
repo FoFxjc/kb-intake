@@ -45,8 +45,9 @@ class Worker:
 
             def progress(file, step, status, info):
                 store.event(job_id, file, step, status, info)
+            roots = cfg.scan_roots if options.get("directory_job") else None
             for r in scan.scan(target, decl, self.packages, cfg, replace=bool(options.get("replace")),
-                               recursive=bool(options.get("recursive")), progress=progress):
+                               recursive=bool(options.get("recursive")), progress=progress, roots=roots):
                 store.result(job_id, r)
                 failed += r["status"] == "failed"
             store.set_status(job_id, "failed" if failed else "done",

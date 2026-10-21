@@ -73,16 +73,64 @@ def test_upload_run_review_download_and_check(client, tmp_path):
     assert m["checks"]["ok"] and m["manifest"]["doc_id"] == DECL["doc_id"]
 
 
+def _roots(client, *roots):
+    text = "scan_roots: [" + ", ".join(json.dumps(str(r)) for r in roots) + "]\n"
+    assert client.put("/v1/config", json={"yaml": text}).status_code == 200
+
+
 def test_a_directory_on_this_machine_and_skips(client, tmp_path):
     d = tmp_path / "in"
     d.mkdir()
+    _roots(client, tmp_path)
     make_pdf(d / "a.pdf")
     decl = "defaults:\n" + "\n".join(f"  {k}: {json.dumps(v)}" for k, v in DECL.items() if k != "doc_id")
     first = _wait(client, client.post("/v1/jobs", json={"directory": str(d), "declaration": decl}).json()["job_id"])
     assert [r["status"] for r in first["results"]] == ["ok"] and first["packages"][0]["package"].startswith("a@")
     again = _wait(client, client.post("/v1/jobs", json={"directory": str(d), "declaration": decl}).json()["job_id"])
     assert [r["status"] for r in again["results"]] == ["skipped_same_sha"]
-    assert client.post("/v1/jobs", json={"directory": str(tmp_path / "nope")}).status_code == 422
+    assert client.post("/v1/jobs", json={"directory": str(tmp_path / "nope")}).status_code == 403
+
+
+def test_without_scan_roots_only_uploads_are_possible(client, tmp_path):
+    d = tmp_path / "in"
+    d.mkdir()
+    make_pdf(d / "a.pdf")
+    assert client.post("/v1/jobs", json={"directory": str(d)}).status_code == 403
+    assert client.get("/v1/directories").status_code == 403
+    assert client.get("/v1/directories", params={"path": str(d)}).status_code == 403
+
+
+def test_paths_are_checked_after_resolving_dot_dot_and_links(client, tmp_path):
+    root, outside = tmp_path / "root", tmp_path / "outside"
+    (root / "sub").mkdir(parents=True)
+    outside.mkdir()
+    make_pdf(outside / "secret.pdf", note="outside")
+    make_pdf(root / "sub" / "ok.pdf")
+    (root / "escape").symlink_to(outside, target_is_directory=True)            # a directory link out of the root
+    (root / "sub" / "linked.pdf").symlink_to(outside / "secret.pdf")          # a file link out of the root
+    _roots(client, root)
+    listing = client.get("/v1/directories").json()
+    assert listing["roots"] == [str(root.resolve())]
+    for bad in (f"{root}/../outside", f"{root}/sub/../../outside", f"{root}/escape", f"{root}/escape/secret.pdf"):
+        assert client.get("/v1/directories", params={"path": bad}).status_code == 403, bad
+        assert client.post("/v1/jobs", json={"directory": bad}).status_code == 403, bad
+    names = [e["name"] for e in client.get("/v1/directories", params={"path": str(root / "sub")}).json()["entries"]]
+    assert names == ["ok.pdf"]                                                 # the outward link is not listed
+    decl = "defaults:\n" + "\n".join(f"  {k}: {json.dumps(v)}" for k, v in DECL.items() if k != "doc_id")
+    j = _wait(client, client.post("/v1/jobs", json={"directory": str(root / "sub"), "declaration": decl}).json()["job_id"])
+    assert {r["file"]: r["status"] for r in j["results"]} == {"linked.pdf": "refused_outside_roots", "ok.pdf": "ok"}
+
+
+def test_serve_listens_on_loopback_unless_told_otherwise(tmp_path, monkeypatch, capsys):
+    import uvicorn
+
+    from kb_intake import cli
+    seen = {}
+    monkeypatch.setattr(uvicorn, "run", lambda app, host, port, **kw: seen.update(host=host, port=port))
+    assert cli.main(["serve", "--data", str(tmp_path / "d")]) == 0
+    assert seen == {"host": "127.0.0.1", "port": 8700} and "warning" not in capsys.readouterr().err
+    assert cli.main(["serve", "--data", str(tmp_path / "d"), "--host", "0.0.0.0"]) == 0
+    assert seen["host"] == "0.0.0.0" and "no authentication" in capsys.readouterr().err
 
 
 def test_one_job_at_a_time(client, tmp_path):

@@ -77,7 +77,13 @@ configuration (validated before it is saved) and test the engine.
 
 Jobs run one at a time in a background thread of the server (no queue: a second submission while one runs gets
 409). State lives in the data directory: `intake.db` (SQLite: jobs, step events, results), `packages/`, `uploads/`,
-`intake.yaml`, and `cache/` unless the configuration sets `cache_dir`. The server listens on 127.0.0.1 by default.
+`intake.yaml`, and `cache/` unless the configuration sets `cache_dir`.
+
+- The server listens on 127.0.0.1; another address needs `--host` (there is no authentication, and the server says
+  so when it starts on a non-loopback address).
+- Directories on the server machine can only be listed and scanned inside `scan_roots` (configuration; empty by
+  default, which leaves uploads only). Paths are resolved (symlinks, `..`) before the check; a path outside every
+  root is refused, and a file of an allowed directory that links outside the roots is refused on its own.
 
 ### Declarations
 

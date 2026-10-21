@@ -7,7 +7,10 @@
 - The declaration of each file is the directory declaration's defaults + the file's override (kb_intake.declaration).
   A file whose declaration is incomplete is skipped and listed; the other files go on.
 - Two files of one scan may not share a doc_id (e.g. "A b.pdf" and "a-b.pdf" slug alike): the second fails.
-- One result per file: ok | skipped_same_sha | skipped_no_declaration | failed. A failure never stops the scan.
+- `roots` (the server's scan_roots): a file whose real path (symlinks resolved) is outside every root is refused
+  (status "refused_outside_roots"), so a link inside an allowed directory cannot reach outside it.
+- One result per file: ok | skipped_same_sha | skipped_no_declaration | refused_outside_roots | failed. A failure
+  never stops the scan.
   Overrides in the declaration that match no scanned file are reported at the end (status "unused_overrides").
 """
 
@@ -52,8 +55,17 @@ def packaged(out: Path) -> dict[str, str]:
     return index
 
 
+def inside(path: Path, roots) -> bool:
+    """Whether the real path (symlinks and .. resolved) lies in one of the (resolved) roots."""
+    try:
+        real = path.resolve(strict=True)
+    except OSError:
+        return False
+    return any(real == r or real.is_relative_to(r) for r in roots)
+
+
 def scan(target: Path, decl_raw: dict | None, out: Path, config: Config | None = None, replace: bool = False,
-         recursive: bool = False, force: bool = False, progress=None):
+         recursive: bool = False, force: bool = False, progress=None, roots=None):
     """Yield one result dict per file. progress(file, step, status, info) reports the steps of each file."""
     root = target if target.is_dir() else None
     index = packaged(out)
@@ -63,6 +75,9 @@ def scan(target: Path, decl_raw: dict | None, out: Path, config: Config | None =
         rel = path.relative_to(root).as_posix() if root else path.name
         result = {"file": rel}
         seen.add(rel)
+        if roots is not None and not inside(path, roots):
+            yield {**result, "status": "refused_outside_roots"}
+            continue
         try:
             sha = _sha(path)
             if sha in index and not replace:

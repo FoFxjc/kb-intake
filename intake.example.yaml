@@ -13,3 +13,5 @@ docling:
   wall_timeout: 2100                 # hard limit: the conversion process is killed after this many seconds
 headings:
   font_profiles: []                  # directories of font profiles (relative to this file); none -> inferred
+scan_roots: []                       # serve only: directories the web UI / API may list and scan (symlinks and ..
+                                     # resolved before the check); empty = uploads only

@@ -16,6 +16,7 @@ a setting that is not implemented can never look as if it took effect.
       wall_timeout: 2100                # hard limit: the conversion subprocess is killed after this many seconds
     headings:
       font_profiles: []                 # directories of font profiles; none -> levels inferred from the document
+    scan_roots: []                      # serve: directories the web UI / API may list and scan; empty = uploads only
 """
 
 import os
@@ -27,7 +28,7 @@ import yaml
 HOME = Path("~/.kb-intake")
 ENGINES = ("docling",)
 SECONDARY = ("find_tables", "none")
-KEYS = {"models_dir": None, "cache_dir": None, "tables": {"primary", "secondary"},
+KEYS = {"models_dir": None, "cache_dir": None, "scan_roots": None, "tables": {"primary", "secondary"},
         "docling": {"table_mode", "device", "num_threads", "document_timeout", "wall_timeout"},
         "headings": {"font_profiles"}}
 
@@ -58,6 +59,7 @@ class Config:
     secondary: str = "find_tables"
     docling: DoclingParams = field(default_factory=DoclingParams)
     font_profiles: tuple[Path, ...] = ()
+    scan_roots: tuple[Path, ...] = ()   # resolved; only `serve` uses them (the CLI scans what it is given)
     layout_enabled: bool = True         # False only for the full-degradation check (`scan --no-layout`)
 
 
@@ -111,7 +113,13 @@ def load(path: str | os.PathLike | None = None, env: dict | None = None) -> Conf
         profiles = [profiles]
     base = _path(path).parent if path else Path.cwd()
     dirs = tuple(p if p.is_absolute() else base / p for p in map(_path, profiles))   # relative to intake.yaml
-    cfg = replace(cfg, primary=primary, secondary=secondary, docling=params, font_profiles=dirs)
+    roots = raw.get("scan_roots") or []
+    if isinstance(roots, str):
+        roots = [roots]
+    if not isinstance(roots, list):
+        raise ConfigError("scan_roots must be a list of directories")
+    scan_roots = tuple((p if p.is_absolute() else base / p).resolve() for p in map(_path, roots))
+    cfg = replace(cfg, primary=primary, secondary=secondary, docling=params, font_profiles=dirs, scan_roots=scan_roots)
     if env.get("INTAKE_MODELS_DIR"):
         cfg = replace(cfg, models_dir=_path(env["INTAKE_MODELS_DIR"]))
     if env.get("INTAKE_CACHE_DIR"):

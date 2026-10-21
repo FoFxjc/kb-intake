@@ -11,6 +11,11 @@
     GET  /v1/packages/{name}/manifest       manifest.json and checks.json
     GET  /v1/packages/{name}/pages/{n}      page review data; .../image renders the page
     POST /v1/packages/check                 upload a package zip, check it against contract v1
+    GET  /v1/directories?path=              list a directory inside the configured scan_roots
+
+Directories on this machine are only reachable inside `scan_roots` (configuration; empty by default, which leaves
+uploads only). Paths are resolved (symlinks, ..) before the check; anything outside every root is refused with 403,
+and a file of an allowed directory that links outside the roots is refused on its own.
 """
 
 import json
@@ -27,7 +32,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from kb_intake import CONTRACT_VERSION, __version__, config, deps
+from kb_intake import CONTRACT_VERSION, __version__, config, deps, detect, scan
 from kb_intake.engines import LAYOUT
 from kb_intake.service import review
 from kb_intake.service.store import Store
@@ -80,6 +85,41 @@ def create_app(data: Path) -> FastAPI:
         except review.NotFound:
             raise HTTPException(404, f"no package {name}")
 
+    def allowed(path: str) -> Path:
+        """The resolved path, if it lies inside a scan root; 403 otherwise (also when no root is configured)."""
+        roots = svc.config().scan_roots
+        if not roots:
+            raise HTTPException(403, "no scan_roots configured: directories on this machine are not available, "
+                                     "upload files instead")
+        p = Path(path).expanduser()
+        if not p.is_absolute():
+            raise HTTPException(422, "give an absolute path")
+        if not scan.inside(p, roots):
+            raise HTTPException(403, f"{path} is not inside the scan_roots")
+        return p.resolve()
+
+    @app.get("/v1/directories")
+    def directories(path: str | None = None):
+        roots = svc.config().scan_roots
+        if path is None:
+            if not roots:
+                raise HTTPException(403, "no scan_roots configured")
+            return {"roots": [str(r) for r in roots]}
+        p = allowed(path)
+        if not p.is_dir():
+            raise HTTPException(422, f"{path} is not a directory")
+        entries = []
+        for e in sorted(p.iterdir()):
+            if e.name.startswith(".") or not scan.inside(e, roots):
+                continue
+            if e.is_dir():
+                entries.append({"name": e.name, "path": str(e.resolve()), "kind": "directory"})
+            elif e.is_file():
+                with e.open("rb") as f:
+                    if detect.sniff(f.read(8)):
+                        entries.append({"name": e.name, "path": str(e.resolve()), "kind": "pdf"})
+        return {"path": str(p), "roots": [str(r) for r in roots], "entries": entries}
+
     @app.get("/v1/health")
     def health():
         return {"ok": True, "version": __version__, "contract_version": CONTRACT_VERSION,
@@ -120,11 +160,10 @@ def create_app(data: Path) -> FastAPI:
                          recursive: bool = Form(False)):
         if request.headers.get("content-type", "").startswith("application/json"):
             body = await request.json()
-            directory = Path(str(body.get("directory", ""))).expanduser()
-            if not directory.exists():
-                raise HTTPException(422, f"no such file or directory on this machine: {directory}")
+            directory = allowed(str(body.get("directory", "")))
             declaration, options = body.get("declaration"), {"replace": bool(body.get("replace")),
-                                                            "recursive": bool(body.get("recursive"))}
+                                                            "recursive": bool(body.get("recursive")),
+                                                            "directory_job": True}
             kind, target = "directory", directory
         else:
             if not files:

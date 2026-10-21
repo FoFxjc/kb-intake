@@ -55,8 +55,9 @@ function viewNew() {
     <div class="panel">
       <div class="tabs"><button id="t-up" class="on">Upload files</button><button id="t-dir">A directory on this machine</button></div>
       <div id="p-up"><input type="file" id="files" accept="application/pdf" multiple></div>
-      <div id="p-dir" hidden><input type="text" id="dir" placeholder="/path/to/directory or file">
-        <label><input type="checkbox" id="recursive"> include subdirectories</label></div>
+      <div id="p-dir" hidden><input type="text" id="dir" placeholder="/path/inside/a/scan/root">
+        <label><input type="checkbox" id="recursive"> include subdirectories</label>
+        <div id="browse" class="scroll muted"></div></div>
       <h2>Declaration (YAML)</h2>
       <textarea id="decl">${esc(DECL_TEMPLATE)}</textarea>
       <div class="row" style="margin-top:10px">
@@ -69,7 +70,20 @@ function viewNew() {
     document.getElementById("t-dir").classList.toggle("on", m === "dir");
     document.getElementById("p-up").hidden = m !== "up"; document.getElementById("p-dir").hidden = m !== "dir"; };
   document.getElementById("t-up").onclick = () => tab("up");
-  document.getElementById("t-dir").onclick = () => tab("dir");
+  document.getElementById("t-dir").onclick = () => { tab("dir"); browse(null); };
+  async function browse(path) {
+    const el = document.getElementById("browse");
+    try {
+      const r = await api("/v1/directories" + (path ? `?path=${encodeURIComponent(path)}` : ""));
+      const items = r.entries ? r.entries : r.roots.map((p) => ({ name: p, path: p, kind: "directory" }));
+      el.innerHTML = `<p>${r.path ? esc(r.path) : "Scan roots"}</p>` + items.map((e) =>
+        `<div><a href="#" data-path="${esc(e.path)}" data-kind="${e.kind}">${e.kind === "directory" ? "▸ " : ""}${esc(e.name)}</a></div>`).join("");
+      for (const a of el.querySelectorAll("[data-path]")) a.onclick = (ev) => {
+        ev.preventDefault(); document.getElementById("dir").value = a.dataset.path;
+        if (a.dataset.kind === "directory") browse(a.dataset.path);
+      };
+    } catch (err) { el.innerHTML = `<p class="warn">${esc(err.message)}</p>`; }
+  }
   document.getElementById("go").onclick = async () => {
     const msg = document.getElementById("msg");
     const decl = document.getElementById("decl").value, replace = document.getElementById("replace").checked;

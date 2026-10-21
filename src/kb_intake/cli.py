@@ -85,6 +85,9 @@ def _serve(args) -> int:
 
     from kb_intake.service.app import create_app
     data = Path(args.data or os.environ.get("INTAKE_DATA_DIR") or "intake-data").expanduser()
+    if args.host not in ("127.0.0.1", "localhost", "::1"):
+        print(json.dumps({"warning": f"listening on {args.host}: the UI and API have no authentication"}),
+              file=sys.stderr, flush=True)
     print(json.dumps({"ok": True, "url": f"http://{args.host}:{args.port}/", "data": str(data.resolve())}),
           flush=True)
     uvicorn.run(create_app(data), host=args.host, port=args.port, log_level="warning")
@@ -132,7 +135,8 @@ def main(argv: list[str] | None = None) -> int:
     v = sub.add_parser("serve", help="web UI and HTTP API")
     v.add_argument("--data", help="data directory: packages, uploads, intake.db, intake.yaml, cache "
                                   "(default: $INTAKE_DATA_DIR or ./intake-data)")
-    v.add_argument("--host", default="127.0.0.1")
+    v.add_argument("--host", default="127.0.0.1",
+                   help="address to listen on (default 127.0.0.1; anything else must be given explicitly)")
     v.add_argument("--port", type=int, default=8700)
     v.set_defaults(fn=_serve)
 
