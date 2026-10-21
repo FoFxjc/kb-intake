@@ -3,6 +3,7 @@
 Every step is the real one, on the fake Docling engine. Steps run in the service's one background thread.
 """
 
+import re
 import threading
 
 import pymupdf
@@ -253,17 +254,59 @@ def test_health_engines_and_ui(svc):
     e = svc.get("/v1/engines").json()
     assert set(e["stages"]) == {"label", "extract"} and "ready" in e
     r = svc.get("/ui/")
-    assert r.status_code == 200 and "app.js" in r.text
-    assert svc.get("/ui/app.js").status_code == 200
+    assert r.status_code == 200 and '<div id="root">' in r.text            # the built React app (web/)
+    scripts = re.findall(r'src="(/ui/assets/[^"]+\.js)"', r.text)
+    styles = re.findall(r'href="(/ui/assets/[^"]+\.css)"', r.text)
+    assert scripts and styles
+    for path in scripts + styles:
+        assert svc.get(path).status_code == 200, path
     assert svc.get("/", follow_redirects=False).status_code in (302, 307)
     assert svc.get("/v1/jobs/nope").status_code == 404
 
 
-def test_ui_has_no_external_resources():
+# Every http(s) URL in the built UI (src/kb_intake/service/static, `npm run build` in web/). None is loaded by the
+# page: they are XML namespace names, licence texts, base URLs pdf.js parses links against, and React's error
+# message link. A new URL in the build fails the test until it is checked and listed here.
+UI_URLS_NOT_LOADED = {
+    # XML / SVG / MathML / XFA / XMP namespace names (React DOM, pdf.js)
+    "http://www.w3.org/1998/Math/MathML", "http://www.w3.org/1999/XSL/Transform", "http://www.w3.org/1999/xhtml",
+    "http://www.w3.org/1999/xlink", "http://www.w3.org/2000/09/xmldsig#", "http://www.w3.org/2000/svg",
+    "http://www.w3.org/XML/1998/namespace", "http://ns.adobe.com/xdp/", "http://ns.adobe.com/xdp/pdf/",
+    "http://ns.adobe.com/xfdf/", "http://ns.adobe.com/xmpmeta/", "http://www.xfa.org/schema/xci/",
+    "http://www.xfa.org/schema/xdc/", "http://www.xfa.org/schema/xfa-connection-set/",
+    "http://www.xfa.org/schema/xfa-data/", "http://www.xfa.org/schema/xfa-data/1.0/",
+    "http://www.xfa.org/schema/xfa-form/", "http://www.xfa.org/schema/xfa-locale-set/",
+    "http://www.xfa.org/schema/xfa-source-set/", "http://www.xfa.org/schema/xfa-template/",
+    # licence texts (pdf.js licence comment and LICENSE files, the standard fonts' name tables)
+    "http://www.apache.org/licenses/LICENSE-2.0", "https://www.apache.org/licenses/LICENSE-2.0",
+    "https://www.apache.org/licenses/", "http://creativecommons.org/publicdomain/zero/1.0/",
+    "http://www.ascendercorp.com/", "http://www.ascendercorp.com/typedesigners.html",
+    "https://fedoraproject.org/wiki/Licensing/LiberationFontLicense",
+    # pdf.js: base URLs for parsing link targets, and "www." links given a scheme (never fetched)
+    "https://foo.bar", "http://example.com", "http://${e}",
+    # React: the production error message points to its decoder page (text only)
+    "https://reactjs.org/docs/error-decoder.html?invariant=",
+}
+URL_BYTES = re.compile(rb"https?://[^\x00-\x20\x7f-\xff\"'`)<>\\]+")
+
+
+def test_ui_is_the_build_and_loads_nothing_external():
     from kb_intake.service import app as app_mod
-    for f in app_mod.STATIC.iterdir():
-        text = f.read_text(encoding="utf-8")
-        assert "http://" not in text and "https://" not in text.replace("https://example.com", ""), f.name
+    files = [f for f in app_mod.STATIC.rglob("*") if f.is_file()]
+    names = {f.relative_to(app_mod.STATIC).as_posix() for f in files}
+    assert "index.html" in names
+    assert any(n.startswith("assets/pdf.worker") for n in names), "the pdf.js worker is bundled"
+    assert {"pdfjs/cmaps", "pdfjs/standard_fonts"} <= {n.rsplit("/", 1)[0] for n in names}
+    assert not {"app.js", "style.css"} & names, "the v2 static UI is replaced by the build"
+    found = {}
+    for f in files:
+        for u in URL_BYTES.findall(f.read_bytes()):
+            found.setdefault(u.decode("ascii"), set()).add(f.relative_to(app_mod.STATIC).as_posix())
+    unexpected = {u: sorted(where) for u, where in found.items() if u not in UI_URLS_NOT_LOADED}
+    assert not unexpected, unexpected
+    for f in files:                       # the entry page and the styles name no URL at all
+        if f.suffix in (".html", ".css"):
+            assert not URL_BYTES.search(f.read_bytes()), f.name
 
 
 def test_a_busy_job_is_409_for_the_cli_too(svc):
