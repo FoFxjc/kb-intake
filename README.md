@@ -91,8 +91,10 @@ kb-intake serve                    # http://127.0.0.1:8700/
 
 Six views: upload, labels and statistics (with the page viewer), workflow (gate 1), extraction progress, review
 (page image with region and cell boxes, reclassify / exclude, gate 2), delivery (packages and their contract
-check). The HTTP API under `/v1/` does the same (see `kb_intake/service/app.py`). The server listens on 127.0.0.1
-only unless `--host` says otherwise, and reads server-side files only under `scan_roots`.
+check). The HTTP API under `/v1/` does the same, plus search, similar-region groups and a review queue; it is
+frozen (`contract/api/openapi-v1.json`, described in `docs/api-v1.md`) and only gains endpoints and fields. To change
+it on purpose, run `uv run python -m kb_intake.service.openapi_snapshot --write` and explain why in the PR. The
+server listens on 127.0.0.1 only unless `--host` says otherwise, and reads server-side files only under `scan_roots`.
 
 ### Workflow
 
