@@ -256,9 +256,12 @@ def finish_tables(regions: list[dict], tables: list[dict]) -> tuple[list[dict], 
     01), each region's `table_id`, and `continued_hint`, tables in reading order. The inputs are not changed.
 
     Table T, the first table on page p+1, may continue L, the last table on page p, when they have the same number
-    of columns and either their first rows hold the same text-layer text (repeated column headers; notes under L
-    or a "(continued)" line above T do not matter then), or no body text / list / table region stands above T on
-    its page and none stands below L on its page. Only a hint: tables are never merged."""
+    of columns. The hint is {"table_id": L's id, "reason"}:
+    - "continued_heading": no body text / list / table region stands above T on its page and none below L on its
+      page (only headings, such as "... (continued)", and page furniture between them);
+    - "same_first_row": otherwise, when their first rows hold the same text-layer text (repeated column headers),
+      a weaker hint: generic headers can repeat across different tables.
+    Only a hint: tables are never merged; consumers can filter on the reason."""
     order = {r["region_id"]: r["reading_order"] for r in regions}
     ordered = sorted(tables, key=lambda t: order[t["region_id"]])
     ids, counts = {}, {}
@@ -280,15 +283,16 @@ def finish_tables(regions: list[dict], tables: list[dict]) -> tuple[list[dict], 
         prev = last.get(page_no - 1)
         if prev is None or prev["n_cols"] != t["n_cols"]:
             continue
+        above = any(_centre_y(r["bbox"]) < t["bbox"][1] for r in blocking(page_no, t["region_id"]))
+        below = any(_centre_y(r["bbox"]) > prev["bbox"][3] for r in blocking(page_no - 1, prev["region_id"]))
         head = _first_row(t)
-        if any(x is not None for x in head) and head == _first_row(prev):
-            hints[t["region_id"]] = ids[prev["region_id"]]
+        if not above and not below:
+            reason = "continued_heading"
+        elif any(x is not None for x in head) and head == _first_row(prev):
+            reason = "same_first_row"
+        else:
             continue
-        if any(_centre_y(r["bbox"]) < t["bbox"][1] for r in blocking(page_no, t["region_id"])):
-            continue
-        if any(_centre_y(r["bbox"]) > prev["bbox"][3] for r in blocking(page_no - 1, prev["region_id"])):
-            continue
-        hints[t["region_id"]] = ids[prev["region_id"]]
+        hints[t["region_id"]] = {"table_id": ids[prev["region_id"]], "reason": reason}
 
     out_tables = [{"table_id": ids[t["region_id"]], **{k: v for k, v in t.items()
                                                         if k not in ("table_id", "continued_hint")},

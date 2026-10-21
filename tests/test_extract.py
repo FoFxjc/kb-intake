@@ -456,7 +456,8 @@ def test_continued_hint_links_last_table_to_first_table_of_next_page():
     tables = [_table(regs[5]), _table(regs[2]), _table(regs[1])]        # any order in, reading order out
     regs2, tables2 = extract.finish_tables(regs, tables)
     assert [t["table_id"] for t in tables2] == [f"{DOC}:t0001_01", f"{DOC}:t0001_02", f"{DOC}:t0002_01"]
-    assert [t["continued_hint"] for t in tables2] == [None, None, f"{DOC}:t0001_02"]
+    assert [t["continued_hint"] for t in tables2] == [None, None, {"table_id": f"{DOC}:t0001_02",
+                                                                   "reason": "continued_heading"}]
     assert [r["table_id"] for r in regs2] == [None, f"{DOC}:t0001_01", f"{DOC}:t0001_02", None, None,
                                               f"{DOC}:t0002_01", None]
     assert list(tables2[0])[0] == "table_id" and list(tables2[0])[-1] == "continued_hint"
@@ -498,7 +499,8 @@ def test_same_first_row_links_tables_across_notes_and_continued_lines(second, hi
         first = {**first, "cells": _header(None, None, None)}
     tables = [first, {**_table(regs[3]), "cells": _header(*second)}]
     _, tables2 = extract.finish_tables(regs, tables)
-    assert tables2[1]["continued_hint"] == (f"{DOC}:t0001_01" if hint else None)
+    assert tables2[1]["continued_hint"] == ({"table_id": f"{DOC}:t0001_01", "reason": "same_first_row"}
+                                            if hint else None)
 
 
 def test_markdown_escapes_pipes_and_newlines_and_fills_spans():
@@ -554,3 +556,12 @@ def test_extract_needs_an_approved_job(tmp_path):
     from kb_intake.jobs import WrongState
     with pytest.raises(WrongState):
         extract.run(jobs, job.id, cfg, engine=fake_engine(tmp_path, stage="extract"))
+
+
+def test_continued_hint_rows_validate_against_contract_v2():
+    regs = [_row(1, 1, "table", [72, 400, 500, 780], 0), _row(2, 1, "table", [72, 100, 500, 500], 1)]
+    _, tables = extract.finish_tables(regs, [_table(r) for r in regs])
+    assert tables[1]["continued_hint"] == {"table_id": f"{DOC}:t0001_01", "reason": "continued_heading"}
+    for t in tables:
+        assert contract.schema_errors("table", t, "t") == []
+    assert contract.schema_errors("table", {**tables[1], "continued_hint": f"{DOC}:t0001_01"}, "t")

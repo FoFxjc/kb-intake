@@ -112,11 +112,28 @@
   "continued_hint": {
    "oneOf": [
     {
-     "type": "string",
-     "pattern": "^[a-z0-9][a-z0-9._-]*:t[0-9]{4}_[0-9]{2}$"
+     "type": "null"
     },
     {
-     "type": "null"
+     "type": "object",
+     "title": "continued_hint",
+     "properties": {
+      "table_id": {
+       "type": "string",
+       "pattern": "^[a-z0-9][a-z0-9._-]*:t[0-9]{4}_[0-9]{2}$"
+      },
+      "reason": {
+       "enum": [
+        "continued_heading",
+        "same_first_row"
+       ]
+      }
+     },
+     "required": [
+      "table_id",
+      "reason"
+     ],
+     "additionalProperties": false
     }
    ]
   }
