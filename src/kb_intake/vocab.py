@@ -18,6 +18,14 @@ LABEL_SOURCES = ("model", "user", "native")
 GAP_CODES = ("table_suspected", "low_confidence", "table_words_unassigned", "table_unmatched", "unhandled",
              "no_text_layer", "lang_mismatch", "extractor_degraded")
 
+# what each gap code means to a reviewer (UI groups, cluster labels)
+GAP_LABELS = {
+    "table_suspected": "Suspected missed tables", "low_confidence": "Low confidence",
+    "table_words_unassigned": "Unassigned values in tables", "table_unmatched": "Tables not matched between stages",
+    "unhandled": "Unhandled regions", "no_text_layer": "No text layer",
+    "lang_mismatch": "Language differs from the declaration", "extractor_degraded": "Extractor degraded",
+}
+
 LOW_CONFIDENCE = 0.5          # default threshold for layout score and classifier top score (§5.7)
 
 # Docling layout labels -> region types. Labels not listed (form, key_value_region, checkbox_*) are "unknown".

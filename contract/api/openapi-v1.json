@@ -98,6 +98,81 @@
         "title": "Cell",
         "type": "object"
       },
+      "Cluster": {
+        "properties": {
+          "basis": {
+            "additionalProperties": true,
+            "description": "the values the members share (the grouping key)",
+            "title": "Basis",
+            "type": "object"
+          },
+          "cluster_id": {
+            "description": "stable for the same members and rule: kind + ':' + 12 hex",
+            "title": "Cluster Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "repeated_text",
+              "same_shape",
+              "same_table_header",
+              "same_gap"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "members": {
+            "description": "region ids in reading order",
+            "items": {
+              "type": "string"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "n": {
+            "title": "N",
+            "type": "integer"
+          },
+          "pages": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Pages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "cluster_id",
+          "kind",
+          "label",
+          "basis",
+          "n",
+          "pages",
+          "members"
+        ],
+        "title": "Cluster",
+        "type": "object"
+      },
+      "ClusterList": {
+        "properties": {
+          "clusters": {
+            "items": {
+              "$ref": "#/components/schemas/Cluster"
+            },
+            "title": "Clusters",
+            "type": "array"
+          }
+        },
+        "required": [
+          "clusters"
+        ],
+        "title": "ClusterList",
+        "type": "object"
+      },
       "ConfirmBody": {
         "properties": {
           "by": {
@@ -2317,6 +2392,88 @@
           }
         },
         "summary": "Approve"
+      }
+    },
+    "/v1/jobs/{job_id}/clusters": {
+      "get": {
+        "description": "Groups of similar regions (two or more members each); a group changes no data.",
+        "operationId": "job_clusters_v1_jobs__job_id__clusters_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "repeated_text",
+                    "same_shape",
+                    "same_table_header",
+                    "same_gap"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClusterList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Job Clusters"
       }
     },
     "/v1/jobs/{job_id}/confirm": {

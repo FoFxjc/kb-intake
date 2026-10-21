@@ -405,3 +405,14 @@ def test_regions_rejects_bad_params(svc):
         r = svc.get(f"/v1/jobs/{job_id}/regions", params=params)
         assert r.status_code == 422, (params, r.text)
     assert svc.get(f"/v1/jobs/{job_id}/facets", params={"type": "nope"}).status_code == 422
+
+
+def test_clusters_endpoint(svc):
+    job_id = labelled(svc)
+    out = svc.get(f"/v1/jobs/{job_id}/clusters").json()["clusters"]
+    heads = [c for c in out if c["kind"] == "repeated_text" and c["basis"]["text"] == "section #"]
+    assert len(heads) == 1 and heads[0]["n"] == 2 and heads[0]["pages"] == [1, 2]
+    only = svc.get(f"/v1/jobs/{job_id}/clusters", params={"kind": "same_shape"}).json()["clusters"]
+    assert all(c["kind"] == "same_shape" for c in only)
+    assert svc.get(f"/v1/jobs/{job_id}/clusters", params={"kind": "nope"}).status_code == 422
+    assert svc.get(f"/v1/jobs/{unlabelled_job(svc)}/clusters").status_code == 409

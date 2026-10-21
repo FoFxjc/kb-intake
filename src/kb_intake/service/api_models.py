@@ -370,3 +370,19 @@ class Facets(BaseModel):
     type: dict[str, int] = Field(description="counted with every filter except `type`")
     status: dict[str, int] = Field(description="counted with every filter except `status`")
     gap: dict[str, int] = Field(description="open gap codes, counted with every filter except `gap`")
+
+
+# ---------- clusters (intake-ui-llm-design-v1 §3.3) ----------
+
+class Cluster(BaseModel):
+    cluster_id: str = Field(description="stable for the same members and rule: kind + ':' + 12 hex")
+    kind: Literal["repeated_text", "same_shape", "same_table_header", "same_gap"]
+    label: str
+    basis: dict[str, Any] = Field(description="the values the members share (the grouping key)")
+    n: int
+    pages: list[int]
+    members: list[str] = Field(description="region ids in reading order")
+
+
+class ClusterList(BaseModel):
+    clusters: list[Cluster]

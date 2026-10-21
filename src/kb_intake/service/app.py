@@ -10,6 +10,7 @@ The API is frozen in contract/api/openapi-v1.json (kb_intake.service.openapi_sna
     GET  /v1/jobs/{id}/source.pdf       the source file, with HTTP Range
     GET  /v1/jobs/{id}/regions          regions in reading order: search (q), filters, cursor paging
     GET  /v1/jobs/{id}/facets           counts per type, status and gap code for the same filters
+    GET  /v1/jobs/{id}/clusters         groups of similar regions (kb_intake.clusters)
     GET  /v1/jobs/{id}/workflow         the latest (or ?version=) workflow: YAML text and parsed
     PUT  /v1/jobs/{id}/workflow         YAML text -> a new version (422 when invalid)
     POST /v1/jobs/{id}/approve          {"by", "version"?} -> 202, starts extract
@@ -40,6 +41,7 @@ import shutil
 import uuid
 from dataclasses import asdict
 from pathlib import Path
+from typing import Literal
 
 import pymupdf
 import yaml
@@ -50,7 +52,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
-from kb_intake import CONTRACT_VERSION, __version__, config, contract, declaration, detect, search, vocab
+from kb_intake import CONTRACT_VERSION, __version__, clusters, config, contract, declaration, detect, search, vocab
 from kb_intake import workflow as workflow_mod
 from kb_intake.jobs import AlreadyDelivered, Busy, JobError, Jobs, WrongState
 from kb_intake.package import read_json, read_jsonl, sha_file
@@ -367,6 +369,12 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
         without its own filter."""
         f = filters(q, type, status, page, gap, min_score, max_score)
         return searched(job_id, lambda: search.facets(jobs, job_id, f))
+
+    @app.get("/v1/jobs/{job_id}/clusters", **route(m.ClusterList, 404, 409, 422))
+    def job_clusters(job_id: str, kind: Literal["repeated_text", "same_shape", "same_table_header",
+                                                "same_gap"] | None = None):
+        """Groups of similar regions (two or more members each); a group changes no data."""
+        return {"clusters": searched(job_id, lambda: clusters.for_job(jobs, job_id, kind))}
 
     # ---------- workflow and approval ----------
 
