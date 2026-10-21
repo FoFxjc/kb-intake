@@ -34,12 +34,13 @@ class DeclarationError(ValueError):
         self.param, self.allowed = param, allowed
 
 
-def slug(filename: str) -> str:
-    """A file-name-safe doc_id from a file name: "878788_UOB AR2025.pdf" -> "878788_uob-ar2025"."""
+def slug(filename: str, sha256: str | None = None) -> str:
+    """A file-name-safe doc_id from a file name: "878788_UOB AR2025.pdf" -> "878788_uob-ar2025". A name without
+    ASCII letters or digits (e.g. only CJK) gives "doc-<sha256[:12]>"."""
     stem = unicodedata.normalize("NFKD", Path(filename).stem).encode("ascii", "ignore").decode().lower()
     s = re.sub(r"[^a-z0-9._-]+", "-", stem)
     s = re.sub(r"-{2,}", "-", s).strip("-._")
-    return s or "document"
+    return s or f"doc-{(sha256 or '0' * 12)[:12]}"
 
 
 def validate(decl: dict) -> dict:
@@ -78,7 +79,7 @@ def is_directory_form(raw) -> bool:
     return isinstance(raw, dict) and bool(raw) and set(raw) <= {"defaults", "files"}
 
 
-def for_file(raw: dict | None, path: Path, root: Path | None = None) -> dict:
+def for_file(raw: dict | None, path: Path, root: Path | None = None, sha256: str | None = None) -> dict:
     """The declaration of one file. Plain form: as is. Directory form: defaults + the file's override (keyed by the
     path relative to the scanned directory). In a directory scan doc_id defaults to the slug of the file name."""
     raw = raw or {}
@@ -96,5 +97,5 @@ def for_file(raw: dict | None, path: Path, root: Path | None = None) -> dict:
             raise DeclarationError("files", f"the override of {key} must be a mapping")
         decl = {**(raw.get("defaults") or {}), **(override or {})}
     if root is not None and decl.get("doc_id") in (None, ""):
-        decl["doc_id"] = slug(path.name)
+        decl["doc_id"] = slug(path.name, sha256)
     return decl

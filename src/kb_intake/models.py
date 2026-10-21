@@ -56,14 +56,32 @@ def _check_dir(d: Path, spec: dict) -> list[str]:
     return problems
 
 
+def _signature(models_dir: Path) -> tuple:
+    out = []
+    for spec in lock():
+        for rel in spec["files"]:
+            p = models_dir / folder(spec["repo_id"]) / rel
+            st = p.stat() if p.is_file() else None
+            out.append((str(p), st.st_size if st else None, st.st_mtime_ns if st else None))
+    return tuple(out)
+
+
+_passed: set[tuple] = set()          # signatures (path, size, mtime of every pinned file) that verified
+
+
 def verify(models_dir: Path) -> list[dict]:
-    """Check every pinned file under models_dir; raise ModelsError listing what is missing or different."""
+    """Check every pinned file under models_dir; raise ModelsError listing what is missing or different. A
+    directory that passed is not hashed again in the same process while no file changed size or mtime."""
+    sig = _signature(models_dir)
+    if sig in _passed:
+        return pins()
     problems = []
     for spec in lock():
         problems += _check_dir(models_dir / folder(spec["repo_id"]), spec)
     if problems:
         raise ModelsError(f"models in {models_dir} are not the pinned weights: " + "; ".join(problems[:5])
                           + (" (run `kb-intake models download`)" if any("missing" in p for p in problems) else ""))
+    _passed.add(sig)
     return pins()
 
 

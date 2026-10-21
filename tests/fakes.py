@@ -48,13 +48,15 @@ def document(pages: int, table_page: int, cells: list[list[str]], xs: list[float
 
 @dataclass(frozen=True)
 class FakeEngine(DoclingEngine):
-    mode: str = "ok"                      # ok | failed_page | hang | crash | raise | not_ready
+    mode: str = "ok"          # ok | failed_page | hang | crash | silent_exit | raise | not_ready | forced | info_error
     doc: str = ""                         # json of document()
     calls: str = ""                       # a file that gets one line per convert() call
     name: str = "docling"
 
     def info(self) -> EngineInfo:
-        ready = self.mode != "not_ready"
+        if self.mode == "info_error":
+            raise RuntimeError("cannot read engine metadata")
+        ready = self.mode not in ("not_ready", "forced")
         return EngineInfo(name=self.name, version="fake-1", models=({"repo_id": "fake/layout", "revision": "0" * 40,
                                                                      "role": "layout"},),
                           params={"mode": self.mode}, ready=ready, problems=() if ready else ("weights missing",))
@@ -67,6 +69,8 @@ class FakeEngine(DoclingEngine):
             time.sleep(600)
         if self.mode == "crash":
             os._exit(3)
+        if self.mode == "silent_exit":
+            os._exit(0)                   # exits cleanly without leaving a result
         if self.mode == "raise":
             raise RuntimeError("model blew up")
         doc = json.loads(self.doc)

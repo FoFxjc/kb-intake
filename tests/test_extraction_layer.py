@@ -221,6 +221,13 @@ def test_cell_bbox_is_the_text_box_and_empty_cells_have_none():
     assert (1, 0) not in by and gaps[-1]["code"] == "table_cells_dropped"
 
 
+def test_text_box_is_clipped_to_the_cell_and_falls_back():
+    from kb_intake.textlayer import text_box
+    assert text_box([[95, 10, 130, 20, "wide"]], [100, 0, 120, 30]) == [100, 10, 120, 20]     # clipped
+    assert text_box([[90, 10, 104, 20, "edge"]], [100, 0, 120, 30]) == [100, 10, 104, 20]     # overlap only
+    assert text_box([], [100, 0, 120, 30]) == [100, 0, 120, 30]                               # no word: the cell
+
+
 def test_context_above_takes_the_unit_lines_right_above_the_table():
     lines = [{"bbox": [100, 40, 400, 50], "text": "A long paragraph " * 8},
              {"bbox": [100, 70, 150, 80], "text": "$ million"}, {"bbox": [300, 70, 350, 80], "text": "GROUP"},

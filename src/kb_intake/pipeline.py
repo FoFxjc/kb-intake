@@ -129,22 +129,22 @@ def process(file: Path, decl: dict, out: Path, config: Config | None = None, rep
 
 def _extraction(pdf, working: Path, pkg_dir: Path, doc_id: str, sha: str, cfg: Config, force: bool,
                 ft_tables: list[dict], words: dict, pages_rows: list[dict]) -> dict:
-    """Layout engine + post-processing + checks + headings. Never raises for an engine or post-processing failure:
-    those degrade to the find_tables tables."""
+    """Layout engine + post-processing + checks + headings. Never raises for an engine, runner, cache or
+    post-processing failure: those degrade to the find_tables tables, as without an engine."""
     engine = LAYOUT[cfg.primary](models_dir=cfg.models_dir, params=cfg.docling)
     pins = models.pins()
     layout_model, layout_version = pins[0]["repo_id"], pins[0]["revision"]
+    info = None
+    outcome = runner.Outcome("disabled", None, None, False, None, errors=["layout engine disabled (--no-layout)"])
     if cfg.layout_enabled:
-        info = engine.info()
-        outcome = runner.run(engine, working, sha, cfg.cache_dir, cfg.docling.wall_timeout, info, force)
-    else:
-        info, outcome = None, runner.Outcome("disabled", None, None, False, None,
-                                             errors=["layout engine disabled (--no-layout)"])
+        try:
+            info = engine.info()
+            outcome = runner.run(engine, working, sha, cfg.cache_dir, cfg.docling.wall_timeout, info, force)
+        except Exception as e:  # noqa: BLE001 - the engine or its runner failed before producing output
+            outcome = runner.Outcome("error", None, None, False, None, errors=[f"{type(e).__name__}: {e}"[:500]])
     all_pages = set(range(1, len(pdf) + 1))
-    gaps: list[dict] = []
     lines = headings.lines(pdf)
     profiles = headings.load_profiles(cfg.font_profiles)
-    font_heads, _ = headings.headings(lines, [], profiles)      # what a table sits under (continued tables)
     full_words: dict[int, list] = {}
 
     def page_words(page_no):
@@ -152,41 +152,58 @@ def _extraction(pdf, working: Path, pkg_dir: Path, doc_id: str, sha: str, cfg: C
             full_words[page_no] = pdf[page_no - 1].get_text("words")
         return full_words[page_no]
 
-    usable = outcome.data is not None and outcome.status in ("success", "partial_success")
-    regions, engine_heads, covered, post_error = [], [], set(), None
-    primary = secondary_ = None
-    summary: dict = {}
-    if usable:
+    layer, post_error, covered = None, None, set()
+    if outcome.data is not None and outcome.status in ("success", "partial_success"):
         (pkg_dir / "docling.json").write_bytes(outcome.data)
         try:
             covered = all_pages - set(outcome.failed_pages)
-            primary, secondary_, regions, summary, g = _assemble(pdf, engine, outcome.data, doc_id, covered,
-                                                                 ft_tables, words, page_words, font_heads,
-                                                                 layout_model, layout_version)
-            gaps += g
-            engine_heads = [r for r in regions if r["type"] in ("title", "heading")]
-            for p in pages_rows:
-                c = outcome.page_confidence.get(str(p["page_no"]))
-                p["docling_confidence"] = c["grade"] if c else None
+            font_heads, _ = headings.headings(lines, [], profiles)   # what a table sits under (continued tables)
+            primary, secondary_, regions, summary, gaps = _assemble(
+                pdf, engine, outcome.data, doc_id, covered, ft_tables, words, page_words, font_heads,
+                layout_model, layout_version)
+            layer = _finish(primary, secondary_, regions, summary, gaps, lines, profiles, page_words)
         except Exception as e:  # noqa: BLE001 - post-processing must not fail the file (§9.3.5)
             post_error = f"post-processing failed: {type(e).__name__}: {e}"[:500]
-            covered, regions, engine_heads, gaps, primary = set(), [], [], [], None
-            for p in pages_rows:
-                p["docling_confidence"] = None
-    if primary is None:                                         # no usable engine output: as without an engine
-        primary, secondary_, _, summary = checks.combine(doc_id, [], ft_tables, set(), [], {}, words)
+            layer, covered = None, set()
+    if layer is None:                                   # no usable engine output: as without an engine
+        primary, secondary_, gaps, summary = checks.combine(doc_id, [], ft_tables, set(), [], {}, words)
+        layer = _finish(primary, secondary_, [], summary, gaps, lines, profiles, page_words)
+    else:
+        for p in pages_rows:
+            c = outcome.page_confidence.get(str(p["page_no"]))
+            p["docling_confidence"] = c["grade"] if c else None
     if covered != all_pages:
-        failed = sorted(all_pages - covered)
-        gaps.insert(0, {"code": "extractor_degraded", "extractor": cfg.primary, "status": outcome.status,
-                        "pages": "all" if not covered else failed,
-                        "detail": (post_error or "; ".join(outcome.errors) or f"status {outcome.status}")[:500]})
+        layer["gaps"].insert(0, {"code": "extractor_degraded", "extractor": cfg.primary, "status": outcome.status,
+                                 "pages": "all" if not covered else sorted(all_pages - covered),
+                                 "detail": (post_error or "; ".join(outcome.errors)
+                                            or f"status {outcome.status}")[:500]})
+    layer["steps"] = [
+        {"step": "layout", "tool": cfg.primary, "version": info.version if info else None,
+         "params": info.params if info else cfg.docling.engine_params(), "models": pins,
+         "deps": deps.closure() if info else None, "cache_key": outcome.cache_key, "status": outcome.status,
+         "ready": info.ready if info else None, "forced": bool(force and info and not info.ready),
+         "failed_pages": sorted(all_pages - covered), "postprocess_error": post_error},
+        {"step": "regions", "tool": "kb_intake.postprocess", "version": __version__,
+         "params": {"layout_model": layout_model, "layout_version": layout_version},
+         "counts": dict(sorted(Counter(r["type"] for r in layer["regions"]).items()))},
+        {"step": "headings", "tool": "kb_intake.headings", "version": __version__, "params": layer.pop("heading_summary")},
+        {"step": "tables", "tool": "kb_intake.checks", "version": __version__,
+         "params": {"primary": cfg.primary, "secondary": cfg.secondary}, "summary": layer["summary"]},
+    ]
+    layer["run"] = {"cached": outcome.cached, "seconds": outcome.seconds, "cache_written": outcome.cache_written}
+    return layer
+
+
+def _finish(primary, secondary_, regions, summary, gaps, lines, profiles, page_words) -> dict:
+    """Heading candidates (corroborated by the engine's headings, if any) and the tables.jsonl rows with
+    context_above. Headings and page furniture end a table's context."""
+    gaps = list(gaps)
+    engine_heads = [r for r in regions if r["type"] in ("title", "heading")]
     try:
         heading_rows, heading_summary = headings.headings(lines, engine_heads, profiles)
     except Exception as e:  # noqa: BLE001
         heading_rows, heading_summary = [], {"error": f"{type(e).__name__}: {e}"[:300]}
         gaps.append({"code": "extractor_degraded", "extractor": "headings", "detail": heading_summary["error"]})
-
-    # context_above for every primary table (on its first page); headings and page furniture end the context
     stops: dict[int, list] = {}
     for h in heading_rows:
         stops.setdefault(h["page_no"], []).append(h["bbox"])
@@ -203,23 +220,8 @@ def _extraction(pdf, working: Path, pkg_dir: Path, doc_id: str, sha: str, cfg: C
         tables.append(checks.row(t, post.context_above(t["bboxes"][0], lines_by_page[page], others,
                                                        stops.get(page, []))))
     tables += [checks.row(t, []) for t in secondary_]
-
-    steps = [
-        {"step": "layout", "tool": cfg.primary, "version": info.version if info else None,
-         "params": info.params if info else cfg.docling.engine_params(), "models": pins,
-         "deps": deps.closure() if info else None, "cache_key": outcome.cache_key, "status": outcome.status,
-         "ready": info.ready if info else None, "forced": bool(force and info and not info.ready),
-         "failed_pages": sorted(all_pages - covered),
-         "postprocess_error": post_error},
-        {"step": "regions", "tool": "kb_intake.postprocess", "version": __version__,
-         "params": {"layout_model": layout_model, "layout_version": layout_version},
-         "counts": dict(sorted(Counter(r["type"] for r in regions).items()))},
-        {"step": "headings", "tool": "kb_intake.headings", "version": __version__, "params": heading_summary},
-        {"step": "tables", "tool": "kb_intake.checks", "version": __version__,
-         "params": {"primary": cfg.primary, "secondary": cfg.secondary}, "summary": summary},
-    ]
-    return {"regions": regions, "tables": tables, "headings": heading_rows, "gaps": gaps, "steps": steps,
-            "summary": summary, "run": {"cached": outcome.cached, "seconds": outcome.seconds}}
+    return {"regions": regions, "tables": tables, "headings": heading_rows, "heading_summary": heading_summary,
+            "gaps": gaps, "summary": summary}
 
 
 def _assemble(pdf, engine, data: bytes, doc_id: str, covered: set[int], ft_tables, words, page_words, font_heads,
@@ -250,5 +252,6 @@ def _assemble(pdf, engine, data: bytes, doc_id: str, covered: set[int], ft_table
                       for r in body)
         return (own[2] if own else None), (before[-1][2] if before else None), between
     engine_tables = post.merge_continued(engine_tables, context)
-    primary, secondary_, g, summary = checks.combine(doc_id, engine_tables, ft_tables, covered, regions, refs, words)
-    return primary, secondary_, regions, summary, gaps + g
+    primary, secondary_, gaps, summary = checks.combine(doc_id, engine_tables, ft_tables, covered, regions, refs, words,
+                                                        gaps)          # header / dropped-cell gaps get their table_id
+    return primary, secondary_, regions, summary, gaps

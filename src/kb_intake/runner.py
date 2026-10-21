@@ -3,8 +3,9 @@
 - Cache key: source sha256 + engine name and version + the installed versions of the dependency closure
   (kb_intake.deps) + model revisions + parameters. A hit returns the stored output byte for byte, which is what makes
   repeated runs give identical packages.
-- Only complete successes are cached (status success, no failed page). A timeout caused by a busy machine must not be
-  replayed forever.
+- Only complete successes of a ready engine are cached (status success, no failed page, weights and versions as
+  pinned). A timeout caused by a busy machine must not be replayed forever, and a forced run with other weights must
+  not land under the pinned key. Failing to write the cache never fails the file.
 - A cache entry that cannot be read, does not parse, or whose output does not match the recorded sha256 is a miss.
 - The conversion runs in a child process (spawned, not forked) with a hard wall-clock limit; on timeout the child is
   killed. The child exists only to isolate faults: one per file, no resident worker, no queue.
@@ -27,14 +28,15 @@ from kb_intake.engines.base import EngineInfo, LayoutEngine, RawResult
 
 @dataclass
 class Outcome:
-    status: str                  # success | partial_success | failure | timeout | crashed | error | not_ready
+    status: str                  # success | partial_success | failure | timeout | crashed | error | not_ready | disabled
     data: bytes | None
-    cache_key: str
+    cache_key: str | None
     cached: bool
     seconds: float | None
     failed_pages: list[int] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     page_confidence: dict = field(default_factory=dict)
+    cache_written: bool = False
 
     @property
     def complete(self) -> bool:
@@ -63,16 +65,24 @@ def read_cache(entry: Path) -> tuple[bytes, dict] | None:
         return None
 
 
-def write_cache(entry: Path, data: bytes, raw: RawResult, seconds: float) -> None:
-    entry.parent.mkdir(parents=True, exist_ok=True)
-    tmp = Path(tempfile.mkdtemp(prefix=f".{entry.name}.", dir=entry.parent))
-    meta = {"sha256": hashlib.sha256(data).hexdigest(), "seconds": seconds,
-            "raw": {**asdict(raw), "data": None}}
-    (tmp / "output.bin").write_bytes(data)
-    (tmp / "meta.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
-    if entry.exists():
-        shutil.rmtree(entry)
-    os.replace(tmp, entry)
+def write_cache(entry: Path, data: bytes, raw: RawResult, seconds: float) -> bool:
+    """Store an entry atomically; False (and nothing left behind) when it cannot be written."""
+    tmp = None
+    try:
+        entry.parent.mkdir(parents=True, exist_ok=True)
+        tmp = Path(tempfile.mkdtemp(prefix=f".{entry.name}.", dir=entry.parent))
+        meta = {"sha256": hashlib.sha256(data).hexdigest(), "seconds": seconds,
+                "raw": {**asdict(raw), "data": None}}
+        (tmp / "output.bin").write_bytes(data)
+        (tmp / "meta.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
+        if entry.exists():
+            shutil.rmtree(entry, ignore_errors=True)
+        os.replace(tmp, entry)
+        return True
+    except OSError:
+        if tmp is not None:
+            shutil.rmtree(tmp, ignore_errors=True)
+        return False
 
 
 def _child(engine: LayoutEngine, pdf: str, out: str) -> None:
@@ -93,19 +103,27 @@ def convert_isolated(engine: LayoutEngine, pdf: Path, wall_timeout: float) -> tu
     with tempfile.TemporaryDirectory(prefix="kb-intake-convert-") as out:
         proc = ctx.Process(target=_child, args=(engine, str(pdf), out), daemon=True)
         proc.start()
-        proc.join(wall_timeout)
-        if proc.is_alive():
-            proc.kill()
-            proc.join(10)
-            return "timeout", None, f"conversion killed after {wall_timeout:.0f} s (hard wall-clock limit)"
-        o = Path(out)
-        if not (o / "raw.json").is_file():
+        try:
+            proc.join(wall_timeout)
+            if proc.is_alive():
+                proc.kill()
+                proc.join(10)
+                return "timeout", None, f"conversion killed after {wall_timeout:.0f} s (hard wall-clock limit)"
+            o = Path(out)
             err = (o / "error.txt").read_text(encoding="utf-8") if (o / "error.txt").is_file() else ""
-            status = "error" if err else "crashed"
-            return status, None, (err.strip().splitlines() or [f"child exited with code {proc.exitcode}"])[-1][:500]
-        meta = json.loads((o / "raw.json").read_text(encoding="utf-8"))
-        data = (o / "output.bin").read_bytes() if (o / "output.bin").is_file() else None
-        return "done", RawResult(**{**meta, "data": data}), ""
+            if err:
+                return "error", None, err.strip().splitlines()[-1][:500]
+            if proc.exitcode != 0:
+                return "crashed", None, f"conversion process exited with code {proc.exitcode}"
+            try:
+                meta = json.loads((o / "raw.json").read_text(encoding="utf-8"))
+                data = (o / "output.bin").read_bytes() if (o / "output.bin").is_file() else None
+                return "done", RawResult(**{**meta, "data": data}), ""
+            except Exception as e:  # noqa: BLE001 - a result that cannot be read is a crashed conversion
+                return "crashed", None, f"conversion result unreadable: {type(e).__name__}: {e}"[:500]
+        finally:
+            if not proc.is_alive():
+                proc.close()
 
 
 def run(engine: LayoutEngine, pdf: Path, source_sha256: str, cache_dir: Path, wall_timeout: float,
@@ -128,6 +146,6 @@ def run(engine: LayoutEngine, pdf: Path, source_sha256: str, cache_dir: Path, wa
     if raw is None:
         return Outcome(status, None, key, False, seconds, errors=[detail])
     out = Outcome(raw.status, raw.data, key, False, seconds, raw.failed_pages, raw.errors, raw.page_confidence)
-    if out.complete:
-        write_cache(entry, raw.data, raw, seconds)
+    if out.complete and info.ready:
+        out.cache_written = write_cache(entry, raw.data, raw, seconds)
     return out

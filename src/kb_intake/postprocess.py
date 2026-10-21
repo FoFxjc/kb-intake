@@ -181,7 +181,7 @@ def tables(engine_tables: list[dict], words_by_page: dict[int, list], page_words
                         cell["text"] = layer
             cell["value"], cell["nil"] = parse_value(cell["text"])
             if cell["text"]:
-                cell["bbox"] = text_box(words_by_page.get(page_no, []), ebox) or list(ebox)
+                cell["bbox"] = text_box(words_by_page.get(page_no, []), ebox)
             cells.append(cell)
         if dropped:
             gaps.append({"code": "table_cells_dropped", "page_no": page_no, "ref": t["engine_ref"],

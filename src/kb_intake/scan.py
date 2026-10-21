@@ -6,7 +6,9 @@
   under); `replace` rebuilds it.
 - The declaration of each file is the directory declaration's defaults + the file's override (kb_intake.declaration).
   A file whose declaration is incomplete is skipped and listed; the other files go on.
+- Two files of one scan may not share a doc_id (e.g. "A b.pdf" and "a-b.pdf" slug alike): the second fails.
 - One result per file: ok | skipped_same_sha | skipped_no_declaration | failed. A failure never stops the scan.
+  Overrides in the declaration that match no scanned file are reported at the end (status "unused_overrides").
 """
 
 import hashlib
@@ -55,19 +57,27 @@ def scan(target: Path, decl_raw: dict | None, out: Path, config: Config | None =
     """Yield one result dict per file."""
     root = target if target.is_dir() else None
     index = packaged(out)
+    used_ids: dict[str, str] = {}
+    seen: set[str] = set()
     for path in files_of(target, recursive):
         rel = path.relative_to(root).as_posix() if root else path.name
         result = {"file": rel}
+        seen.add(rel)
         try:
             sha = _sha(path)
             if sha in index and not replace:
                 yield {**result, "status": "skipped_same_sha", "package": index[sha]}
                 continue
-            decl = declaration.for_file(decl_raw, path, root)
+            decl = declaration.for_file(decl_raw, path, root, sha)
             missing = [k for k in declaration.REQUIRED if decl.get(k) in (None, "")]
             if missing:
                 yield {**result, "status": "skipped_no_declaration", "missing": missing}
                 continue
+            if decl["doc_id"] in used_ids:
+                yield {**result, "status": "failed", "error": "declaration", "param": "doc_id",
+                       "message": f"doc_id {decl['doc_id']!r} is already used by {used_ids[decl['doc_id']]} in this scan"}
+                continue
+            used_ids[decl["doc_id"]] = rel
             pkg = pipeline.process(path, decl, out, config, replace=replace, force=force)
             index[sha] = pkg.name
             yield {**result, "status": "ok", "package": pkg.name}
@@ -75,3 +85,7 @@ def scan(target: Path, decl_raw: dict | None, out: Path, config: Config | None =
             yield {**result, "status": "failed", "error": "declaration", "param": e.param, "message": str(e)}
         except Exception as e:  # noqa: BLE001 - one file never stops the scan
             yield {**result, "status": "failed", "error": type(e).__name__, "message": str(e)[:500]}
+    if declaration.is_directory_form(decl_raw):
+        unused = sorted(set(decl_raw.get("files") or {}) - seen)
+        if unused:
+            yield {"status": "unused_overrides", "files": unused}

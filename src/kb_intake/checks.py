@@ -69,9 +69,11 @@ def region_at(regions: list[dict], page_no: int, box) -> dict | None:
 
 
 def combine(doc_id: str, engine_tables: list[dict], ft_tables: list[dict], covered: set[int], regions: list[dict],
-            refs: dict[str, str], words: dict[int, list]) -> tuple[list[dict], list[dict], list[dict], dict]:
-    """(primary tables, secondary tables, gaps, summary). `covered`: pages the engine converted."""
-    gaps: list[dict] = []
+            refs: dict[str, str], words: dict[int, list],
+            gaps: list[dict] | None = None) -> tuple[list[dict], list[dict], list[dict], dict]:
+    """(primary tables, secondary tables, gaps, summary). `covered`: pages the engine converted. `gaps`: earlier
+    gaps about engine tables (with `ref`); they get the final table_id like the gaps raised here."""
+    gaps = list(gaps or [])
     final: list[dict] = []
     secondary: list[dict] = []
     fallback_pages: list[dict] = []             # find_tables tables of pages the engine did not convert

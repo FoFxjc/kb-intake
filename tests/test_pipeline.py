@@ -77,8 +77,8 @@ def test_a_failed_page_falls_back_to_find_tables_for_that_page(pdf, tmp_path, mo
     assert _layout_step(pkg)[0]["failed_pages"] == [2]
 
 
-@pytest.mark.parametrize("mode,status", [("hang", "timeout"), ("crash", "crashed"), ("raise", "error"),
-                                         ("not_ready", "not_ready")])
+@pytest.mark.parametrize("mode,status", [("hang", "timeout"), ("crash", "crashed"), ("silent_exit", "crashed"),
+                                         ("raise", "error"), ("not_ready", "not_ready"), ("info_error", "error")])
 def test_engine_failures_degrade_the_whole_file(pdf, tmp_path, monkeypatch, mode, status):
     _engine(monkeypatch, tmp_path, mode)
     pkg = _run(pdf, tmp_path, _cfg(tmp_path, wall=5.0))
@@ -113,6 +113,35 @@ def test_only_complete_successes_are_cached(pdf, tmp_path, monkeypatch):
     _run(pdf, tmp_path, cfg, "c")
     b = _run(pdf, tmp_path, cfg, "d")
     assert calls.read_text().count("\n") == 1 and json.loads((b / "manifest.json").read_text())["run"]["layout"]["cached"]
+
+
+def test_a_failed_cache_write_does_not_fail_the_file(pdf, tmp_path, monkeypatch):
+    _engine(monkeypatch, tmp_path)
+    (tmp_path / "blocker").write_text("a file where the cache directory should be")
+    cfg = replace(_cfg(tmp_path), cache_dir=tmp_path / "blocker" / "cache")
+    pkg = _run(pdf, tmp_path, cfg)
+    (t,) = [t for t in read_jsonl(pkg / "tables.jsonl") if t["role"] == "primary"]
+    m = json.loads((pkg / "manifest.json").read_text())
+    assert t["extract_method"] == "docling" and m["run"]["layout"]["cache_written"] is False and not m["degraded"]
+
+
+def test_a_forced_run_is_never_cached(pdf, tmp_path, monkeypatch):
+    calls = _engine(monkeypatch, tmp_path, "forced")
+    cfg = _cfg(tmp_path)
+    for out in ("a", "b"):
+        pkg = pipeline.process(pdf, dict(DECL), tmp_path / out, cfg, force=True)
+        step, m = _layout_step(pkg)
+        assert step["forced"] is True and step["status"] == "success" and not m["run"]["layout"]["cache_written"]
+    assert calls.read_text().count("\n") == 2 and not (tmp_path / "cache").exists()
+
+
+def test_header_gaps_carry_the_final_table_id(pdf, tmp_path, monkeypatch):
+    cells = [["Item", "2025 restated", "2024"], *CELLS[1:]]           # the text layer says "2025": header suspect
+    doc = json.dumps(fakes.document(3, 2, cells, XS, YS))
+    monkeypatch.setitem(pipeline.LAYOUT, "docling", partial(fakes.FakeEngine, mode="ok", doc=doc))
+    pkg = _run(pdf, tmp_path, _cfg(tmp_path))
+    (g,) = [g for g in read_jsonl(pkg / "gaps.jsonl") if g["code"] == "table_header_suspect"]
+    assert g["table_id"] == "acme_ar_2025_en:t0002_01" and g["resolution"] == "kept_engine"
 
 
 def test_a_corrupt_cache_entry_is_a_miss(pdf, tmp_path, monkeypatch):
@@ -197,6 +226,21 @@ def test_an_undetectable_language_must_be_declared(pdf, tmp_path):
         pipeline.process(pdf, {k: v for k, v in DECL.items() if k != "lang"}, tmp_path / "out",
                          replace(_cfg(tmp_path), layout_enabled=False))
     assert e.value.param == "lang"
+
+
+def test_doc_ids_may_not_collide_within_a_scan(tmp_path):
+    d = tmp_path / "in"
+    d.mkdir()
+    make_pdf(d / "A b.pdf")
+    make_pdf(d / "a-b.pdf", note="other")
+    make_pdf(d / "\u534e\u4fa8\u94f6\u884c.pdf", note="cjk name")
+    raw = {"defaults": {k: v for k, v in DECL.items() if k != "doc_id"}, "files": {"typo.pdf": {"lang": "en"}}}
+    results = list(scan.scan(d, raw, tmp_path / "out", replace(_cfg(tmp_path), layout_enabled=False)))
+    by = {r.get("file"): r for r in results}
+    assert by["A b.pdf"]["package"].startswith("a-b@")
+    assert by["a-b.pdf"]["status"] == "failed" and "already used by A b.pdf" in by["a-b.pdf"]["message"]
+    assert by["\u534e\u4fa8\u94f6\u884c.pdf"]["package"].startswith("doc-")
+    assert results[-1] == {"status": "unused_overrides", "files": ["typo.pdf"]}
 
 
 def test_one_failing_file_does_not_stop_the_scan(tmp_path, monkeypatch):

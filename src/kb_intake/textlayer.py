@@ -47,9 +47,16 @@ def layout_record(page: pymupdf.Page, page_no: int) -> dict:
 
 
 def text_box(words: list, region) -> list[float] | None:
-    """The bounding box of the words whose centre lies in `region` (the contract's cell bbox: the box of the text in
-    the cell, not its grid box). None when no word is there."""
-    inside = [w for w in words if region[0] <= (w[0] + w[2]) / 2 <= region[2] and region[1] <= (w[1] + w[3]) / 2 <= region[3]]
+    """The contract's cell bbox: the box of the text in the cell, clipped to the cell's own box `region` (the grid
+    box of find_tables, the engine's cell box). Words are those whose centre lies in the region, else those that
+    overlap it; when none does, the region itself. Callers give None for an empty cell."""
+    def centred(w):
+        return region[0] <= (w[0] + w[2]) / 2 <= region[2] and region[1] <= (w[1] + w[3]) / 2 <= region[3]
+
+    def overlaps(w):
+        return w[0] < region[2] and w[2] > region[0] and w[1] < region[3] and w[3] > region[1]
+    inside = [w for w in words if centred(w)] or [w for w in words if overlaps(w)]
     if not inside:
-        return None
-    return [min(w[0] for w in inside), min(w[1] for w in inside), max(w[2] for w in inside), max(w[3] for w in inside)]
+        return list(region)
+    return [max(region[0], min(w[0] for w in inside)), max(region[1], min(w[1] for w in inside)),
+            min(region[2], max(w[2] for w in inside)), min(region[3], max(w[3] for w in inside))]
