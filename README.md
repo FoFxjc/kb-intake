@@ -11,7 +11,7 @@ or notifies them.
 - **Text from the text layer:** Docling gives structure only (region types, boxes, table rows and columns); every
   text is read from the PDF's own text layer by box.
 - **Two human gates:** approve the workflow, confirm the result. Nothing unconfirmed reaches the delivery folder.
-- **Local and reproducible:** `uv tool install`, no Docker, no database server (state is one SQLite file); pinned
+- **Local and reproducible:** one `./setup.sh`, no Docker, no database server (state is one SQLite file); pinned
   versions and model weights, run offline; the same file, workflow and review operations give the same package.
 
 Design: [docs/intake-design-v2.md](docs/intake-design-v2.md) (authoritative), [docs/layout-design-v1.md](docs/layout-design-v1.md) §2
@@ -19,41 +19,18 @@ Design: [docs/intake-design-v2.md](docs/intake-design-v2.md) (authoritative), [d
 
 ## Install
 
-Recommended dependencies, installation in a company network (mirror, proxy, CA, Linux CPU torch), a self-check,
-configuration, operations and measured resource use:
-[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+Four steps, described in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) (with the model file list, every setting, what
+each check means, measured resource use and known limits):
 
-Requirements: Python 3.12 and [uv](https://docs.astral.sh/uv/) **0.10.2 or newer** (the version this is tested with;
-`uv tool install --torch-backend` is needed on Linux).
+1. Download the source zip of a release and unpack it.
+2. Put the model files (three Hugging Face models at pinned commits, 521 MB) into `./models`, in any layout.
+3. `cp .env.example .env` and fill it in (paths; optionally the LLM endpoint, model and key; a pip mirror, proxy, CA).
+4. `./setup.sh`: makes a Python 3.12 environment (conda or venv), installs with `pip install -c constraints.txt .`,
+   puts the models in place, then runs `kb-intake doctor --smoke`.
 
-`uv tool install` does not read the project's lock file, so the pinned versions of the inference libraries (torch,
-transformers, pillow, numpy, torchvision, ...) come from `constraints.txt`, generated from `uv.lock`:
-
-```bash
-curl -fsSLO https://raw.githubusercontent.com/FoFxjc/kb-intake/main/constraints.txt
-
-# macOS (arm64)
-uv tool install --python 3.12 --constraints constraints.txt git+https://github.com/FoFxjc/kb-intake
-
-# Linux (x86_64): the CPU build of torch (packages are built on CPU; avoids the multi-GB CUDA wheels)
-uv tool install --python 3.12 --constraints constraints.txt --torch-backend cpu git+https://github.com/FoFxjc/kb-intake
-```
-
-Then download the model weights once (about 520 MB: Docling's layout model, TableFormer and the picture
-classifier, the Hugging Face revisions pinned in
-`src/kb_intake/models.lock.json`, every file checked against its sha256):
-
-```bash
-kb-intake models download          # into ~/.kb-intake/models, or $INTAKE_MODELS_DIR
-kb-intake engines                  # versions, weights, dependency check; "ok": true when ready
-```
-
-Without network access on the target machine, run `models download --to DIR` where Hugging Face is reachable,
-copy `DIR` over, point `INTAKE_MODELS_DIR` at it and run `kb-intake models verify`.
-
-After this, nothing goes to the network: Hugging Face is switched to offline mode for every command except
-`models download`, the weights are read from the local directory only, and files that do not match the lock are
-refused.
+Then `./kb-intake serve` opens http://127.0.0.1:8700/. Nothing goes to the network after installation unless the
+optional LLM is switched on: Hugging Face is offline for every command, and the weights are read from the local
+directory only and refused when they do not match the lock.
 
 ## Use
 
@@ -89,12 +66,11 @@ failed, 2 bad input (unknown job, wrong state, invalid declaration, workflow or 
 
 ### Optional LLM help
 
-Off by default. To use it, copy `.env.example` to `.env` in the directory you run kb-intake from and fill in
-`INTAKE_LLM_API_KEY` (or set that variable in the environment), and set `llm: {enabled: true}` in `intake.yaml`
-(see `intake.example.yaml`). Data then leaves the machine for the configured endpoint (MiniMax by default): the
-declaration and the start of every page's text for the summary (up to 24,000 characters per document), and the image
-and text of each region set to `describe`. The outputs are kept apart in `llm.jsonl` and marked low weight. `.env` is
-gitignored; never commit a key. Details: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) §5.2.
+Off by default. To use it, set `INTAKE_LLM_ENABLED=true`, `INTAKE_LLM_BASE_URL`, `INTAKE_LLM_MODEL` and
+`INTAKE_LLM_API_KEY` in `.env` (any OpenAI-compatible endpoint; MiniMax when no URL is given). Data is then sent
+to that host: the declaration and the start of every page's text for the summary (up to 24,000 characters per
+document), and the image and text of each region set to `describe`. The outputs are kept apart in `llm.jsonl` and
+marked low weight. `.env` is gitignored; never commit a key. Details: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) §3.
 
 ### Web UI and HTTP API
 
