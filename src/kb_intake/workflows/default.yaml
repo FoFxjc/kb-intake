@@ -1,0 +1,23 @@
+name: default
+version: 1
+handlers:
+  title: text
+  heading: text
+  text: text
+  list: text
+  caption: text
+  footnote: text
+  formula: text
+  toc: text
+  table: table_structure
+  chart: text
+  diagram: text
+  picture: discard
+  logo: discard
+  icon: discard
+  signature: record
+  stamp: record
+  page_header: discard
+  page_footer: discard
+  unknown: unhandled
+exclude_pages: []
