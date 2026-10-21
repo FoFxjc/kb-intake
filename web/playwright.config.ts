@@ -2,6 +2,8 @@ import { defineConfig, devices } from '@playwright/test';
 
 // Browser tests against the fake-engine server (tests/e2e_server.py): no models, no network.
 const PORT = Number(process.env.E2E_PORT ?? 8799);
+// a second server with the LLM enabled against the local fake model (tests/fake_llm.py), for the LLM specs
+const LLM_PORT = Number(process.env.E2E_LLM_PORT ?? 8798);
 
 export default defineConfig({
   testDir: './e2e',
@@ -20,12 +22,22 @@ export default defineConfig({
     launchOptions: process.env.PW_CHROMIUM_PATH ? { executablePath: process.env.PW_CHROMIUM_PATH } : {},
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 940 } } }],
-  webServer: {
-    command: `uv run python tests/e2e_server.py --port ${PORT}`,
-    cwd: '..',
-    url: `http://127.0.0.1:${PORT}/v1/health`,
-    reuseExistingServer: !process.env.CI,
-    timeout: 180_000,
-    stdout: 'pipe',
-  },
+  webServer: [
+    {
+      command: `uv run python tests/e2e_server.py --port ${PORT}`,
+      cwd: '..',
+      url: `http://127.0.0.1:${PORT}/v1/health`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 180_000,
+      stdout: 'pipe',
+    },
+    {
+      command: `uv run python tests/e2e_server.py --port ${LLM_PORT} --fake-llm --chart-table --fixtures web/e2e/.fixtures-llm`,
+      cwd: '..',
+      url: `http://127.0.0.1:${LLM_PORT}/v1/health`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 180_000,
+      stdout: 'pipe',
+    },
+  ],
 });

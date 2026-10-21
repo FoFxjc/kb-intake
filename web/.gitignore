@@ -3,3 +3,4 @@ e2e/.fixtures/
 e2e/shots/
 test-results/
 playwright-report/
+e2e/.fixtures-llm/
