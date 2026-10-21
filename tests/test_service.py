@@ -416,3 +416,34 @@ def test_clusters_endpoint(svc):
     assert all(c["kind"] == "same_shape" for c in only)
     assert svc.get(f"/v1/jobs/{job_id}/clusters", params={"kind": "nope"}).status_code == 422
     assert svc.get(f"/v1/jobs/{unlabelled_job(svc)}/clusters").status_code == 409
+
+
+
+@pytest.fixture
+def p106(tmp_path):
+    """The service on a job in review with a table_suspected gap (tests/jobflow.py, OCBC p106 split)."""
+    import jobflow
+    flow = jobflow.in_review(tmp_path, p106_split=True)
+    with TestClient(create_app(flow.cfg), base_url="http://127.0.0.1") as c:
+        c.flow, c.job_id = flow, flow.job.id
+        yield c
+
+
+def test_queue_and_seen(p106, svc):
+    c, job_id = p106, p106.job_id
+    q = c.get(f"/v1/jobs/{job_id}/queue").json()
+    items = [i for g in q["groups"] for i in g["items"]]
+    assert q["total"] == len(items) == 1 and items[0]["status"] == "open"
+    first = items[0]["item_id"]
+    r = c.post(f"/v1/jobs/{job_id}/queue/seen", json={"item_ids": [first]})
+    assert r.status_code == 200 and r.json() == {"updated": 1}
+    again = c.get(f"/v1/jobs/{job_id}/queue").json()["groups"][0]
+    assert again["seen"] == 1 and again["items"][0]["status"] == "seen"
+    assert c.post(f"/v1/jobs/{job_id}/queue/seen", json={"item_ids": ["gap:nope:1:-"]}).status_code == 422
+    assert c.post(f"/v1/jobs/{job_id}/queue/seen", json={"item_ids": "x"}).status_code == 422
+    assert c.post(f"/v1/jobs/{job_id}/queue/seen", content="{}", headers={"content-type": "text/plain"}
+                  ).status_code == 415
+    planned = labelled(svc)
+    assert svc.get(f"/v1/jobs/{planned}/queue").json() == {"total": 0, "done": 0, "groups": []}
+    assert svc.post(f"/v1/jobs/{planned}/queue/seen", json={"item_ids": []}).status_code == 409
+    assert svc.get(f"/v1/jobs/{unlabelled_job(svc)}/queue").status_code == 409

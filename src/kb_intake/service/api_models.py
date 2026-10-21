@@ -386,3 +386,53 @@ class Cluster(BaseModel):
 
 class ClusterList(BaseModel):
     clusters: list[Cluster]
+
+
+# ---------- review queue (intake-ui-llm-design-v1 §3.1, §3.4) ----------
+
+class Target(BaseModel):
+    kind: Literal["gap", "hint", "llm"]
+    code: str | None
+    page_no: int | None
+    region_id: str | None
+    table_id: str | None
+
+
+class QueueItem(BaseModel):
+    item_id: str = Field(description="stable across review; pass to the `ack` op and to /queue/seen")
+    group: str
+    kind: Literal["gap", "hint", "llm"]
+    code: str | None
+    page_no: int | None
+    region_id: str | None
+    table_id: str | None
+    bbox: Box | None = Field(description="where to look: the gap's own box (find_tables), else the region's or "
+                                         "table's box; null for a page-level item")
+    detail: str
+    status: Literal["open", "seen", "resolved"]
+    resolution: Resolution | None
+    target: Target
+
+
+class QueueGroup(BaseModel):
+    key: str
+    label: str
+    total: int
+    open: int
+    seen: int
+    resolved: int
+    items: list[QueueItem]
+
+
+class QueueView(BaseModel):
+    total: int
+    done: int = Field(description="resolved items")
+    groups: list[QueueGroup]
+
+
+class SeenBody(BaseModel):
+    item_ids: list[str] = Field(max_length=1000)
+
+
+class SeenResult(BaseModel):
+    updated: int = Field(description="items that were not marked seen before")

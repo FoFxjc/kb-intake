@@ -11,6 +11,8 @@ The API is frozen in contract/api/openapi-v1.json (kb_intake.service.openapi_sna
     GET  /v1/jobs/{id}/regions          regions in reading order: search (q), filters, cursor paging
     GET  /v1/jobs/{id}/facets           counts per type, status and gap code for the same filters
     GET  /v1/jobs/{id}/clusters         groups of similar regions (kb_intake.clusters)
+    GET  /v1/jobs/{id}/queue            the review inbox (kb_intake.queue)
+    POST /v1/jobs/{id}/queue/seen       {"item_ids"}: items shown to the reviewer (work state only)
     GET  /v1/jobs/{id}/workflow         the latest (or ?version=) workflow: YAML text and parsed
     PUT  /v1/jobs/{id}/workflow         YAML text -> a new version (422 when invalid)
     POST /v1/jobs/{id}/approve          {"by", "version"?} -> 202, starts extract
@@ -52,7 +54,8 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
-from kb_intake import CONTRACT_VERSION, __version__, clusters, config, contract, declaration, detect, search, vocab
+from kb_intake import (CONTRACT_VERSION, __version__, clusters, config, contract, declaration, detect, queue,
+                       search, vocab)
 from kb_intake import workflow as workflow_mod
 from kb_intake.jobs import AlreadyDelivered, Busy, JobError, Jobs, WrongState
 from kb_intake.package import read_json, read_jsonl, sha_file
@@ -65,7 +68,7 @@ GAP_FILES = (("label", "label/gaps.jsonl"), ("extract", "extract/gaps.jsonl"), (
 # the step that a job resting in this state runs again on /retry
 RETRY = {"uploaded": "label", "approved": "extract", "confirmed": "deliver"}
 # request bodies are parsed by the routes; these models only document them (added to the OpenAPI components)
-BODY_MODELS = (m.CreateJobJson, m.CreateJobUpload, m.ApproveBody, m.ReviewBody, m.ConfirmBody)
+BODY_MODELS = (m.CreateJobJson, m.CreateJobUpload, m.ApproveBody, m.ReviewBody, m.ConfirmBody, m.SeenBody)
 
 
 def errors(*codes: int) -> dict:
@@ -375,6 +378,28 @@ def create_app(cfg: config.Config | None = None, engines: dict | None = None, ho
                                                 "same_gap"] | None = None):
         """Groups of similar regions (two or more members each); a group changes no data."""
         return {"clusters": searched(job_id, lambda: clusters.for_job(jobs, job_id, kind))}
+
+    @app.get("/v1/jobs/{job_id}/queue", **route(m.QueueView, 404, 409))
+    def job_queue(job_id: str):
+        """The review inbox: gaps and weak continuation hints grouped by problem, each open, seen or resolved (empty
+        before extraction)."""
+        return queue.view(searched(job_id, lambda: queue.items(jobs, job_id)))
+
+    @app.post("/v1/jobs/{job_id}/queue/seen", **route(m.SeenResult, 404, 409, 415, 422, body=json_body(m.SeenBody)))
+    async def queue_seen(job_id: str, request: Request):
+        """Mark queue items as shown to the reviewer (work state only; never delivered)."""
+        job = get_job(job_id)
+        body = await body_of(request)
+        ids = body.get("item_ids")
+        if not isinstance(ids, list) or not all(isinstance(i, str) for i in ids) or len(ids) > 1000:
+            raise HTTPException(422, "item_ids must be a list of at most 1000 strings")
+        if job.status not in queue.POST_EXTRACT:
+            raise WrongState(f"job {job_id} is {job.status}; the queue exists from in_review on")
+        known = {i["item_id"] for i in await run_in_threadpool(queue.items, jobs, job_id)}
+        unknown = sorted(set(ids) - known)
+        if unknown:
+            raise HTTPException(422, f"unknown queue items {unknown[:5]}")
+        return {"updated": jobs.mark_seen(job_id, ids)}
 
     # ---------- workflow and approval ----------
 

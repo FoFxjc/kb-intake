@@ -47,6 +47,8 @@ create table if not exists workflows (
   primary key (job_id, version));
 create table if not exists review_ops (
   job_id text not null, seq integer not null, op text not null, primary key (job_id, seq));
+create table if not exists queue_seen (
+  job_id text not null, item_id text not null, at text not null, primary key (job_id, item_id));
 create table if not exists events (
   job_id text not null, seq integer not null, at text not null, step text not null, status text not null,
   info text, primary key (job_id, seq));
@@ -338,6 +340,22 @@ class Jobs:
         with self._lock:
             rows = self.db.execute("select op from review_ops where job_id = ? order by seq", (job_id,)).fetchall()
         return [json.loads(r["op"]) for r in rows]
+
+    # ---------- review queue: items the UI showed (work state only, never delivered) ----------
+
+    def mark_seen(self, job_id: str, item_ids: list[str]) -> int:
+        """Record queue items as seen; returns how many were not seen before."""
+        at = now()
+        with self._lock:
+            before = self.db.total_changes
+            self.db.executemany("insert or ignore into queue_seen values (?, ?, ?)",
+                                [(job_id, i, at) for i in item_ids])
+            return self.db.total_changes - before
+
+    def seen(self, job_id: str) -> set[str]:
+        with self._lock:
+            rows = self.db.execute("select item_id from queue_seen where job_id = ?", (job_id,)).fetchall()
+        return {r["item_id"] for r in rows}
 
     def confirm(self, job_id: str, by: str) -> Job:
         if not by.strip():

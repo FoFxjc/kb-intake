@@ -1284,6 +1284,202 @@
         "title": "PageView",
         "type": "object"
       },
+      "QueueGroup": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/QueueItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "open": {
+            "title": "Open",
+            "type": "integer"
+          },
+          "resolved": {
+            "title": "Resolved",
+            "type": "integer"
+          },
+          "seen": {
+            "title": "Seen",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "total",
+          "open",
+          "seen",
+          "resolved",
+          "items"
+        ],
+        "title": "QueueGroup",
+        "type": "object"
+      },
+      "QueueItem": {
+        "properties": {
+          "bbox": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "where to look: the gap's own box (find_tables), else the region's or table's box; null for a page-level item",
+            "title": "Bbox"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "group": {
+            "title": "Group",
+            "type": "string"
+          },
+          "item_id": {
+            "description": "stable across review; pass to the `ack` op and to /queue/seen",
+            "title": "Item Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "gap",
+              "hint",
+              "llm"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "page_no": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page No"
+          },
+          "region_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region Id"
+          },
+          "resolution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Resolution"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "open",
+              "seen",
+              "resolved"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "table_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Table Id"
+          },
+          "target": {
+            "$ref": "#/components/schemas/Target"
+          }
+        },
+        "required": [
+          "item_id",
+          "group",
+          "kind",
+          "code",
+          "page_no",
+          "region_id",
+          "table_id",
+          "bbox",
+          "detail",
+          "status",
+          "resolution",
+          "target"
+        ],
+        "title": "QueueItem",
+        "type": "object"
+      },
+      "QueueView": {
+        "properties": {
+          "done": {
+            "description": "resolved items",
+            "title": "Done",
+            "type": "integer"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/QueueGroup"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "done",
+          "groups"
+        ],
+        "title": "QueueView",
+        "type": "object"
+      },
       "ReclassifyOp": {
         "properties": {
           "action": {
@@ -1830,6 +2026,37 @@
         "title": "ReviewRow",
         "type": "object"
       },
+      "SeenBody": {
+        "properties": {
+          "item_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 1000,
+            "title": "Item Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "item_ids"
+        ],
+        "title": "SeenBody",
+        "type": "object"
+      },
+      "SeenResult": {
+        "properties": {
+          "updated": {
+            "description": "items that were not marked seen before",
+            "title": "Updated",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "updated"
+        ],
+        "title": "SeenResult",
+        "type": "object"
+      },
       "Started": {
         "properties": {
           "job_id": {
@@ -1947,6 +2174,72 @@
           "extract_method"
         ],
         "title": "Table",
+        "type": "object"
+      },
+      "Target": {
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "kind": {
+            "enum": [
+              "gap",
+              "hint",
+              "llm"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "page_no": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page No"
+          },
+          "region_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region Id"
+          },
+          "table_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Table Id"
+          }
+        },
+        "required": [
+          "kind",
+          "code",
+          "page_no",
+          "region_id",
+          "table_id"
+        ],
+        "title": "Target",
         "type": "object"
       },
       "ValidationError": {
@@ -2950,6 +3243,146 @@
           }
         },
         "summary": "Page Image"
+      }
+    },
+    "/v1/jobs/{job_id}/queue": {
+      "get": {
+        "description": "The review inbox: gaps and weak continuation hints grouped by problem, each open, seen or resolved (empty\nbefore extraction).",
+        "operationId": "job_queue_v1_jobs__job_id__queue_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueueView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Job Queue"
+      }
+    },
+    "/v1/jobs/{job_id}/queue/seen": {
+      "post": {
+        "description": "Mark queue items as shown to the reviewer (work state only; never delivered).",
+        "operationId": "queue_seen_v1_jobs__job_id__queue_seen_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SeenBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeenResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "summary": "Queue Seen"
       }
     },
     "/v1/jobs/{job_id}/regions": {
