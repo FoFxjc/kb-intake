@@ -365,7 +365,7 @@ async function viewReview(id, n) {
             <td>${esc(g.code)}</td><td>${esc(g.detail)}</td></tr>`).join("")}</table>` : '<p class="muted">none</p>'}</div>
         <div class="panel"><h2>Tables</h2>
           ${(p.tables || []).map((t) => `<p><b>${esc(t.table_id)}</b> ${pill(t.extract_method)} ${t.n_rows} x ${t.n_cols}
-            ${t.continued_hint ? pill("continues " + t.continued_hint.split(":").pop()) : ""}</p><pre>${esc(t.markdown || "")}</pre>`).join("")
+            ${t.continued_hint ? pill("continues " + t.continued_hint.table_id.split(":").pop() + " (" + t.continued_hint.reason + ")") : ""}</p><pre>${esc(t.markdown || "")}</pre>`).join("")
             || '<p class="muted">none</p>'}</div>
       </div></div>`;
   const draw = () => { $("ov").innerHTML = overlay(p, { cells: $("cells").checked }); };

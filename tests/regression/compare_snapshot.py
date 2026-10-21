@@ -7,7 +7,7 @@ text is read from the text layer) are the same multiset as the snapshot body. Al
 - p106 "NPAs by Period Overdue": a `table_suspected` gap on page 106 from find_tables, and a table on page 106 with
   extract_method "find_tables" whose region was reclassified in review (label_source "user");
 - p216 -> p217 liquidity gap table: v2 never merges tables; the first table on page 217 must carry a
-  `continued_hint` pointing at a table on page 216.
+  `continued_hint` ({table_id, reason}) pointing at a table on page 216.
 
 usage: python tests/regression/compare_snapshot.py --package <pkg dir> --snapshot ~/docling-eval
 """
@@ -88,11 +88,12 @@ def main() -> int:
     p106_ok = p106_gap and bool(p106_table)
     first_217 = next((t for t in tables if t["page_no"] == 217), None)
     p216_ids = {t["table_id"] for t in tables if t["page_no"] == 216}
-    continued = first_217 is not None and first_217.get("continued_hint") in p216_ids
+    hint = (first_217 or {}).get("continued_hint") or {}
+    continued = hint.get("table_id") in p216_ids
     ok &= p106_ok and continued
     print(json.dumps({"ok": ok, "tables": results, "p106_table_suspected_find_tables": p106_ok,
                       "p106_tables": p106_table,
-                      "p217_continues_p216": first_217["continued_hint"] if continued else None},
+                      "p217_continues_p216": hint if continued else None},
                      ensure_ascii=False, indent=1))
     return 0 if ok else 1
 

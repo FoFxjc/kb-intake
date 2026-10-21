@@ -6,7 +6,9 @@
   "extract", "deliver"); it is set with a compare-and-set, so two processes (the CLI and `serve`) can never run the
   same step of a job twice.
 - A failing step leaves the job in the state it started from, with `last_error`; running it again is the retry.
-- `recover()` (at server start) clears a `running_op` left by a process that stopped, recording "interrupted".
+- `running_owner` is "<host>:<pid>" of the process running the step. `recover()` (at server start) clears a
+  `running_op` whose owner process is gone (same host, pid not alive), recording "interrupted"; a step that a live
+  CLI process is running is left alone.
   The state is unchanged, so the step can simply be run again; Docling results are cached, so a conversion that had
   completed is not redone.
 - Each job has a directory `work_dir/jobs/<job_id>/` with `source.pdf` and the outputs of each step.
@@ -15,7 +17,9 @@
 """
 
 import json
+import os
 import shutil
+import socket
 import sqlite3
 import threading
 import uuid
@@ -35,7 +39,7 @@ OPS = {"label": "uploaded", "extract": "approved", "deliver": "confirmed"}
 SCHEMA = """
 create table if not exists jobs (
   id text primary key, created_at text not null, updated_at text not null, status text not null,
-  running_op text, last_error text, sha256 text not null, doc_id text not null, source_name text not null,
+  running_op text, running_owner text, last_error text, sha256 text not null, doc_id text not null, source_name text not null,
   declaration text not null, approved_by text, approved_at text, workflow_version integer,
   confirmed_by text, confirmed_at text, package text);
 create table if not exists workflows (
@@ -59,6 +63,27 @@ class WrongState(JobError):
 
 class Busy(JobError):
     pass
+
+
+def owner() -> str:
+    return f"{socket.gethostname()}:{os.getpid()}"
+
+
+def _owner_gone(owner_: str | None) -> bool:
+    if not owner_:
+        return True
+    host, _, pid = owner_.rpartition(":")
+    if host != socket.gethostname() or not pid.isdigit():
+        return False                    # another machine sharing the work directory: cannot tell
+    if int(pid) == os.getpid():
+        return True                     # this process is starting up: nothing of it is running yet
+    try:
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        return False
+    return False
 
 
 def now() -> str:
@@ -104,6 +129,9 @@ class Jobs:
         with self._lock:
             self.db.execute("pragma journal_mode=wal")
             self.db.executescript(SCHEMA)
+            cols = {r[1] for r in self.db.execute("pragma table_info(jobs)")}
+            if "running_owner" not in cols:          # a state.db written before the column existed
+                self.db.execute("alter table jobs add column running_owner text")
 
     # ---------- reading ----------
 
@@ -182,17 +210,18 @@ class Jobs:
         An exception records last_error and leaves the status as it was; it is re-raised."""
         with self._tx() as db:
             self._require(db, job_id, (OPS[op],))
-            db.execute("update jobs set running_op = ?, last_error = null, updated_at = ? where id = ?",
-                       (op, now(), job_id))
+            db.execute("update jobs set running_op = ?, running_owner = ?, last_error = null, updated_at = ? "
+                       "where id = ?", (op, owner(), now(), job_id))
         try:
             yield self.get(job_id)
         except BaseException as e:
             with self._tx() as db:
-                db.execute("update jobs set running_op = null, last_error = ?, updated_at = ? where id = ?",
-                           (f"{op}: {type(e).__name__}: {e}"[:1000], now(), job_id))
+                db.execute("update jobs set running_op = null, running_owner = null, last_error = ?, updated_at = ? "
+                           "where id = ?", (f"{op}: {type(e).__name__}: {e}"[:1000], now(), job_id))
             raise
         with self._tx() as db:
-            db.execute("update jobs set running_op = null, updated_at = ? where id = ?", (now(), job_id))
+            db.execute("update jobs set running_op = null, running_owner = null, updated_at = ? where id = ?",
+                       (now(), job_id))
 
     def advance(self, job_id: str, to: str | tuple[str, ...], op: str | None = None, **fields) -> Job:
         """Move the job along NEXT to `to` (one state, or consecutive states passed through in one transaction, so a
@@ -230,13 +259,19 @@ class Jobs:
         return self.get(job_id)
 
     def recover(self) -> list[str]:
-        """Clear the running_op of steps whose process stopped; return those job ids."""
+        """Clear the running_op of steps whose process stopped; return those job ids. A step owned by a live process
+        on this host (e.g. a CLI run), or by another host, is left alone."""
+        cleared = []
         with self._tx() as db:
-            rows = db.execute("select id, running_op from jobs where running_op is not null").fetchall()
+            rows = db.execute("select id, running_op, running_owner from jobs where running_op is not null").fetchall()
             for r in rows:
-                db.execute("update jobs set running_op = null, last_error = ?, updated_at = ? where id = ?",
+                if not _owner_gone(r["running_owner"]):
+                    continue
+                db.execute("update jobs set running_op = null, running_owner = null, last_error = ?, updated_at = ? "
+                           "where id = ?",
                            (f"{r['running_op']}: interrupted (the process stopped); run it again", now(), r["id"]))
-        return [r["id"] for r in rows]
+                cleared.append(r["id"])
+        return cleared
 
     # ---------- workflow (§3) ----------
 

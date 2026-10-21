@@ -95,3 +95,19 @@ def problems() -> list[str]:
         elif _public(have) != want[name]:
             out.append(f"{name} {have} installed, constraints.txt pins {want[name]}")
     return out
+
+
+DOCLING_PACKAGES = ("docling", "docling-core", "docling-ibm-models", "docling-parse", "pymupdf")
+
+
+def stage_versions() -> dict[str, str | None]:
+    """Installed versions of the packages that shape a stage's output, recorded by the label and extract stages in
+    their run.json (the manifest reports what ran, not what is installed at delivery)."""
+    from importlib.metadata import PackageNotFoundError, version
+    out = {}
+    for p in DOCLING_PACKAGES:
+        try:
+            out[p] = version(p)
+        except PackageNotFoundError:
+            out[p] = None
+    return out

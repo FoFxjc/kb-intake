@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pymupdf
 
-from kb_intake import geometry, runner, textlayer
+from kb_intake import deps, geometry, runner, textlayer
 from kb_intake.config import Config
 from kb_intake.engines.docling import DoclingEngine, extract_tables
 from kb_intake.jobs import Job, Jobs
@@ -398,7 +398,8 @@ def _run(jobs: Jobs, job_id: str, cfg: Config, engine, progress) -> dict:
             "engine": {"status": outcome.status, "seconds": outcome.seconds, "cached": outcome.cached,
                        "cache_key": outcome.cache_key, "failed_pages": list(outcome.failed_pages),
                        "errors": list(outcome.errors), "dropped_table_cells": None, "unscored": None},
-            "params": {"extract": params}, "unmatched_extract_tables": len(extra)})
+            "params": {"extract": params}, "packages": deps.stage_versions(),
+            "unmatched_extract_tables": len(extra)})
         jobs.advance(job_id, ("extracted", "in_review"), op="extract")
     progress("extract", "done", {"seconds": seconds})
     by_status: dict[str, int] = {}

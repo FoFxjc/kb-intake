@@ -38,7 +38,7 @@ from importlib.metadata import version as pkg_version
 
 import pymupdf
 
-from kb_intake import detect, findtables, runner, textlayer, vocab, workflow
+from kb_intake import deps, detect, findtables, runner, textlayer, vocab, workflow
 from kb_intake.config import Config
 from kb_intake.engines.docling import DoclingEngine, label_items
 from kb_intake.geometry import area, inter, iou
@@ -227,6 +227,7 @@ def _run(jobs: Jobs, job, cfg: Config, engine, emit) -> dict:
         "engine": {"status": outcome.status, "seconds": outcome.seconds, "cached": outcome.cached,
                    "cache_key": outcome.cache_key, "failed_pages": list(outcome.failed_pages),
                    "errors": list(outcome.errors), **engine_stats},
+        "packages": deps.stage_versions(),
         "engines": {"docling": info.version, "models": list(info.models), "params": {"label": info.params},
                     "pymupdf": pkg_version("pymupdf"), "device": cfg.docling.device},
         "detection": detection, "declaration_filled": filled})

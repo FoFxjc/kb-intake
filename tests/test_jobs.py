@@ -147,3 +147,49 @@ def test_a_failing_finish_label_leaves_the_job_uploaded(jobs, src):
             jobs.finish_label(job.id, None)          # NOT NULL text: the insert fails after the status update
     j = jobs.get(job.id)
     assert j.status == "uploaded" and jobs.workflow(job.id) is None
+
+
+def test_recover_leaves_steps_of_a_live_process_or_another_host(tmp_path, src):
+    import socket
+    import subprocess
+    import sys
+    a = Jobs(tmp_path / "work")
+    live, _ = a.create(src, DECL)
+    other = tmp_path / "b.pdf"
+    other.write_bytes(b"%PDF-1.7 other")
+    remote, _ = a.create(other, DECL)
+    dead_src = tmp_path / "c.pdf"
+    dead_src.write_bytes(b"%PDF-1.7 dead")
+    dead, _ = a.create(dead_src, DECL)
+    cli = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])     # a CLI process still running
+    gone = subprocess.Popen([sys.executable, "-c", "pass"])
+    gone.wait()
+    try:
+        host = socket.gethostname()
+        for job, owner in ((live, f"{host}:{cli.pid}"), (remote, "elsewhere:1"), (dead, f"{host}:{gone.pid}")):
+            a.db.execute("update jobs set running_op = 'label', running_owner = ? where id = ?", (owner, job.id))
+        assert Jobs(tmp_path / "work").recover() == [dead.id]
+        assert a.get(live.id).running_op == "label" and a.get(remote.id).running_op == "label"
+    finally:
+        cli.kill()
+
+
+def test_a_state_db_without_running_owner_is_upgraded(tmp_path, src):
+    import sqlite3
+    (tmp_path / "work").mkdir()
+    db = sqlite3.connect(tmp_path / "work" / "state.db")
+    db.executescript(SCHEMA_WITHOUT_OWNER)
+    db.close()
+    jobs = Jobs(tmp_path / "work")
+    job, _ = jobs.create(src, DECL)
+    with jobs.running(job.id, "label"):
+        assert jobs.db.execute("select running_owner from jobs").fetchone()[0]
+
+
+SCHEMA_WITHOUT_OWNER = """
+create table jobs (
+  id text primary key, created_at text not null, updated_at text not null, status text not null,
+  running_op text, last_error text, sha256 text not null, doc_id text not null, source_name text not null,
+  declaration text not null, approved_by text, approved_at text, workflow_version integer,
+  confirmed_by text, confirmed_at text, package text);
+"""

@@ -26,7 +26,6 @@ import shutil
 import time
 import uuid
 from collections import Counter
-from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from kb_intake import __version__, contract, extract, review, workflow
@@ -35,7 +34,6 @@ from kb_intake.jobs import Job, Jobs, WrongState, now
 from kb_intake.package import name as package_name
 from kb_intake.package import read_json, read_jsonl, sha_file, write_json, write_jsonl
 
-DOCLING_PACKAGES = ("docling", "docling-core", "docling-ibm-models", "docling-parse")
 
 
 class DeliveryError(RuntimeError):
@@ -114,17 +112,12 @@ def _counts(rows, key: str) -> dict:
     return dict(sorted(Counter(r[key] for r in rows).items()))
 
 
-def _versions() -> dict:
-    """The installed versions of the Docling packages at delivery time. label/run.json and extract/run.json do not
-    record them, so an upgrade between extract and delivery is not reflected here (engines.docling.version is the
-    one the label stage recorded)."""
-    out = {}
-    for p in DOCLING_PACKAGES:
-        try:
-            out[p] = version(p)
-        except PackageNotFoundError:
-            out[p] = None
-    return out
+def _versions(label_run: dict, extract_run: dict) -> dict:
+    """The package versions the stages recorded when they ran (deps.stage_versions). The two stages normally ran
+    with the same installation; if not (an upgrade between them), the extract stage's versions are reported
+    separately."""
+    lv, xv = label_run.get("packages") or {}, extract_run.get("packages") or {}
+    return lv if lv == xv or not xv else {**lv, "extract_stage": xv}
 
 
 def _build(jobs: Jobs, job: Job, pkg: Path, t0: float) -> None:
@@ -180,7 +173,7 @@ def _build(jobs: Jobs, job: Job, pkg: Path, t0: float) -> None:
         "stats": {"labeled_by_type": label_stats["regions_by_type"], "regions_by_type": _counts(regions, "type"),
                   "regions_by_status": _counts(regions, "status"), "tables": len(tables),
                   "gaps_by_code": _counts(gaps, "code")},
-        "engines": {"docling": {"version": engines["docling"], "packages": _versions()},
+        "engines": {"docling": {"version": engines["docling"], "packages": _versions(label_run, extract_run)},
                     "models": engines["models"], "pymupdf": engines["pymupdf"], "device": engines["device"],
                     "params": {"label": engines["params"]["label"], "extract": extract_run["params"]["extract"]},
                     "stages": {"label": {"status": le["status"], "cache_key": le["cache_key"],
