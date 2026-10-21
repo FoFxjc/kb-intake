@@ -479,6 +479,28 @@ def test_continued_hint_negative_cases(case):
     assert [t["continued_hint"] for t in tables2] == [None, None]
 
 
+def _header(*texts):
+    return [{"r": 0, "c": c, "rs": 1, "cs": 1, "text": t, "bbox": None, "bbox_source": None, "is_header": True}
+            for c, t in enumerate(texts)] + [{"r": 1, "c": 0, "rs": 1, "cs": 1, "text": "1,234", "bbox": None,
+                                             "bbox_source": None, "is_header": False}]
+
+
+@pytest.mark.parametrize("second,hint", [(("$ million", "Within 1 week", "Total"), True),
+                                         (("$ million", "Up to 1 year", "Total"), False),
+                                         ((None, None, None), False)])
+def test_same_first_row_links_tables_across_notes_and_continued_lines(second, hint):
+    """OCBC AR 2025 p216 -> p217: numbered notes under the first part and a "(continued)" line above the second are
+    body text, but the first rows (column headers) are the same text."""
+    regs = [_row(1, 1, "table", [72, 300, 500, 650], 0), _row(1, 2, "text", [72, 660, 500, 690], 1),
+            _row(2, 1, "text", [72, 120, 300, 136], 2), _row(2, 2, "table", [72, 145, 500, 530], 3)]
+    first = {**_table(regs[0]), "cells": _header("$ million", "Within 1 week", "Total")}
+    if second[0] is None:
+        first = {**first, "cells": _header(None, None, None)}
+    tables = [first, {**_table(regs[3]), "cells": _header(*second)}]
+    _, tables2 = extract.finish_tables(regs, tables)
+    assert tables2[1]["continued_hint"] == (f"{DOC}:t0001_01" if hint else None)
+
+
 def test_markdown_escapes_pipes_and_newlines_and_fills_spans():
     cells = [{"r": 0, "c": 0, "rs": 1, "cs": 2, "text": "Group\nTotal"},
              {"r": 1, "c": 0, "rs": 1, "cs": 1, "text": "a|b"}, {"r": 1, "c": 1, "rs": 1, "cs": 1, "text": None}]

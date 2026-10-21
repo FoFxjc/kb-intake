@@ -256,8 +256,9 @@ def finish_tables(regions: list[dict], tables: list[dict]) -> tuple[list[dict], 
     01), each region's `table_id`, and `continued_hint`, tables in reading order. The inputs are not changed.
 
     Table T, the first table on page p+1, may continue L, the last table on page p, when they have the same number
-    of columns, no body text / list / table region stands above T on its page, and none stands below L on its page.
-    Only a hint: tables are never merged."""
+    of columns and either their first rows hold the same text-layer text (repeated column headers; notes under L
+    or a "(continued)" line above T do not matter then), or no body text / list / table region stands above T on
+    its page and none stands below L on its page. Only a hint: tables are never merged."""
     order = {r["region_id"]: r["reading_order"] for r in regions}
     ordered = sorted(tables, key=lambda t: order[t["region_id"]])
     ids, counts = {}, {}
@@ -279,6 +280,10 @@ def finish_tables(regions: list[dict], tables: list[dict]) -> tuple[list[dict], 
         prev = last.get(page_no - 1)
         if prev is None or prev["n_cols"] != t["n_cols"]:
             continue
+        head = _first_row(t)
+        if any(x is not None for x in head) and head == _first_row(prev):
+            hints[t["region_id"]] = ids[prev["region_id"]]
+            continue
         if any(_centre_y(r["bbox"]) < t["bbox"][1] for r in blocking(page_no, t["region_id"])):
             continue
         if any(_centre_y(r["bbox"]) > prev["bbox"][3] for r in blocking(page_no - 1, prev["region_id"])):
@@ -290,6 +295,15 @@ def finish_tables(regions: list[dict], tables: list[dict]) -> tuple[list[dict], 
                    "continued_hint": hints.get(t["region_id"])} for t in ordered]
     out_regions = [{**r, "table_id": ids.get(r["region_id"])} for r in regions]
     return out_regions, out_tables
+
+
+def _first_row(t: dict) -> list:
+    """The texts of the cells of row 0, by column (None where empty)."""
+    row = [None] * t["n_cols"]
+    for c in t["cells"]:
+        if c["r"] == 0 and 0 <= c["c"] < t["n_cols"]:
+            row[c["c"]] = c["text"]
+    return row
 
 
 def tag_table_gaps(gaps: list[dict], tables: list[dict]) -> list[dict]:
