@@ -3,6 +3,7 @@ import { type ApiError, type JobDetail } from '../api/client';
 import { flowApi, type LlmInfo, type WorkflowView } from '../api/flow';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { asApiError, useHealth } from '../lib/hooks';
+import { hostOf, SUMMARY_SENDS } from '../lib/llm';
 import { useName } from '../lib/name';
 import { jobHref } from '../lib/route';
 import {
@@ -22,14 +23,6 @@ import '../styles/flow.css';
 const isAbort = (e: unknown) => e instanceof DOMException && e.name === 'AbortError';
 const fmt = (n: number) => n.toLocaleString('en-US');
 const count = (n: number, word: string) => `${fmt(n)} ${word}${n === 1 ? '' : 's'}`;
-
-function hostOf(baseUrl: string): string {
-  try {
-    return new URL(baseUrl).host || baseUrl;
-  } catch {
-    return baseUrl;
-  }
-}
 
 interface Switches {
   describe: boolean;
@@ -247,8 +240,10 @@ export function WorkflowPage({ detail, onChanged }: { detail: JobDetail; onChang
               </span>
             </div>
             <div className="llm-notice" data-testid="llm-notice">
-              When on, region images and text are sent to {hostOf(llm.base_url)}
-              {llm.remote ? ' (a remote service)' : ''}. Results are kept separately in llm.jsonl and marked low weight.
+              Data is sent to {hostOf(llm.base_url)}
+              {llm.remote ? ' (a remote service)' : ''}: the document summary sends {SUMMARY_SENDS}, after labeling;
+              descriptions and chart tables send each region's image and its text. Results are kept separately in
+              llm.jsonl and marked low weight.
             </div>
             <Toggle label="Document summary" hint="Generated after labeling; set in the configuration" on={llm.features.summary} />
             <Toggle

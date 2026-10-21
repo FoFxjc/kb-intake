@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, shot, test } from './fixtures';
+import { LLM_BASE, plannedJob } from './flow';
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '.fixtures');
 
@@ -84,4 +85,30 @@ test('an unknown job shows the 404 banner with a retry, not a blank page', async
   await expect(banner).toContainText('404');
   await expect(banner).toContainText('no job no-such-job');
   await expect(banner.getByRole('button', { name: 'Retry' })).toBeVisible();
+});
+
+test('with the LLM off the upload form says nothing about sending data', async ({ page }) => {
+  await page.goto('./#/jobs');
+  await expect(page.getByTestId('upload-form')).toBeVisible();
+  await expect(page.getByTestId('upload-llm-notice')).toHaveCount(0);
+});
+
+test.describe('LLM enabled (fake model on 127.0.0.1)', () => {
+  test.use({ baseURL: LLM_BASE });
+
+  test('the upload form says the summary sends the start of every page before anything is uploaded', async ({ page }) => {
+    await page.goto('./#/jobs');
+    const notice = page.getByTestId('upload-llm-notice');
+    await expect(notice).toContainText(`sent to ${new URL(LLM_BASE).hostname}`);
+    await expect(notice).toContainText('the start of every page');
+    await expect(notice).toContainText('24,000 characters');
+  });
+
+  test('the workflow notice names what each LLM use sends', async ({ request, page }) => {
+    const jobId = await plannedJob(request);
+    await page.goto(`./#/job/${jobId}/workflow`);
+    const notice = page.getByTestId('llm-notice');
+    await expect(notice).toContainText('the start of every page');
+    await expect(notice).toContainText("each region's image");
+  });
 });

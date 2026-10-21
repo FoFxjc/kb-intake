@@ -82,6 +82,10 @@ test.describe('LLM disabled', () => {
       `${pkg!.check.counts['regions.jsonl']} row`,
     );
     await expect(page.getByTestId('confirm-form')).toHaveCount(0);
+    // the step bar of a delivered job: Confirm done, Deliver is the page shown
+    const flow = page.getByRole('navigation', { name: 'Flow' });
+    await expect(flow.locator('[aria-current="step"]')).toHaveText(/Deliver$/);
+    await expect(flow.locator('.step', { hasText: 'Confirm' })).toHaveAttribute('data-state', 'done');
     await shot(page, 'deliver-delivered');
     expect(llmPaths(paths), 'LLM requests').toEqual([]);
   });

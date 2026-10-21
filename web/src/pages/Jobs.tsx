@@ -4,7 +4,8 @@ import { ErrorBanner } from '../components/ErrorBanner';
 import { Header } from '../components/Header';
 import { declarationYaml, slug, type Declaration } from '../lib/declaration';
 import { retryDelay } from '../lib/backoff';
-import { asApiError, BUSY_POLL_MS } from '../lib/hooks';
+import { asApiError, BUSY_POLL_MS, useHealth } from '../lib/hooks';
+import { hostOf, SUMMARY_SENDS } from '../lib/llm';
 import { jobHref, tabForStatus } from '../lib/route';
 
 const STATUS_LABEL: Record<string, string> = {
@@ -136,6 +137,7 @@ function UploadCard({ onUploaded }: { onUploaded: () => void }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
   const [existing, setExisting] = useState<CreateJobResult | null>(null);
+  const llm = useHealth()?.llm;
 
   const set = <K extends keyof Declaration>(k: K, v: Declaration[K]) => setDecl((d) => ({ ...d, [k]: v }));
 
@@ -215,6 +217,12 @@ function UploadCard({ onUploaded }: { onUploaded: () => void }) {
         <input type="checkbox" checked={decl.full} onChange={(e) => set('full', e.target.checked)} />
         The file is the complete document
       </label>
+      {llm?.enabled && llm.features.summary && (
+        <div className="llm-notice" data-testid="upload-llm-notice">
+          LLM on: after labeling, {SUMMARY_SENDS} is sent to {hostOf(llm.base_url)}
+          {llm.remote ? ' (a remote service)' : ''} for a document summary.
+        </div>
+      )}
       {error && <ErrorBanner error={error} onDismiss={() => setError(null)} />}
       {existing && (
         <div className="banner banner-note" role="status" data-testid="existing-job">

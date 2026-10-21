@@ -39,10 +39,15 @@ const NOW_STEP: Record<Tab, string> = {
   deliver: 'confirm',
 };
 
+/** The step of the page shown: the deliver page is Confirm until the job is delivered, then Deliver. */
+function nowStep(tab: Tab, status: string): string {
+  return tab === 'deliver' && status === 'delivered' ? 'deliver' : NOW_STEP[tab];
+}
+
 export function stepState(step: Step, status: string, runningOp: string | null, tab: Tab | null): StepState {
   const at = STATES.indexOf(status);
   if (runningOp && step.op === runningOp) return 'run';
-  if (tab && NOW_STEP[tab] === step.key) return 'now';
+  if (tab && nowStep(tab, status) === step.key) return 'now';
   if (at >= step.doneFrom) return 'done';
   if (step.callAt !== undefined && at >= step.callAt && !runningOp) return 'next';
   return 'todo';
