@@ -15,8 +15,9 @@ scan_roots: []                       # serve only: directories the web UI / API 
                                      # resolved before the check); empty = uploads only
 
 # Optional LLM help (document summary, chart and picture descriptions, chart to table). Off by default. When
-# enabled, region images and text are sent to the service below; the key is read from the environment variable
-# named by api_key_env, never from this file.
+# enabled, the start of every page's text (summary) and the image and text of regions set to describe are sent to
+# the service below (docs/DEPLOYMENT.md §5.2); the key is read from the environment variable named by api_key_env,
+# never from this file. remote: false is accepted only for a localhost base_url.
 llm:
   enabled: false
   provider: openai_compatible

@@ -19,6 +19,9 @@ Design: [docs/intake-design-v2.md](docs/intake-design-v2.md) (authoritative), [d
 
 ## Install
 
+Requirements, measured resource use, offline installation, configuration and operations:
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
 Requirements: Python 3.12 and [uv](https://docs.astral.sh/uv/) **0.10.2 or newer** (the version this is tested with;
 `uv tool install --torch-backend` is needed on Linux).
 
@@ -87,8 +90,10 @@ failed, 2 bad input (unknown job, wrong state, invalid declaration, workflow or 
 
 Off by default. To use it, copy `.env.example` to `.env` in the directory you run kb-intake from and fill in
 `INTAKE_LLM_API_KEY` (or set that variable in the environment), and set `llm: {enabled: true}` in `intake.yaml`
-(see `intake.example.yaml`). Region images and text are then sent to the configured endpoint (MiniMax by default);
-the outputs are kept apart in `llm.jsonl` and marked low weight. `.env` is gitignored; never commit a key.
+(see `intake.example.yaml`). Data then leaves the machine for the configured endpoint (MiniMax by default): the
+declaration and the start of every page's text for the summary (up to 24,000 characters per document), and the image
+and text of each region set to `describe`. The outputs are kept apart in `llm.jsonl` and marked low weight. `.env` is
+gitignored; never commit a key. Details: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) §5.2.
 
 ### Web UI and HTTP API
 
