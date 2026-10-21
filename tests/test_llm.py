@@ -177,3 +177,14 @@ def test_rows_sort_summary_first_then_reading_order():
     assert [(r["kind"], r["region_id"]) for r in llm.sort_rows(rows, {"a": 1, "b": 0})] == \
         [("summary", None), ("describe", "b"), ("chart_table", "b"), ("describe", "a")]
 
+
+
+def test_a_failed_summary_gap_validates(tmp_path):
+    """OCBC keyed run 1: the summary's llm_failed gap carried region_id null, which the gap schema refuses."""
+    job = tmp_path / "job"
+    (job / "label").mkdir(parents=True)
+    (job / "label" / "layout.jsonl").write_text('{"page_no": 1, "words": [[0, 0, 1, 1, "Report"]]}\n')
+    r = llm.Runner(enabled_cfg(tmp_path), chat=Chat(LlmError("http_401", "HTTP 401")), cache=DictCache(), env=ENV)
+    gap = r.summary(job, {"doc_id": "x"})
+    assert gap["code"] == "llm_failed" and "region_id" not in gap
+    assert contract.schema_errors("gap", gap, "gap") == []

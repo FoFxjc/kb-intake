@@ -150,7 +150,9 @@ class Runner:
 
     @staticmethod
     def _gap(kind: str, page_no, region_id, reason: str) -> dict:
-        return {"code": "llm_failed", "page_no": page_no, "region_id": region_id, "kind": kind, "reason": reason,
+        """An llm_failed gap; a document-level one (the summary) has no region_id key, as other gaps."""
+        where = {"region_id": region_id} if region_id is not None else {}
+        return {"code": "llm_failed", "page_no": page_no, **where, "kind": kind, "reason": reason,
                 "detail": f"{kind} failed: {reason}"}
 
     def _answer(self, kind: str, text: str, png: bytes | None) -> tuple[str, str]:
@@ -243,8 +245,8 @@ def _save(job_dir: Path, rows: list[dict], gaps: list[dict], runner: "Runner | N
     d.mkdir(exist_ok=True)
     order = _order(job_dir)
     write_jsonl(d / "llm.jsonl", sort_rows(rows, order))
-    write_jsonl(d / "gaps.jsonl", sorted(gaps, key=lambda g: (g["region_id"] is not None,
-                                                               order.get(g["region_id"], -1), g["kind"])))
+    write_jsonl(d / "gaps.jsonl", sorted(gaps, key=lambda g: (g.get("region_id") is not None,
+                                                               order.get(g.get("region_id"), -1), g["kind"])))
     if runner is not None:                     # durations, tokens and cache hits: manifest.run.llm, never llm.jsonl
         run = read_json(d / "run.json") if (d / "run.json").is_file() else {}
         for kind, st in runner.by_kind.items():
@@ -289,7 +291,7 @@ def describe_regions(job_dir: Path, cfg: config.Config, wf: dict, regions: list[
     todo = [r for r in regions if r.get("handler") == "describe" and r.get("status") == "extracted"
             and (only is None or r["region_id"] in only)] if on else []
     keep = (lambda x: x["kind"] == "summary") if only is None else \
-        (lambda x: x["kind"] == "summary" or x["region_id"] not in only)
+        (lambda x: x["kind"] == "summary" or x.get("region_id") not in only)
     rows, gaps = [r for r in rows_of(job_dir) if keep(r)], [g for g in gaps_of(job_dir) if keep(g)]
     if not todo and not (job_dir / "llm").is_dir():
         return {"rows": 0, "failed": 0, "regions": 0}

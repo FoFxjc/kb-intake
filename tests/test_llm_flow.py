@@ -82,8 +82,11 @@ def test_endpoint_down_degrades_with_gaps(tmp_path, fake):
     assert (gap["region_id"], gap["kind"], gap["reason"]) == (chart["region_id"], "describe", "http_503")
     assert len(fake.requests) == 3                                      # one call, two retries
     assert KEY not in json.dumps(gap)
+    failed = llm.summarize(f.jobs, f.job.id, f.cfg)                     # a document-level failure too (OCBC run 1)
+    assert failed["code"] == "llm_failed" and "region_id" not in failed
     pkg = deliver.confirm(f.jobs, f.job.id, "anna", f.cfg)
-    assert contract.check(pkg)["ok"]
+    check = contract.check(pkg)
+    assert check["ok"], check["errors"]
 
 
 def test_summary_is_cached_and_lands_first(tmp_path, fake):
