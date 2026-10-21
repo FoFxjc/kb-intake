@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ApiError, JobDetail } from '../api/client';
 import { flowApi, type JobEvent } from '../api/flow';
 import { ErrorBanner } from '../components/ErrorBanner';
+import { retryDelay } from '../lib/backoff';
 import { asApiError, useHealth } from '../lib/hooks';
 import { PHASE_LABEL, runEvents, runView } from '../lib/progress';
 import { jobHref } from '../lib/route';
@@ -22,6 +23,7 @@ export function ProgressPage({ detail, onChanged }: { detail: JobDetail; onChang
   const [error, setError] = useState<ApiError | null>(null);
   const [tick, setTick] = useState(0);
   const after = useRef(0);
+  const failures = useRef(0);
   const extracting =
     job.running_op === 'extract' || job.running_op === 'retry' || (['approved', 'extracted'].includes(job.status) && !job.last_error);
 
@@ -30,13 +32,14 @@ export function ProgressPage({ detail, onChanged }: { detail: JobDetail; onChang
     setEvents([]);
   }, [jobId]);
 
-  // one request at a time: the next poll is scheduled when the answer is in
+  // one request at a time: the next poll is scheduled when the answer is in; a failed one is retried with backoff
   useEffect(() => {
     const ac = new AbortController();
     let timer = 0;
     flowApi.events(jobId, after.current, ac.signal).then(
       (r) => {
         setError(null);
+        failures.current = 0;
         if (r.events.length) {
           after.current = r.events[r.events.length - 1].seq;
           setEvents((old) => [...old, ...r.events]);
@@ -44,7 +47,10 @@ export function ProgressPage({ detail, onChanged }: { detail: JobDetail; onChang
         if (extracting) timer = window.setTimeout(() => setTick((t) => t + 1), EVENTS_POLL_MS);
       },
       (e: unknown) => {
-        if (!(e instanceof DOMException && e.name === 'AbortError')) setError(asApiError(e));
+        if (e instanceof DOMException && e.name === 'AbortError') return;
+        setError(asApiError(e));
+        failures.current += 1;
+        if (extracting) timer = window.setTimeout(() => setTick((t) => t + 1), retryDelay(failures.current));
       },
     );
     return () => {

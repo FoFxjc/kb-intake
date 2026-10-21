@@ -53,3 +53,78 @@ test.describe('region list paging', () => {
     expect(more).toBe(2);
   });
 });
+
+test.describe('polling survives a failed poll', () => {
+  test('one 503 from GET /v1/jobs/{id} during extraction: polling goes on and the page reaches in_review', async ({ page, request, guard }) => {
+    guard.allowConsole(FAILED_LOAD);
+    const jobId = await seededJob(request);
+    let n = 0;
+    await page.route(new RegExp(`/v1/jobs/${jobId}$`), async (route) => {
+      n++;
+      if (n === 2) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'restarting' }) });
+      if (n <= 3) return fulfillJob(route, extracting);
+      return route.fallback();
+    });
+    await page.goto(`./#/job/${jobId}/labels`);
+    await expect(page.getByTestId('busy')).toContainText('Extracting');
+    await expect(page.getByTestId('busy')).toHaveCount(0, { timeout: 15_000 });
+    await expect(page.getByTestId('error-banner')).toHaveCount(0);
+    expect(n).toBeGreaterThanOrEqual(4);
+  });
+
+  test('one 502 from /events: the events are still polled', async ({ page, request, guard }) => {
+    guard.allowConsole(FAILED_LOAD);
+    const jobId = await seededJob(request);
+    await page.route(new RegExp(`/v1/jobs/${jobId}$`), (route) => fulfillJob(route, extracting));
+    let ev = 0;
+    await page.route(/\/events\?/, async (route) => {
+      ev++;
+      if (ev === 2) return route.fulfill({ status: 502, contentType: 'application/json', body: JSON.stringify({ detail: 'bad gateway' }) });
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ events: [] }) });
+    });
+    await page.goto(`./#/job/${jobId}/progress`);
+    await expect.poll(() => ev, { timeout: 8_000 }).toBeGreaterThanOrEqual(4);
+    await expect(page.getByTestId('error-banner')).toHaveCount(0);
+  });
+
+  test('one 503 from GET /v1/jobs while a job runs: the job list is still polled', async ({ page, request, guard }) => {
+    guard.allowConsole(FAILED_LOAD);
+    await seededJob(request);
+    let n = 0;
+    await page.route(/\/v1\/jobs$/, async (route) => {
+      n++;
+      if (n === 2) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'restarting' }) });
+      const r = await route.fetch();
+      const body = (await r.json()) as { jobs: Record<string, unknown>[] };
+      body.jobs[0].running_op = 'extract';
+      return route.fulfill({ response: r, json: body });
+    });
+    await page.goto('./#/jobs');
+    await expect.poll(() => n, { timeout: 10_000 }).toBeGreaterThanOrEqual(4);
+  });
+});
+
+test.describe('the inventory and the job state', () => {
+  test('the inventory stays visible while extraction runs', async ({ page, request }) => {
+    const jobId = await seededJob(request);
+    await page.route(new RegExp(`/v1/jobs/${jobId}$`), (route) => fulfillJob(route, extracting));
+    await page.goto(`./#/job/${jobId}/labels`);
+    await expect(page.getByTestId('busy')).toContainText('Extracting');
+    await expect(rows(page)).toHaveCount(8);
+    await expect(page.getByTestId('list-total')).toHaveText('8 regions');
+  });
+
+  test('while labelling runs the list says so', async ({ page, request }) => {
+    const jobId = await seededJob(request);
+    await page.route(new RegExp(`/v1/jobs/${jobId}$`), (route) =>
+      fulfillJob(route, (j) => {
+        j.status = 'uploaded';
+        j.running_op = 'label';
+        j.last_error = null;
+      }),
+    );
+    await page.goto(`./#/job/${jobId}/labels`);
+    await expect(page.locator('.inv-empty')).toHaveText('Labelling is running; the regions appear when it is done.');
+    await expect(rows(page)).toHaveCount(0);
+  });
+});
