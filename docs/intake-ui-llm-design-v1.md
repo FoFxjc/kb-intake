@@ -1,6 +1,6 @@
 # kb-intake 设计：服务冻结、搜索与聚类、大模型接入、界面（v1）
 
-状态：已确认（Peter，2026-10-21）；S / L / U 完成，§6 验收除真人走查外全部通过（PR #6，5a99a98，2026-10-21）
+状态：已确认（Peter，2026-10-21）；S / L / U 完成并合并到 main，已发布 v0.3.1（2026-10-22，安装见 docs/DEPLOYMENT.md）
 前提：`intake-design-v2.md`（扫描层演示，已通过 §7 验收，PR #5）。本文在它之上增加功能，不改变 v2 的流程、状态机和交付契约的已有字段
 UI 原型：claude.ai artifact「kb-intake UI prototype」（四个页面：Labels & inventory、Workflow & approval、Review inbox、Confirm & deliver），已由 Peter 确认
 
