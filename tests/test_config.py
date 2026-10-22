@@ -38,7 +38,7 @@ def test_llm_config_defaults_off():
     info = config.public_llm_info(cfg, env={})
     assert info == {"enabled": False, "configured": False, "key_present": False, "remote": True,
                     "provider": "openai_compatible", "model": "MiniMax-M3", "base_url": "https://api.minimax.io/v1",
-                    "features": {"summary": True, "describe": True, "chart_table": False}}
+                    "images": None, "features": {"summary": True, "describe": True, "chart_table": False}}
 
 
 def test_llm_is_enabled_only_with_config_and_key(tmp_path):

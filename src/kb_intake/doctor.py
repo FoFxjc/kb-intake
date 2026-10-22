@@ -3,8 +3,10 @@ about each failure; a table on stderr and the same as JSON in a report file (nev
 
 Checks: Python 3.12; installed versions against constraints.txt; SQLite FTS5 (search); every pinned model file;
 torch's build (CPU or CUDA: reported, never a failure); the LLM when it is configured: where the data goes, a text
-request, a request with a small image. When images fail (a text-only model) chart and picture descriptions are
-switched off in the .env (INTAKE_LLM_DESCRIBE=false) and that row is a FAIL that does not block: summaries still work.
+request, a request with a small image. The image result is recorded in the data directory (llm-capabilities.json;
+the user's .env is never changed) and the next start follows it: when images fail (a text-only model) chart and
+picture descriptions are switched off automatically, and that row is a FAIL that does not block; when they work
+again, descriptions come back.
 `--smoke` writes a small PDF (title, text, a ruled table) and runs label -> approve (the suggested workflow) ->
 extract -> confirm -> check on it in a temporary data directory with the real models; with the LLM on, the label
 step makes the document summary too. The exit code is 1 when a blocking check failed.
@@ -23,7 +25,6 @@ from pathlib import Path
 from kb_intake import __version__, config, deps, llm_client, models
 
 PASS, FAIL, SKIP = "PASS", "FAIL", "SKIP"
-DOCTOR_MARK = "# set by kb-intake doctor"
 SMOKE_TABLE = [["Item", "2024", "2025"], ["Revenue", "1,234", "1,410"], ["Expenses", "(567)", "(602)"],
                ["Profit", "667", "808"]]
 
@@ -133,7 +134,7 @@ def _tiny_png() -> bytes:
     return png
 
 
-def check_llm(cfg: config.Config, env: dict, dotenv: Path | None, chat=None) -> list[Check]:
+def check_llm(cfg: config.Config, env: dict, chat=None) -> list[Check]:
     if not cfg.llm.enabled:
         return [Check("llm", SKIP, "off (INTAKE_LLM_ENABLED is not true); nothing is sent anywhere", blocking=False)]
     if not env.get(cfg.llm.api_key_env):
@@ -164,40 +165,17 @@ def check_llm(cfg: config.Config, env: dict, dotenv: Path | None, chat=None) -> 
         image_ok, why = bool(answer.text.strip()), "an empty answer"
     except llm_client.LlmError as e:
         image_ok, why = False, f"{e.code}: {e}"
+    where = config.record_capabilities(cfg, images=image_ok, reason=None if image_ok else why)
     if image_ok:
-        changed = _set_describe(dotenv, None)
         out.append(Check("llm_image", PASS, f"answered in {time.monotonic() - t0:.1f} s; chart and picture "
-                         "descriptions available" + ("; re-enabled in .env" if changed else ""), blocking=False))
+                         "descriptions available", blocking=False))
     else:
-        env["INTAKE_LLM_DESCRIBE"] = "false"            # this run (the smoke test) as the next ones will see it
-        changed = _set_describe(dotenv, why)
-        where = f"INTAKE_LLM_DESCRIBE=false written to {dotenv}" if changed else \
-            "set INTAKE_LLM_DESCRIBE=false in .env" if dotenv is None else "INTAKE_LLM_DESCRIBE=false already set"
-        out.append(Check("llm_image", FAIL, f"{why}: chart and picture descriptions unavailable ({where}); the document "
-                         "summary still works", "use a model that accepts images to get descriptions, then run "
-                         "`kb-intake doctor` again (it removes the line)", blocking=False))
+        env["INTAKE_LLM_DESCRIBE"] = "false"            # this run's smoke test, as the next start will see it
+        out.append(Check("llm_image", FAIL, f"{why}: images not accepted: chart and picture descriptions switched off "
+                         f"automatically (latest check, recorded in {where}); the document summary still works",
+                         "use a model that accepts images to get descriptions; the next `kb-intake doctor` checks "
+                         "again", blocking=False))
     return out
-
-
-def _set_describe(dotenv: Path | None, why: str | None) -> bool:
-    """Write (why given) or remove (why None) the INTAKE_LLM_DESCRIBE=false line doctor manages in the .env; a line
-    written by a person is left alone. True when the file changed."""
-    if dotenv is None:
-        return False
-    lines = dotenv.read_text(encoding="utf-8").splitlines() if dotenv.is_file() else []
-    ours = [i for i, line in enumerate(lines) if line.startswith("INTAKE_LLM_DESCRIBE=") and DOCTOR_MARK in line]
-    theirs = [i for i, line in enumerate(lines) if line.lstrip().startswith("INTAKE_LLM_DESCRIBE=") and i not in ours]
-    if why is None:
-        if not ours:
-            return False
-        keep = [line for i, line in enumerate(lines) if i not in ours]
-    else:
-        if theirs or ours:
-            return False
-        stamp = time.strftime("%Y-%m-%d")
-        keep = lines + [f"INTAKE_LLM_DESCRIBE=false  {DOCTOR_MARK} {stamp}: image requests failed ({why[:80]})"]
-    dotenv.write_text("\n".join(keep) + "\n", encoding="utf-8")
-    return True
 
 
 # ---------- smoke test ----------
@@ -299,8 +277,7 @@ def run_smoke(cfg: config.Config, env: dict, timeout: float = 1800) -> list[Chec
 
 # ---------- the run ----------
 
-def run(cfg: config.Config, env: dict, smoke: bool = False, dotenv: Path | None = None, chat=None,
-        log=None) -> dict:
+def run(cfg: config.Config, env: dict, smoke: bool = False, chat=None, log=None) -> dict:
     checks: list[Check] = []
 
     def add(items):
@@ -313,7 +290,7 @@ def run(cfg: config.Config, env: dict, smoke: bool = False, dotenv: Path | None 
     add(check_fts5())
     add(check_models(cfg.models_dir))
     add(check_torch())
-    add(check_llm(cfg, env, dotenv, chat))
+    add(check_llm(cfg, env, chat))
     if smoke:
         if any(c.status == FAIL and c.blocking for c in checks if c.name.startswith(("model", "dependencies",
                                                                                    "python"))):

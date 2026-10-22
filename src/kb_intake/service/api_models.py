@@ -471,6 +471,8 @@ class LlmInfo(BaseModel):
     provider: str
     model: str
     base_url: str
+    images: bool | None = Field(None, description="the latest `kb-intake doctor` image check of this endpoint and "
+                                                  "model; false switches describe off; null when never checked")
     features: LlmFeatures
 
 

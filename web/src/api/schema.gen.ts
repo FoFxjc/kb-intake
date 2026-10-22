@@ -868,6 +868,11 @@ export interface components {
              */
             enabled: boolean;
             features: components["schemas"]["LlmFeatures"];
+            /**
+             * Images
+             * @description the latest `kb-intake doctor` image check of this endpoint and model; false switches describe off; null when never checked
+             */
+            images?: boolean | null;
             /** Key Present */
             key_present: boolean;
             /** Model */

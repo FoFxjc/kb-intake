@@ -26,14 +26,14 @@ def by_name(checks):
 
 def test_llm_off_is_skipped_and_nothing_is_sent(tmp_path):
     cfg = config.load(None, env={})
-    [c] = doctor.check_llm(cfg, {}, None)
+    [c] = doctor.check_llm(cfg, {})
     assert (c.name, c.status, c.blocking) == ("llm", doctor.SKIP, False)
 
 
 def test_llm_enabled_without_a_key_fails(tmp_path):
     fake = FakeLlm()
     try:
-        [c] = doctor.check_llm(llm_cfg(tmp_path, fake.url), {}, None)
+        [c] = doctor.check_llm(llm_cfg(tmp_path, fake.url), {})
         assert c.status == doctor.FAIL and "INTAKE_LLM_API_KEY" in c.detail and fake.requests == []
     finally:
         fake.close()
@@ -42,7 +42,7 @@ def test_llm_enabled_without_a_key_fails(tmp_path):
 def test_text_and_images_work(tmp_path):
     fake = FakeLlm()
     try:
-        cs = by_name(doctor.check_llm(llm_cfg(tmp_path, fake.url), {"INTAKE_LLM_API_KEY": KEY}, None))
+        cs = by_name(doctor.check_llm(llm_cfg(tmp_path, fake.url), {"INTAKE_LLM_API_KEY": KEY}))
         assert cs["llm"].status == doctor.PASS and "stays on this machine" in cs["llm"].detail
         assert cs["llm_text"].status == doctor.PASS and cs["llm_image"].status == doctor.PASS
         assert any(p.get("type") == "image_url" for p in fake.requests[1]["messages"][0]["content"])
@@ -50,44 +50,56 @@ def test_text_and_images_work(tmp_path):
         fake.close()
 
 
-def test_text_only_model_switches_describe_off_in_the_env_file_and_back_on(tmp_path):
+def test_text_only_model_switches_describe_off_through_the_data_dir_not_the_env_file(tmp_path):
+    """Peter, 2026-10-21: setup and doctor never change the user's .env. Each run tests images again and records
+    the result in the data directory; describe follows the latest result."""
     dotenv = tmp_path / ".env"
     dotenv.write_text("INTAKE_LLM_ENABLED=true\nINTAKE_LLM_API_KEY=x\n")
+    before = dotenv.read_bytes()
     fake = FakeLlm(images=False)
     env = {"INTAKE_LLM_API_KEY": KEY}
+    cfg = llm_cfg(tmp_path, fake.url)
     try:
-        cs = by_name(doctor.check_llm(llm_cfg(tmp_path, fake.url), env, dotenv))
-        assert cs["llm_text"].status == doctor.PASS
-        assert cs["llm_image"].status == doctor.FAIL and cs["llm_image"].blocking is False
-        assert "chart and picture descriptions unavailable" in cs["llm_image"].detail
-        assert env["INTAKE_LLM_DESCRIBE"] == "false"
-        line = [x for x in dotenv.read_text().splitlines() if x.startswith("INTAKE_LLM_DESCRIBE=")]
-        assert len(line) == 1 and line[0].startswith("INTAKE_LLM_DESCRIBE=false") and doctor.DOCTOR_MARK in line[0]
-        reread = {}
-        config.load_dotenv(dotenv, reread)                      # the next start reads it: describe off
-        assert config.load(None, env=reread).llm.features["describe"] is False
-        doctor.check_llm(llm_cfg(tmp_path, fake.url), env, dotenv)          # again: not written twice
-        assert dotenv.read_text().count("INTAKE_LLM_DESCRIBE") == 1
+        cs = by_name(doctor.check_llm(cfg, env))
     finally:
         fake.close()
-    fake = FakeLlm(images=True)                                  # a model that takes images: the line goes again
+    assert cs["llm_text"].status == doctor.PASS
+    assert cs["llm_image"].status == doctor.FAIL and cs["llm_image"].blocking is False
+    assert "images not accepted: chart and picture descriptions switched off automatically" in cs["llm_image"].detail
+    assert dotenv.read_bytes() == before
+    state = json.loads(config.capabilities_path(cfg).read_text())
+    assert state["images"] is False and state["base_url"] == fake.url and KEY not in json.dumps(state)
+    data = {"INTAKE_DATA_DIR": str(tmp_path / "data"), "INTAKE_LLM_ENABLED": "true", "INTAKE_LLM_BASE_URL": fake.url}
+    assert config.load(None, env=data).llm.features["describe"] is False            # the next start
+    fake = FakeLlm(images=True)                         # the model takes images now: describe comes back
     try:
-        cs = by_name(doctor.check_llm(llm_cfg(tmp_path, fake.url), {"INTAKE_LLM_API_KEY": KEY}, dotenv))
-        assert cs["llm_image"].status == doctor.PASS and "re-enabled" in cs["llm_image"].detail
-        assert "INTAKE_LLM_DESCRIBE" not in dotenv.read_text() and "INTAKE_LLM_API_KEY=x" in dotenv.read_text()
+        cfg2 = llm_cfg(tmp_path, fake.url)
+        cs = by_name(doctor.check_llm(cfg2, {"INTAKE_LLM_API_KEY": KEY}))
     finally:
         fake.close()
+    assert cs["llm_image"].status == doctor.PASS
+    assert config.load(None, env={**data, "INTAKE_LLM_BASE_URL": fake.url}).llm.features["describe"] is True
+    assert dotenv.read_bytes() == before
 
 
-def test_a_line_written_by_a_person_is_left_alone(tmp_path):
-    dotenv = tmp_path / ".env"
-    dotenv.write_text("INTAKE_LLM_DESCRIBE=false\n")
-    fake = FakeLlm()
-    try:
-        doctor.check_llm(llm_cfg(tmp_path, fake.url), {"INTAKE_LLM_API_KEY": KEY}, dotenv)
-        assert dotenv.read_text() == "INTAKE_LLM_DESCRIBE=false\n"
-    finally:
-        fake.close()
+def test_a_result_for_another_endpoint_or_model_does_not_apply(tmp_path):
+    data = tmp_path / "data"
+    cfg = config.load(None, env={"INTAKE_DATA_DIR": str(data), "INTAKE_LLM_BASE_URL": "https://a.example/v1"})
+    config.record_capabilities(cfg, images=False, reason="http_400")
+    env = {"INTAKE_DATA_DIR": str(data), "INTAKE_LLM_ENABLED": "true"}
+    assert config.load(None, env={**env, "INTAKE_LLM_BASE_URL": "https://a.example/v1"}).llm.features["describe"] is False
+    assert config.load(None, env={**env, "INTAKE_LLM_BASE_URL": "https://b.example/v1"}).llm.features["describe"] is True
+    assert config.load(None, env={**env, "INTAKE_LLM_BASE_URL": "https://a.example/v1",
+                                  "INTAKE_LLM_MODEL": "other"}).llm.features["describe"] is True
+    info = config.public_llm_info(config.load(None, env={**env, "INTAKE_LLM_BASE_URL": "https://a.example/v1"}), {})
+    assert info["images"] is False
+
+
+def test_the_users_own_switch_still_counts(tmp_path):
+    env = {"INTAKE_DATA_DIR": str(tmp_path / "data"), "INTAKE_LLM_ENABLED": "true", "INTAKE_LLM_DESCRIBE": "false"}
+    cfg = config.load(None, env=env)
+    config.record_capabilities(cfg, images=True, reason=None)
+    assert config.load(None, env=env).llm.features["describe"] is False
 
 
 def test_unreachable_endpoint_fails_with_what_to_check(tmp_path):
@@ -95,7 +107,7 @@ def test_unreachable_endpoint_fails_with_what_to_check(tmp_path):
     s.bind(("127.0.0.1", 0))
     port = s.getsockname()[1]
     s.close()                                                     # nothing listens there
-    cs = by_name(doctor.check_llm(llm_cfg(tmp_path, f"http://127.0.0.1:{port}/v1"), {"INTAKE_LLM_API_KEY": KEY}, None))
+    cs = by_name(doctor.check_llm(llm_cfg(tmp_path, f"http://127.0.0.1:{port}/v1"), {"INTAKE_LLM_API_KEY": KEY}))
     assert cs["llm_text"].status == doctor.FAIL and cs["llm_text"].blocking
     assert "HTTPS_PROXY" in cs["llm_text"].fix and "INTAKE_LLM_BASE_URL" in cs["llm_text"].fix
     assert cs["llm_image"].status == doctor.SKIP
@@ -103,7 +115,7 @@ def test_unreachable_endpoint_fails_with_what_to_check(tmp_path):
 
 def test_another_host_says_where_the_data_goes(tmp_path):
     cfg = config.load(None, env={"INTAKE_LLM_ENABLED": "true", "INTAKE_LLM_BASE_URL": "https://llm.corp.example/v1"})
-    c = doctor.check_llm(cfg, {"INTAKE_LLM_API_KEY": KEY}, None, chat=lambda *a, **k: (_ for _ in ()).throw(
+    c = doctor.check_llm(cfg, {"INTAKE_LLM_API_KEY": KEY}, chat=lambda *a, **k: (_ for _ in ()).throw(
         doctor.llm_client.LlmError("network", "x")))[0]
     assert c.detail.endswith("data will be sent to llm.corp.example")
 
@@ -144,7 +156,8 @@ def test_cli_doctor_writes_the_report_and_never_the_key(tmp_path, monkeypatch, c
     assert rc == 1 and out["ok"] is False and set(out["blocking_failures"]) == {"model layout", "model table_structure",
                                                                                   "model picture_classifier"}
     assert KEY not in report and json.loads(report)["checks"]
-    assert "INTAKE_LLM_DESCRIBE=false" in (tmp_path / ".env").read_text()
+    assert "INTAKE_LLM_DESCRIBE" not in (tmp_path / ".env").read_text()                 # .env untouched
+    assert json.loads((tmp_path / "data" / "work" / "llm-capabilities.json").read_text())["images"] is False
 
 
 def test_cli_doctor_reports_a_bad_setting_instead_of_crashing(tmp_path, monkeypatch, capsys):

@@ -249,7 +249,6 @@ def _engines(args) -> int:
 def _doctor(args) -> int:
     from kb_intake import config, doctor
     report_path = Path(args.report).expanduser()
-    dotenv = Path.cwd() / ".env"
     print("kb-intake doctor: checking" + (" (the smoke test runs Docling: about a minute)" if args.smoke else ""),
           file=sys.stderr, flush=True)
     try:
@@ -258,7 +257,7 @@ def _doctor(args) -> int:
         report = {"ok": False, "blocking_failures": ["config"], "checks": [asdict(doctor.Check(
             "config", doctor.FAIL, str(e), "correct the setting in .env (or intake.yaml) and run doctor again"))]}
     else:
-        report = doctor.run(cfg, os.environ, smoke=args.smoke, dotenv=dotenv if dotenv.is_file() else None)
+        report = doctor.run(cfg, os.environ, smoke=args.smoke)
     report_path.write_text(json.dumps(report, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
     print("\n" + doctor.table(report) if "kb_intake" in report else doctor.table_short(report), file=sys.stderr)
     print(f"report: {report_path}", file=sys.stderr)
