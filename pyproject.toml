@@ -1,6 +1,6 @@
 [project]
 name = "kb-intake"
-version = "0.3.0"
+version = "0.3.1"
 description = "Scan files, label their structure with Docling, and write versioned intake packages (contract v2)"
 requires-python = "==3.12.*"
 dependencies = [

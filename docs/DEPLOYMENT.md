@@ -32,11 +32,11 @@ Every number below was measured, on the machine and commit named next to it. Any
 
 ## 1. Download the source
 
-Download the source zip of the release from GitHub and unpack it. For example, for v0.3.0 (Code → Download ZIP, or
+Download the source zip of the release from GitHub and unpack it. For example, for v0.3.1 (Code → Download ZIP, or
 the release page's "Source code (zip)"):
 
 ```bash
-unzip kb-intake-0.3.0.zip && cd kb-intake-0.3.0      # the folder the zip unpacks to
+unzip kb-intake-0.3.1.zip && cd kb-intake-0.3.1      # the folder the zip unpacks to
 ```
 
 Everything below happens in that directory. Git and Node are not needed: the web UI is prebuilt inside the source.
@@ -270,7 +270,7 @@ What to do: follow the 'fix:' line under each FAIL above, then run ./setup.sh ag
 ## 5. Using it
 
 ```bash
-cd kb-intake-0.3.0
+cd kb-intake-0.3.1
 ./kb-intake serve                      # http://127.0.0.1:8700/   (or: conda activate kb-intake / source .venv/bin/activate)
 ./kb-intake doctor                     # again, any time
 ```
